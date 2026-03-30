@@ -1,3 +1,5 @@
+use core::num;
+
 use crate::error::{ExpectedCharError, IllegalCharError};
 use crate::position::Position;
 use crate::tokens::{Token, TokenType};
@@ -292,7 +294,40 @@ impl Lexer {
     }
 
     pub fn make_number(&mut self) -> Token {
-        todo!()
+        let mut number_string = String::new();
+        let mut dot_count = 0;
+        let position_start = self.position.copy();
+
+        while let Some(c) = self.current_character {
+            if is_digit(c) || c == '.' {
+                if c == '.' {
+                    if dot_count == 1 {
+                        break;
+                    }
+                    dot_count += 1;
+                }
+                number_string.push(c);
+                self.advance();
+            } else {
+                break;
+            }
+        }
+
+        if dot_count == 0 {
+            return Token::new(
+                TokenType::Int,
+                Some(number_string),
+                Some(position_start),
+                Some(self.position.clone()),
+            );
+        }
+
+        Token::new(
+            TokenType::Float,
+            Some(number_string),
+            Some(position_start),
+            Some(self.position.clone()),
+        )
     }
 
     pub fn make_identifier(&mut self) -> Token {
