@@ -1,4 +1,4 @@
-use crate::error::*;
+use crate::error::{ExpectedCharError, IllegalCharError};
 use crate::position::Position;
 use crate::tokens::{Token, TokenType};
 use crate::utils::*;
@@ -47,9 +47,8 @@ impl Lexer {
         self.advance();
     }
 
-    pub fn make_tokens(&mut self) -> Vec<Token> {
+    pub fn make_tokens(&mut self) -> Result<Vec<Token>, IllegalCharError> {
         let mut tokens = Vec::new();
-        let mut _line_count = 1;
 
         while let Some(c) = self.current_character {
             if is_digit(c) {
@@ -258,11 +257,15 @@ impl Lexer {
                     }
                     _ => {
                         let position_start = self.position.copy();
-                        let character = self.current_character.clone();
+                        let details = format!("'{}'", self.current_character.unwrap());
 
                         self.advance();
 
-                        todo!() // return illegal character, would do that soon
+                        return Err(IllegalCharError::new(
+                            position_start,
+                            self.position.clone(),
+                            details.as_str(),
+                        ));
                     }
                 }
             }
@@ -275,7 +278,7 @@ impl Lexer {
             None,
         ));
 
-        tokens
+        Ok(tokens)
     }
 
     pub fn peek(&mut self) -> Option<char> {
