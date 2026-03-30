@@ -12,4 +12,5 @@ pub mod shell;
 pub mod strings_with_arrow;
 pub mod symbol_table;
 pub mod tokens;
+pub mod utils;
 pub mod values;

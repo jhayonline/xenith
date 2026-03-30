@@ -1,4 +1,7 @@
+use crate::error::*;
 use crate::position::Position;
+use crate::tokens::{Token, TokenType};
+use crate::utils::*;
 
 #[derive(Debug, Clone)]
 pub struct Lexer {
@@ -29,6 +32,286 @@ impl Lexer {
         } else {
             self.current_character = None;
         }
+    }
+
+    pub fn skip_comment(&mut self) {
+        self.advance();
+
+        while let Some(c) = self.current_character {
+            if c == '\n' {
+                break;
+            }
+            self.advance();
+        }
+
+        self.advance();
+    }
+
+    pub fn make_tokens(&mut self) -> Vec<Token> {
+        let mut tokens = Vec::new();
+        let mut _line_count = 1;
+
+        while let Some(c) = self.current_character {
+            if is_digit(c) {
+                tokens.push(self.make_number());
+            } else if is_letter(c) {
+                tokens.push(self.make_identifier());
+            } else {
+                match c {
+                    ' ' | '\t' => {
+                        self.advance();
+                    }
+                    '#' => {
+                        self.skip_comment();
+                    }
+                    ';' | '\n' => {
+                        tokens.push(Token::new(
+                            TokenType::Newline,
+                            None,
+                            Some(self.position.clone()),
+                            None,
+                        ));
+
+                        self.advance();
+                    }
+                    '"' => {
+                        let token = self.make_string();
+                        tokens.push(token);
+                    }
+                    '+' => {
+                        tokens.push(Token::new(
+                            TokenType::Plus,
+                            None,
+                            Some(self.position.clone()),
+                            None,
+                        ));
+
+                        self.advance();
+                    }
+                    '-' => {
+                        tokens.push(Token::new(
+                            TokenType::Minus,
+                            None,
+                            Some(self.position.clone()),
+                            None,
+                        ));
+
+                        self.advance();
+                    }
+                    '/' => {
+                        tokens.push(Token::new(
+                            TokenType::Div,
+                            None,
+                            Some(self.position.clone()),
+                            None,
+                        ));
+
+                        self.advance();
+                    }
+                    '^' => {
+                        tokens.push(Token::new(
+                            TokenType::Pow,
+                            None,
+                            Some(self.position.clone()),
+                            None,
+                        ));
+
+                        self.advance();
+                    }
+                    '(' => {
+                        tokens.push(Token::new(
+                            TokenType::LParen,
+                            None,
+                            Some(self.position.clone()),
+                            None,
+                        ));
+
+                        self.advance();
+                    }
+                    ')' => {
+                        tokens.push(Token::new(
+                            TokenType::RParen,
+                            None,
+                            Some(self.position.clone()),
+                            None,
+                        ));
+
+                        self.advance();
+                    }
+                    '[' => {
+                        tokens.push(Token::new(
+                            TokenType::LSquare,
+                            None,
+                            Some(self.position.clone()),
+                            None,
+                        ));
+
+                        self.advance();
+                    }
+                    ']' => {
+                        tokens.push(Token::new(
+                            TokenType::RSquare,
+                            None,
+                            Some(self.position.clone()),
+                            None,
+                        ));
+
+                        self.advance();
+                    }
+                    '{' => {
+                        tokens.push(Token::new(
+                            TokenType::LBrace,
+                            None,
+                            Some(self.position.clone()),
+                            None,
+                        ));
+
+                        self.advance();
+                    }
+                    '}' => {
+                        tokens.push(Token::new(
+                            TokenType::RBrace,
+                            None,
+                            Some(self.position.clone()),
+                            None,
+                        ));
+
+                        self.advance();
+                    }
+                    '?' => {
+                        tokens.push(Token::new(
+                            TokenType::Question,
+                            None,
+                            Some(self.position.clone()),
+                            None,
+                        ));
+
+                        self.advance();
+                    }
+                    ':' => {
+                        tokens.push(Token::new(
+                            TokenType::Colon,
+                            None,
+                            Some(self.position.clone()),
+                            None,
+                        ));
+
+                        self.advance();
+                    }
+                    '!' if self.peek() == Some('=') => {
+                        let token = self.make_not_equals();
+                        tokens.push(token);
+
+                        self.advance();
+                    }
+                    '!' if self.peek() != Some('=') => {
+                        tokens.push(Token::new(
+                            TokenType::Keyword,
+                            Some("!".to_string()),
+                            Some(self.position.clone()),
+                            None,
+                        ));
+
+                        self.advance();
+                    }
+                    '&' if self.peek() == Some('&') => {
+                        let position_start = self.position.copy();
+
+                        self.advance();
+                        self.advance();
+
+                        tokens.push(Token::new(
+                            TokenType::Keyword,
+                            Some("&&".to_string()),
+                            Some(position_start.clone()),
+                            Some(self.position.clone()),
+                        ));
+                    }
+                    '|' if self.peek() == Some('|') => {
+                        let position_start = self.position.copy();
+
+                        self.advance();
+                        self.advance();
+
+                        tokens.push(Token::new(
+                            TokenType::Keyword,
+                            Some("||".to_string()),
+                            Some(position_start.clone()),
+                            Some(self.position.clone()),
+                        ));
+
+                        self.advance();
+                        self.advance();
+                    }
+                    '=' => tokens.push(self.make_equals()),
+                    '<' => tokens.push(self.make_less_than()),
+                    '>' => tokens.push(self.make_greater_than()),
+                    ',' => {
+                        tokens.push(Token::new(
+                            TokenType::Comma,
+                            None,
+                            Some(self.position.clone()),
+                            None,
+                        ));
+
+                        self.advance();
+                    }
+                    _ => {
+                        let position_start = self.position.copy();
+                        let character = self.current_character.clone();
+
+                        self.advance();
+
+                        todo!() // return illegal character, would do that soon
+                    }
+                }
+            }
+        }
+
+        tokens.push(Token::new(
+            TokenType::Eof,
+            None,
+            Some(self.position.clone()),
+            None,
+        ));
+
+        tokens
+    }
+
+    pub fn peek(&mut self) -> Option<char> {
+        if self.position.index + 1 < self.text.len() {
+            self.text.chars().nth(self.position.index + 1)
+        } else {
+            None
+        }
+    }
+
+    pub fn make_number(&mut self) -> Token {
+        todo!()
+    }
+
+    pub fn make_identifier(&mut self) -> Token {
+        todo!()
+    }
+
+    pub fn make_string(&mut self) -> Token {
+        todo!()
+    }
+
+    pub fn make_equals(&mut self) -> Token {
+        todo!()
+    }
+
+    pub fn make_not_equals(&mut self) -> Token {
+        todo!()
+    }
+
+    pub fn make_less_than(&mut self) -> Token {
+        todo!()
+    }
+
+    pub fn make_greater_than(&mut self) -> Token {
+        todo!()
     }
 }
 
