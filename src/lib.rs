@@ -9,7 +9,6 @@ pub mod position;
 pub mod runtime_result;
 pub mod setup;
 pub mod shell;
-pub mod strings_with_arrow;
 pub mod symbol_table;
 pub mod tokens;
 pub mod utils;
