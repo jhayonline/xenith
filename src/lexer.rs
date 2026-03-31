@@ -216,8 +216,6 @@ impl Lexer {
                             self.position.clone(),
                             None,
                         ));
-
-                        self.advance();
                     }
                     '&' if self.peek() == Some('&') => {
                         let position_start = self.position.copy();
