@@ -134,36 +134,38 @@ echo("   age {age3} -> {status2}")
 echo("")
 
 #######################################
-# 8. LISTS
+# 8. LISTS WITH MODERN SYNTAX
 #######################################
 
-echo("8. LISTS:")
+echo("8. LISTS (Modern Syntax):")
 
 spawn fruits = ["apple", "banana", "orange"]
-echo("   Original list: {ret(fruits)}")  # ret still useful for lists
+echo("   Original list: {ret(fruits)}")
 
-echo("   fruits/0 = {fruits/0}")
-echo("   fruits/1 = {fruits/1}")
-echo("   fruits/2 = {fruits/2}")
+# Modern indexing with []
+echo("   fruits[0] = {fruits[0]}")
+echo("   fruits[1] = {fruits[1]}")
+echo("   fruits[2] = {fruits[2]}")
 
-# Note: append returns a new list, so we need to reassign
-fruits = append(fruits, "grape")
+# Modern method syntax - modifies in place
+fruits.append("grape")
 echo("   After append: {ret(fruits)}")
 
-spawn popped = pop(fruits, 1)
+spawn popped = fruits.pop(1)
 echo("   Popped index 1: {popped}")
-fruits = pop(fruits, 1)  # Update fruits after pop
 echo("   List after pop: {ret(fruits)}")
 
-echo("   List length: {len(fruits)}")
+echo("   List length: {fruits.len()}")
 
+# List concatenation (returns new list)
 spawn list1 = [1, 2, 3]
 spawn list2 = [4, 5, 6]
 spawn combined = list1 + list2
 echo("   Concatenated: {ret(combined)}")
 
+# Nested list indexing
 spawn matrix = [[1, 2], [3, 4], [5, 6]]
-echo("   matrix/1/0 = {matrix/1/0}")
+echo("   matrix[1][0] = {matrix[1][0]}")
 echo("")
 
 #######################################
@@ -248,13 +250,13 @@ method range(n) {
     spawn result = []
     spawn i = 0
     while i < n {
-        result = append(result, i)
+        result.append(i)  # In-place modification, no reassignment needed
         i = i + 1
     }
     release result
 }
 
-echo("   range(5) = {ret(range(5))}")  # ret needed for list display
+echo("   range(5) = {ret(range(5))}")
 
 spawn my_double = double
 echo("   my_double(10) = {my_double(10)}")
@@ -308,35 +310,31 @@ echo("   fibonacci(8) = {fibonacci(8)}")
 echo("")
 
 #######################################
-# 13. DATA PROCESSING
+# 13. DATA PROCESSING WITH MODERN SYNTAX
 #######################################
 
-echo("13. DATA PROCESSING:")
+echo("13. DATA PROCESSING (Modern Syntax):")
 
 spawn alice = ["Alice", 85]
 spawn bob = ["Bob", 62]
 spawn charlie = ["Charlie", 95]
 spawn diana = ["Diana", 78]
 
-method add_student(list, student) {
-    release append(list, student)
-}
-
 spawn students = []
-students = add_student(students, alice)
-students = add_student(students, bob)
-students = add_student(students, charlie)
-students = add_student(students, diana)
+students.append(alice)      # In-place modification
+students.append(bob)
+students.append(charlie)
+students.append(diana)
 
 method process_grades(student_list) {
     spawn results = []
     spawn total = 0.0
     spawn i = 0
 
-    while i < len(student_list) {
-        spawn student = student_list/i
-        spawn name = student/0
-        spawn score = student/1
+    while i < student_list.len() {
+        spawn student = student_list[i]
+        spawn name = student[0]
+        spawn score = student[1]
 
         spawn grade = "F"
         when score >= 90 {
@@ -349,29 +347,75 @@ method process_grades(student_list) {
             grade = "D"
         }
 
-        results = append(results, "{name}: {score} -> {grade}")
+        # In-place modification
+        results.append("{name}: {score} -> {grade}")  
         total = total + score
         i = i + 1
     }
 
-    spawn average = total / len(student_list)
+    spawn average = total / student_list.len()
     release [results, average]
 }
 
 spawn processed = process_grades(students)
-spawn grades = processed/0
-spawn avg = processed/1
+spawn grades = processed[0]
+spawn avg = processed[1]
 
 spawn j = 0
-while j < len(grades) {
-    echo("   {grades/j}")
+while j < grades.len() {
+    echo("   {grades[j]}")
     j = j + 1
 }
 echo("   Class average: {avg}")
 echo("")
 
 #######################################
-# 14. TEST SUMMARY
+# 14. INCREMENT/DECREMENT OPERATORS
+#######################################
+
+echo("14. INCREMENT/DECREMENT OPERATORS:")
+
+spawn counter = 5
+echo("   Initial counter = {counter}")
+
+counter++
+echo("   After counter++: {counter}")
+
+counter--
+echo("   After counter--: {counter}")
+
+spawn x = 10
+x += 3
+echo("   x += 3 -> {x}")
+
+x -= 2
+echo("   x -= 2 -> {x}")
+
+# Post-increment as standalone statement
+spawn y = 5
+echo("   Initial y = {y}")
+y++
+echo("   After y++: {y}")
+
+# Post-decrement as standalone statement
+spawn z = 8
+echo("   Initial z = {z}")
+z--
+echo("   After z--: {z}")
+
+# Compound assignment with variables
+spawn a = 7
+a += a
+echo("   a += a -> {a}")
+
+spawn b = 10
+b -= 3
+echo("   b -= 3 -> {b}")
+
+echo("")
+
+#######################################
+# 15. TEST SUMMARY
 #######################################
 
 echo("")

@@ -28,6 +28,7 @@ pub enum Node {
     Continue(ContinueNode),
     Break(BreakNode),
     InterpolatedString(InterpolatedStringNode),
+    MethodAccess(MethodAccessNode),
 }
 
 impl Node {
@@ -50,6 +51,7 @@ impl Node {
             Node::Continue(n) => &n.position_start,
             Node::Break(n) => &n.position_start,
             Node::InterpolatedString(n) => &n.position_start,
+            Node::MethodAccess(n) => &n.position_start,
         }
     }
 
@@ -72,6 +74,7 @@ impl Node {
             Node::Continue(n) => &n.position_end,
             Node::Break(n) => &n.position_end,
             Node::InterpolatedString(n) => &n.position_end,
+            Node::MethodAccess(n) => &n.position_end,
         }
     }
 
@@ -127,6 +130,14 @@ impl StringNode {
 #[derive(Debug, Clone)]
 pub struct ListNode {
     pub element_nodes: Vec<Box<Node>>,
+    pub position_start: Position,
+    pub position_end: Position,
+}
+
+#[derive(Debug, Clone)]
+pub struct MethodAccessNode {
+    pub object: Box<Node>,
+    pub method_name: Token,
     pub position_start: Position,
     pub position_end: Position,
 }

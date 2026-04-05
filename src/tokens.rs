@@ -16,10 +16,15 @@ pub enum TokenType {
     Identifier,
     Keyword,
     InterpolatedString,
+    Index,
 
     // Operators
     Plus,
+    PlusPlus,  // ++
+    PlusEqual, // +=
     Minus,
+    MinusMinus, // --
+    MinusEqual, // -=
     Mul,
     Div,
     Pow,
@@ -41,6 +46,7 @@ pub enum TokenType {
     Question,
     Colon,
     Comma,
+    Dot,   // . for method calls
     Arrow, // ->
     Newline,
     Eof,

@@ -464,6 +464,36 @@ impl List {
     pub fn new(elements: Vec<Value>) -> Self {
         Self { elements }
     }
+
+    pub fn append(&mut self, value: Value) {
+        self.elements.push(value);
+    }
+
+    pub fn pop(&mut self, index: Option<usize>) -> Option<Value> {
+        let idx = index.unwrap_or(self.elements.len() - 1);
+        if idx < self.elements.len() {
+            Some(self.elements.remove(idx))
+        } else {
+            None
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.elements.len()
+    }
+
+    pub fn get(&self, index: usize) -> Option<&Value> {
+        self.elements.get(index)
+    }
+
+    pub fn set(&mut self, index: usize, value: Value) -> bool {
+        if index < self.elements.len() {
+            self.elements[index] = value;
+            true
+        } else {
+            false
+        }
+    }
 }
 
 /// User-defined function

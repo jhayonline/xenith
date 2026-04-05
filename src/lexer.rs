@@ -88,17 +88,79 @@ impl Lexer {
                     '"' => {
                         tokens.push(self.make_string());
                     }
+                    // In the match statement for characters, add these cases:
                     '+' => {
-                        tokens.push(Token::new(
-                            TokenType::Plus,
-                            None,
-                            self.position.clone(),
-                            None,
-                        ));
-                        self.advance();
+                        if self.peek() == Some('+') {
+                            let pos_start = self.position.copy();
+                            self.advance();
+                            self.advance();
+                            tokens.push(Token::new(
+                                TokenType::PlusPlus,
+                                None,
+                                pos_start,
+                                Some(self.position.clone()),
+                            ));
+                        } else if self.peek() == Some('=') {
+                            let pos_start = self.position.copy();
+                            self.advance();
+                            self.advance();
+                            tokens.push(Token::new(
+                                TokenType::PlusEqual,
+                                None,
+                                pos_start,
+                                Some(self.position.clone()),
+                            ));
+                        } else {
+                            tokens.push(Token::new(
+                                TokenType::Plus,
+                                None,
+                                self.position.clone(),
+                                None,
+                            ));
+                            self.advance();
+                        }
                     }
                     '-' => {
-                        tokens.push(self.make_minus_or_arrow());
+                        if self.peek() == Some('-') {
+                            let pos_start = self.position.copy();
+                            self.advance();
+                            self.advance();
+                            tokens.push(Token::new(
+                                TokenType::MinusMinus,
+                                None,
+                                pos_start,
+                                Some(self.position.clone()),
+                            ));
+                        } else if self.peek() == Some('=') {
+                            let pos_start = self.position.copy();
+                            self.advance();
+                            self.advance();
+                            tokens.push(Token::new(
+                                TokenType::MinusEqual,
+                                None,
+                                pos_start,
+                                Some(self.position.clone()),
+                            ));
+                        } else if self.peek() == Some('>') {
+                            // Arrow
+                            let pos_start = self.position.copy();
+                            self.advance();
+                            self.advance();
+                            tokens.push(Token::new(
+                                TokenType::Arrow,
+                                None,
+                                pos_start,
+                                Some(self.position.clone()),
+                            ));
+                        } else {
+                            tokens.push(Token::new(
+                                TokenType::Minus,
+                                None,
+                                self.position.clone(),
+                                None,
+                            ));
+                            self.advance();
+                        }
                     }
                     '*' => {
                         tokens.push(Token::new(
@@ -246,6 +308,15 @@ impl Lexer {
                     ',' => {
                         tokens.push(Token::new(
                             TokenType::Comma,
+                            None,
+                            self.position.clone(),
+                            None,
+                        ));
+                        self.advance();
+                    }
+                    '.' => {
+                        tokens.push(Token::new(
+                            TokenType::Dot,
                             None,
                             self.position.clone(),
                             None,

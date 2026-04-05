@@ -9,6 +9,7 @@ use crate::error::RuntimeError;
 use crate::lexer::Lexer;
 use crate::nodes::Node;
 use crate::parser::Parser;
+use crate::position::Position;
 use crate::runtime_result::RuntimeResult;
 use crate::symbol_table::SymbolTable;
 use crate::utils::value_to_interpolated_string;
@@ -114,6 +115,7 @@ impl Interpreter {
             Node::Continue(n) => self.visit_continue(n, context),
             Node::Break(n) => self.visit_break(n, context),
             Node::InterpolatedString(n) => self.visit_interpolated_string(n, context),
+            Node::MethodAccess(n) => self.visit_method_access(n, context),
         }
     }
 
@@ -270,6 +272,33 @@ impl Interpreter {
             crate::tokens::TokenType::Gt => left.greater_than(&right),
             crate::tokens::TokenType::Lte => left.less_than_or_equal(&right),
             crate::tokens::TokenType::Gte => left.greater_than_or_equal(&right),
+            crate::tokens::TokenType::Index => {
+                // Handle list indexing: list[index]
+                match (&left, &right) {
+                    (Value::List(list), Value::Number(idx)) => {
+                        let idx_usize = idx.value as usize;
+                        if idx_usize >= list.elements.len() {
+                            return RuntimeResult::new().failure(
+                                RuntimeError::new(
+                                    node.position_start.clone(),
+                                    node.position_end.clone(),
+                                    "List index out of bounds",
+                                    Some(context.clone()),
+                                )
+                                .base,
+                            );
+                        }
+                        Ok(list.elements[idx_usize].clone())
+                    }
+                    _ => Err(RuntimeError::new(
+                        node.position_start.clone(),
+                        node.position_end.clone(),
+                        "Cannot index non-list with non-number",
+                        Some(context.clone()),
+                    )
+                    .base),
+                }
+            }
             // Add logical operators
             _ if op.matches(crate::tokens::TokenType::Keyword, Some("&&")) => left.anded_by(&right),
             _ if op.matches(crate::tokens::TokenType::Keyword, Some("||")) => left.ored_by(&right),
@@ -312,18 +341,43 @@ impl Interpreter {
                 };
 
                 let mut parser = Parser::new(tokens);
-                let parse_result = parser.parse();
+                let parse_result = parser.parse_expression();
 
                 if let Some(error) = parse_result.error {
                     return RuntimeResult::new().failure(error);
                 }
 
-                let expr_node = match parse_result.node {
-                    Some(Node::List(list_node)) if list_node.element_nodes.len() == 1 => {
-                        // Extract the single expression from the list
-                        *list_node.element_nodes[0].clone()
+                match parse_result.node {
+                    Some(Node::List(list_node)) => {
+                        // If there's only one element, evaluate it directly
+                        if list_node.element_nodes.len() == 1 {
+                            let value =
+                                result.register(self.visit(&list_node.element_nodes[0], context));
+                            if result.should_return() {
+                                return result;
+                            }
+                            final_string.push_str(&value_to_interpolated_string(&value));
+                        } else {
+                            // For multiple statements, evaluate each and use the last value
+                            let mut last_value = Value::Number(Number::null());
+                            for stmt_node in list_node.element_nodes {
+                                let value = result.register(self.visit(&stmt_node, context));
+                                if result.should_return() {
+                                    return result;
+                                }
+                                last_value = value;
+                            }
+                            final_string.push_str(&value_to_interpolated_string(&last_value));
+                        }
                     }
-                    Some(node) => node,
+                    Some(node) => {
+                        // Single expression node
+                        let value = result.register(self.visit(&node, context));
+                        if result.should_return() {
+                            return result;
+                        }
+                        final_string.push_str(&value_to_interpolated_string(&value));
+                    }
                     None => {
                         return RuntimeResult::new().failure(
                             RuntimeError::new(
@@ -335,15 +389,7 @@ impl Interpreter {
                             .base,
                         );
                     }
-                };
-
-                let value = result.register(self.visit(&expr_node, context));
-                if result.should_return() {
-                    return result;
                 }
-
-                // Use interpolation-specific conversion (no brackets)
-                final_string.push_str(&value_to_interpolated_string(&value));
             } else {
                 final_string.push_str(&part.content);
             }
@@ -554,6 +600,30 @@ impl Interpreter {
         RuntimeResult::new().success(func_value)
     }
 
+    fn visit_method_access(
+        &mut self,
+        node: &crate::nodes::MethodAccessNode,
+        context: &mut Context,
+    ) -> RuntimeResult {
+        let mut result = RuntimeResult::new();
+
+        // Evaluate the object
+        let object = result.register(self.visit(&node.object, context));
+        if result.should_return() {
+            return result;
+        }
+
+        // For now, method access returns a special value that will be called
+        // We'll handle this in visit_call
+        let method_name = node.method_name.value.as_ref().unwrap().clone();
+
+        // Return a special wrapper that represents a method to be called
+        result.success(Value::String(XenithString::new(format!(
+            "__METHOD__:{}",
+            method_name
+        ))))
+    }
+
     fn visit_call(
         &mut self,
         node: &crate::nodes::CallNode,
@@ -561,6 +631,55 @@ impl Interpreter {
     ) -> RuntimeResult {
         let mut result = RuntimeResult::new();
 
+        // Check if this is a method call (node_to_call is a MethodAccess)
+        if let Node::MethodAccess(method_node) = &*node.node_to_call {
+            // Check if the object is a variable access (so we can update it)
+            let var_name = if let Node::VarAccess(var_node) = &*method_node.object {
+                Some(var_node.variable_name_token.value.as_ref().unwrap().clone())
+            } else {
+                None
+            };
+
+            // Evaluate the object
+            let object = result.register(self.visit(&method_node.object, context));
+            if result.should_return() {
+                return result;
+            }
+
+            // Evaluate arguments
+            let mut args = Vec::new();
+            for arg_node in &node.argument_nodes {
+                let arg = result.register(self.visit(arg_node, context));
+                if result.should_return() {
+                    return result;
+                }
+                args.push(arg);
+            }
+
+            // Call the method on the object
+            let method_name = method_node.method_name.value.as_ref().unwrap();
+            let call_result = self.call_method(object.clone(), method_name, args, context);
+
+            // Register the result
+            let value = result.register(call_result);
+            if result.should_return() {
+                return result;
+            }
+
+            // If this is a method that modifies the object (like append),
+            // update the variable in the context
+            if let Some(name) = var_name {
+                // For append, we want to update the variable with the new list
+                // For pop, we don't (pop returns the popped value)
+                if method_name == "append" {
+                    context.symbol_table.set(name, value.clone());
+                }
+            }
+
+            return result.success(value);
+        }
+
+        // Regular function call
         let callee = result.register(self.visit(&node.node_to_call, context));
         if result.should_return() {
             return result;
@@ -575,7 +694,6 @@ impl Interpreter {
             args.push(arg);
         }
 
-        // Execute the function or built-in safely
         let call_result = match callee {
             Value::Function(func) => func.execute(args, context.clone(), self),
             Value::BuiltInFunction(builtin) => builtin.execute(args, self),
@@ -592,10 +710,76 @@ impl Interpreter {
             }
         };
 
-        // Register the result properly to propagate errors, returns, and loop controls
         let value = result.register(call_result);
-
         result.success(value)
+    }
+
+    fn call_method(
+        &mut self,
+        object: Value,
+        method_name: &str,
+        args: Vec<Value>,
+        context: &mut Context,
+    ) -> RuntimeResult {
+        match (object, method_name) {
+            (Value::List(mut list), "append") => {
+                if args.len() != 1 {
+                    return RuntimeResult::new().failure(
+                        RuntimeError::new(
+                            Self::dummy_pos(),
+                            Self::dummy_pos(),
+                            "append expects 1 argument",
+                            Some(context.clone()),
+                        )
+                        .base,
+                    );
+                }
+                list.append(args[0].clone());
+                // Return the modified list (or could return NULL)
+                RuntimeResult::new().success(Value::List(list))
+            }
+            (Value::List(mut list), "pop") => {
+                let index = if args.len() >= 1 {
+                    match &args[0] {
+                        Value::Number(n) => Some(n.value as usize),
+                        _ => None,
+                    }
+                } else {
+                    None
+                };
+                if let Some(popped) = list.pop(index) {
+                    // Need to also return the modified list if you want chainable methods
+                    // For now, return popped value
+                    RuntimeResult::new().success(popped)
+                } else {
+                    RuntimeResult::new().failure(
+                        RuntimeError::new(
+                            Self::dummy_pos(),
+                            Self::dummy_pos(),
+                            "pop index out of bounds",
+                            Some(context.clone()),
+                        )
+                        .base,
+                    )
+                }
+            }
+            (Value::List(list), "len") => {
+                RuntimeResult::new().success(Value::Number(Number::new(list.len() as f64)))
+            }
+            _ => RuntimeResult::new().failure(
+                RuntimeError::new(
+                    Self::dummy_pos(),
+                    Self::dummy_pos(),
+                    &format!("Method '{}' not found on object", method_name),
+                    Some(context.clone()),
+                )
+                .base,
+            ),
+        }
+    }
+
+    fn dummy_pos() -> Position {
+        Position::new(0, 0, 0, "", "")
     }
 
     fn visit_return(

@@ -37,6 +37,26 @@ impl Parser {
         self.token_index += 1;
     }
 
+    pub fn parse_expression(&mut self) -> ParseResult {
+        // Save the current token index
+        let start_index = self.token_index;
+
+        // Try to parse a single expression
+        let result = self.ternary_expr();
+
+        // Check if we consumed all tokens
+        if let Some(tok) = self.current_token() {
+            if tok.kind != TokenType::Eof {
+                // If there are remaining tokens, it's not a single expression
+                // Reset and try parsing as statements
+                self.token_index = start_index;
+                return self.statements();
+            }
+        }
+
+        result
+    }
+
     fn dummy_pos() -> Position {
         Position::new(0, 0, 0, "", "")
     }
@@ -266,10 +286,18 @@ impl Parser {
         // Check for variable reassignment (identifier followed by '=' without 'spawn')
         if let Some(tok) = self.current_token() {
             if tok.kind == TokenType::Identifier {
-                // Peek ahead to see if next token is '='
+                // Peek ahead to see if next token is '=', '+=', '-=', '++', or '--'
                 if let Some(next_tok) = self.peek_token() {
                     if next_tok.kind == TokenType::Eq {
                         return self.var_reassignment();
+                    } else if next_tok.kind == TokenType::PlusEqual {
+                        return self.compound_assignment(TokenType::PlusEqual);
+                    } else if next_tok.kind == TokenType::MinusEqual {
+                        return self.compound_assignment(TokenType::MinusEqual);
+                    } else if next_tok.kind == TokenType::PlusPlus {
+                        return self.increment_decrement(true); // true for increment
+                    } else if next_tok.kind == TokenType::MinusMinus {
+                        return self.increment_decrement(false); // false for decrement
                     }
                 }
             }
@@ -277,6 +305,185 @@ impl Parser {
 
         // Parse ternary expression (for non-assignment expressions)
         self.ternary_expr()
+    }
+
+    // Compound assignment (+=, -=)
+    fn compound_assignment(&mut self, op: TokenType) -> ParseResult {
+        let mut result = ParseResult::new();
+
+        let var_name = match self.current_token() {
+            Some(t) if t.kind == TokenType::Identifier => t.clone(),
+            Some(t) => {
+                return result.failure(
+                    InvalidSyntaxError::new(
+                        t.position_start.clone(),
+                        t.position_end.clone(),
+                        "Expected identifier",
+                    )
+                    .base,
+                );
+            }
+            None => {
+                return result.failure(
+                    InvalidSyntaxError::new(
+                        Self::dummy_pos(),
+                        Self::dummy_pos(),
+                        "Expected identifier",
+                    )
+                    .base,
+                );
+            }
+        };
+        let pos_start = var_name.position_start.clone();
+        self.advance(); // consume identifier
+
+        let op_token = match self.current_token() {
+            Some(t) => t.clone(),
+            None => {
+                return result.failure(
+                    InvalidSyntaxError::new(
+                        Self::dummy_pos(),
+                        Self::dummy_pos(),
+                        "Expected operator",
+                    )
+                    .base,
+                );
+            }
+        };
+        self.advance(); // consume the operator
+
+        let value = result.register(&self.expr());
+        if result.error.is_some() {
+            return result;
+        }
+
+        if let Some(val_node) = value {
+            // Store the position before moving val_node
+            let val_pos_end = val_node.position_end().clone();
+
+            // Create a binary operation: var = var + value or var = var - value
+            let left_node = Node::VarAccess(VarAccessNode {
+                variable_name_token: var_name.clone(),
+                position_start: pos_start.clone(),
+                position_end: pos_start.clone(),
+            });
+
+            let binary_op = if op == TokenType::PlusEqual {
+                Token::new(TokenType::Plus, None, pos_start.clone(), None)
+            } else {
+                Token::new(TokenType::Minus, None, pos_start.clone(), None)
+            };
+
+            let bin_op_node = Node::BinaryOperator(Box::new(BinaryOperatorNode {
+                left_node: Box::new(left_node),
+                operator_token: binary_op,
+                right_node: Box::new(val_node),
+                position_start: pos_start.clone(),
+                position_end: val_pos_end,
+            }));
+
+            let pos_end = self
+                .current_token()
+                .map(|t| t.position_end.clone())
+                .unwrap_or_else(|| pos_start.clone());
+
+            return result.success(Node::VarAssign(Box::new(VarAssignNode {
+                variable_name_token: var_name,
+                value_node: Box::new(bin_op_node),
+                position_start: pos_start,
+                position_end: pos_end,
+            })));
+        }
+
+        result
+    }
+
+    // Increment (++) and decrement (--)
+    fn increment_decrement(&mut self, is_increment: bool) -> ParseResult {
+        let mut result = ParseResult::new();
+
+        let var_name = match self.current_token() {
+            Some(t) if t.kind == TokenType::Identifier => t.clone(),
+            Some(t) => {
+                return result.failure(
+                    InvalidSyntaxError::new(
+                        t.position_start.clone(),
+                        t.position_end.clone(),
+                        "Expected identifier",
+                    )
+                    .base,
+                );
+            }
+            None => {
+                return result.failure(
+                    InvalidSyntaxError::new(
+                        Self::dummy_pos(),
+                        Self::dummy_pos(),
+                        "Expected identifier",
+                    )
+                    .base,
+                );
+            }
+        };
+        let pos_start = var_name.position_start.clone();
+        self.advance(); // consume identifier
+
+        // Consume the ++ or -- operator
+        match self.current_token() {
+            Some(t) => {
+                self.advance();
+            }
+            None => {
+                return result.failure(
+                    InvalidSyntaxError::new(
+                        Self::dummy_pos(),
+                        Self::dummy_pos(),
+                        "Expected increment/decrement operator",
+                    )
+                    .base,
+                );
+            }
+        }
+
+        // Create: var = var + 1 or var = var - 1
+        let left_node = Node::VarAccess(VarAccessNode {
+            variable_name_token: var_name.clone(),
+            position_start: pos_start.clone(),
+            position_end: pos_start.clone(),
+        });
+
+        let one_node = Node::Number(NumberNode::new(Token::new(
+            TokenType::Int,
+            Some("1".to_string()),
+            pos_start.clone(),
+            None,
+        )));
+
+        let binary_op = if is_increment {
+            Token::new(TokenType::Plus, None, pos_start.clone(), None)
+        } else {
+            Token::new(TokenType::Minus, None, pos_start.clone(), None)
+        };
+
+        let bin_op_node = Node::BinaryOperator(Box::new(BinaryOperatorNode {
+            left_node: Box::new(left_node),
+            operator_token: binary_op,
+            right_node: Box::new(one_node),
+            position_start: pos_start.clone(),
+            position_end: pos_start.clone(),
+        }));
+
+        let pos_end = self
+            .current_token()
+            .map(|t| t.position_end.clone())
+            .unwrap_or_else(|| pos_start.clone());
+
+        result.success(Node::VarAssign(Box::new(VarAssignNode {
+            variable_name_token: var_name,
+            value_node: Box::new(bin_op_node),
+            position_start: pos_start,
+            position_end: pos_end,
+        })))
     }
 
     // Variable declaration with 'spawn' keyword
@@ -719,11 +926,134 @@ impl Parser {
         if result.error.is_some() {
             return result;
         }
+        let mut node = atom.unwrap();
 
-        if let Some(tok) = self.current_token() {
-            if tok.kind == TokenType::LParen {
-                let pos_start = tok.position_start.clone();
+        // Handle method calls and function calls
+        while let Some(tok) = self.current_token().cloned() {
+            if tok.kind == TokenType::Dot {
+                self.advance(); // consume '.'
+
+                let method_name = match self.current_token() {
+                    Some(t) if t.kind == TokenType::Identifier => t.clone(),
+                    Some(t) => {
+                        return result.failure(
+                            InvalidSyntaxError::new(
+                                t.position_start.clone(),
+                                t.position_end.clone(),
+                                "Expected method name",
+                            )
+                            .base,
+                        );
+                    }
+                    None => {
+                        return result.failure(
+                            InvalidSyntaxError::new(
+                                Self::dummy_pos(),
+                                Self::dummy_pos(),
+                                "Expected method name",
+                            )
+                            .base,
+                        );
+                    }
+                };
                 self.advance();
+
+                // Parse arguments
+                let mut arg_nodes = Vec::new();
+                if let Some(tok2) = self.current_token() {
+                    if tok2.kind == TokenType::LParen {
+                        self.advance(); // consume '('
+
+                        // Parse arguments
+                        if let Some(rparen) = self.current_token() {
+                            if rparen.kind != TokenType::RParen {
+                                let arg = result.register(&self.expr());
+                                if result.error.is_some() {
+                                    return result;
+                                }
+                                if let Some(arg_node) = arg {
+                                    arg_nodes.push(Box::new(arg_node));
+                                }
+
+                                while let Some(comma) = self.current_token().cloned() {
+                                    if comma.kind != TokenType::Comma {
+                                        break;
+                                    }
+                                    self.advance();
+
+                                    let next_arg = result.register(&self.expr());
+                                    if result.error.is_some() {
+                                        return result;
+                                    }
+                                    if let Some(arg_node) = next_arg {
+                                        arg_nodes.push(Box::new(arg_node));
+                                    }
+                                }
+                            }
+                        }
+
+                        match self.current_token() {
+                            Some(t) if t.kind == TokenType::RParen => {
+                                self.advance();
+                            }
+                            Some(t) => {
+                                return result.failure(
+                                    InvalidSyntaxError::new(
+                                        t.position_start.clone(),
+                                        t.position_end.clone(),
+                                        "Expected ')'",
+                                    )
+                                    .base,
+                                );
+                            }
+                            None => {
+                                return result.failure(
+                                    InvalidSyntaxError::new(
+                                        Self::dummy_pos(),
+                                        Self::dummy_pos(),
+                                        "Expected ')'",
+                                    )
+                                    .base,
+                                );
+                            }
+                        }
+                    }
+                }
+
+                // Extract positions with clones BEFORE moving node
+                let node_pos_start = node.position_start().clone();
+                let node_pos_end = node.position_end().clone();
+                let method_pos_end = method_name.position_end.clone();
+                let method_pos_start = method_name.position_start.clone();
+
+                // Create a method access node wrapped in a call node
+                let method_token = Token::new(
+                    TokenType::Identifier,
+                    method_name.value.clone(),
+                    method_pos_start,
+                    Some(method_pos_end.clone()),
+                );
+
+                // Build the new node
+                let new_node = Node::Call(Box::new(CallNode {
+                    node_to_call: Box::new(Node::MethodAccess(MethodAccessNode {
+                        object: Box::new(node), // node is moved here
+                        method_name: method_token,
+                        position_start: node_pos_start.clone(),
+                        position_end: method_pos_end.clone(),
+                    })),
+                    argument_nodes: arg_nodes,
+                    position_start: node_pos_start,
+                    position_end: self
+                        .current_token()
+                        .map(|t| t.position_end.clone())
+                        .unwrap_or(method_pos_end),
+                }));
+                node = new_node;
+            } else if tok.kind == TokenType::LParen {
+                // Regular function call
+                let pos_start = tok.position_start.clone();
+                self.advance(); // consume '('
 
                 let mut arg_nodes = Vec::new();
 
@@ -738,7 +1068,7 @@ impl Parser {
                             arg_nodes.push(Box::new(arg_node));
                         }
 
-                        while let Some(comma) = self.current_token() {
+                        while let Some(comma) = self.current_token().cloned() {
                             if comma.kind != TokenType::Comma {
                                 break;
                             }
@@ -760,14 +1090,13 @@ impl Parser {
                         let pos_end = t.position_end.clone();
                         self.advance();
 
-                        if let Some(node) = atom {
-                            return result.success(Node::Call(Box::new(CallNode {
-                                node_to_call: Box::new(node),
-                                argument_nodes: arg_nodes,
-                                position_start: pos_start,
-                                position_end: pos_end,
-                            })));
-                        }
+                        let new_node = Node::Call(Box::new(CallNode {
+                            node_to_call: Box::new(node),
+                            argument_nodes: arg_nodes,
+                            position_start: pos_start,
+                            position_end: pos_end,
+                        }));
+                        node = new_node;
                     }
                     Some(t) => {
                         return result.failure(
@@ -790,14 +1119,12 @@ impl Parser {
                         );
                     }
                 }
+            } else {
+                break;
             }
         }
 
-        if let Some(node) = atom {
-            result.success(node)
-        } else {
-            result
-        }
+        result.success(node)
     }
 
     fn atom(&mut self) -> ParseResult {
@@ -816,7 +1143,6 @@ impl Parser {
                     return result.success(node);
                 }
                 TokenType::InterpolatedString => {
-                    // Parse interpolated string
                     let node = Node::InterpolatedString(InterpolatedStringNode::new(tok.clone()));
                     self.advance();
                     return result.success(node);
@@ -828,7 +1154,8 @@ impl Parser {
                         position_end: tok.position_end.clone(),
                     });
                     self.advance();
-                    return result.success(node);
+                    // Check for indexing after identifier
+                    return self.parse_indexing(node, result);
                 }
                 TokenType::LParen => {
                     let pos_start = tok.position_start.clone();
@@ -893,6 +1220,77 @@ impl Parser {
                 .base,
         )
     }
+
+    // Method to handle indexing (e.g., fruits[0], matrix[1][0])
+    fn parse_indexing(&mut self, mut node: Node, mut result: ParseResult) -> ParseResult {
+        while let Some(tok) = self.current_token().cloned() {
+            if tok.kind == TokenType::LSquare {
+                self.advance(); // consume '['
+
+                let index_expr = result.register(&self.expr());
+                if result.error.is_some() {
+                    return result;
+                }
+
+                // Check for closing bracket
+                match self.current_token() {
+                    Some(t) if t.kind == TokenType::RSquare => {
+                        let close_pos = t.position_end.clone();
+                        self.advance(); // consume ']'
+
+                        if let Some(index_node) = index_expr {
+                            // Store the position start before moving node
+                            let node_pos_start = node.position_start().clone();
+                            let node_pos_end = node.position_end().clone();
+
+                            // Create a binary operation node for indexing
+                            let index_token = Token::new(
+                                TokenType::Index,
+                                None,
+                                tok.position_start.clone(),
+                                Some(close_pos.clone()),
+                            );
+
+                            // Rebuild node using the stored positions
+                            node = Node::BinaryOperator(Box::new(BinaryOperatorNode {
+                                left_node: Box::new(node),
+                                operator_token: index_token,
+                                right_node: Box::new(index_node),
+                                position_start: node_pos_start,
+                                position_end: close_pos,
+                            }));
+                        }
+                    }
+                    Some(t) => {
+                        return result.failure(
+                            InvalidSyntaxError::new(
+                                t.position_start.clone(),
+                                t.position_end.clone(),
+                                "Expected ']'",
+                            )
+                            .base,
+                        );
+                    }
+                    None => {
+                        return result.failure(
+                            InvalidSyntaxError::new(
+                                Self::dummy_pos(),
+                                Self::dummy_pos(),
+                                "Expected ']'",
+                            )
+                            .base,
+                        );
+                    }
+                }
+            } else {
+                break;
+            }
+        }
+
+        result.success(node)
+    }
+
+    // New method to handle indexing (e.g., fruits[0], matrix[1][0])
 
     fn list_expr(&mut self) -> ParseResult {
         let mut result = ParseResult::new();
