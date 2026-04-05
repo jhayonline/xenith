@@ -29,6 +29,7 @@ pub enum Node {
     Break(BreakNode),
     InterpolatedString(InterpolatedStringNode),
     MethodAccess(MethodAccessNode),
+    Match(Box<MatchNode>),
 }
 
 impl Node {
@@ -52,6 +53,7 @@ impl Node {
             Node::Break(n) => &n.position_start,
             Node::InterpolatedString(n) => &n.position_start,
             Node::MethodAccess(n) => &n.position_start,
+            Node::Match(n) => &n.position_start,
         }
     }
 
@@ -75,6 +77,7 @@ impl Node {
             Node::Break(n) => &n.position_end,
             Node::InterpolatedString(n) => &n.position_end,
             Node::MethodAccess(n) => &n.position_end,
+            Node::Match(n) => &n.position_end,
         }
     }
 
@@ -298,4 +301,20 @@ impl InterpolatedStringNode {
             position_end: token.position_end.clone(),
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct MatchNode {
+    pub value_node: Box<Node>,
+    pub arms: Vec<MatchArm>,
+    pub position_start: Position,
+    pub position_end: Position,
+}
+
+#[derive(Debug, Clone)]
+pub struct MatchArm {
+    pub pattern_node: Box<Node>,
+    pub body_node: Box<Node>,
+    pub position_start: Position,
+    pub position_end: Position,
 }

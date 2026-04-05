@@ -297,7 +297,20 @@ impl Lexer {
                         ));
                     }
                     '=' => {
-                        tokens.push(self.make_equals());
+                        if self.peek() == Some('>') {
+                            // Arrow token =>
+                            let pos_start = self.position.copy();
+                            self.advance();
+                            self.advance();
+                            tokens.push(Token::new(
+                                TokenType::Arrow,
+                                None,
+                                pos_start,
+                                Some(self.position.clone()),
+                            ));
+                        } else {
+                            tokens.push(self.make_equals());
+                        }
                     }
                     '<' => {
                         tokens.push(self.make_less_than());
@@ -318,6 +331,15 @@ impl Lexer {
                         tokens.push(Token::new(
                             TokenType::Dot,
                             None,
+                            self.position.clone(),
+                            None,
+                        ));
+                        self.advance();
+                    }
+                    '_' => {
+                        tokens.push(Token::new(
+                            TokenType::Underscore,
+                            Some("_".to_string()),
                             self.position.clone(),
                             None,
                         ));

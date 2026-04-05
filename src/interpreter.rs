@@ -116,6 +116,7 @@ impl Interpreter {
             Node::Break(n) => self.visit_break(n, context),
             Node::InterpolatedString(n) => self.visit_interpolated_string(n, context),
             Node::MethodAccess(n) => self.visit_method_access(n, context),
+            Node::Match(n) => self.visit_match(n, context),
         }
     }
 
@@ -396,6 +397,64 @@ impl Interpreter {
         }
 
         result.success(Value::String(XenithString::new(final_string)))
+    }
+
+    fn visit_match(
+        &mut self,
+        node: &crate::nodes::MatchNode,
+        context: &mut Context,
+    ) -> RuntimeResult {
+        let mut result = RuntimeResult::new();
+
+        // Evaluate the value to match against
+        let match_value = result.register(self.visit(&node.value_node, context));
+        if result.should_return() {
+            return result;
+        }
+
+        // Try each arm in order
+        for arm in &node.arms {
+            // Evaluate the pattern
+            let pattern_value = result.register(self.visit(&arm.pattern_node, context));
+            if result.should_return() {
+                return result;
+            }
+
+            // Check if pattern matches
+            let is_match = match (&match_value, &pattern_value) {
+                // Underscore pattern (_) matches anything - check if it's the underscore identifier
+                (_, Value::String(s)) if s.value == "_" => true,
+                // Literal comparison
+                (Value::Number(a), Value::Number(b)) => (a.value - b.value).abs() < 1e-10,
+                (Value::String(a), Value::String(b)) => a.value == b.value,
+                (Value::List(a), Value::List(b)) => {
+                    if a.elements.len() != b.elements.len() {
+                        false
+                    } else {
+                        a.elements
+                            .iter()
+                            .zip(b.elements.iter())
+                            .all(|(x, y)| match x.equals(y) {
+                                Ok(Value::Number(n)) => n.value != 0.0,
+                                _ => false,
+                            })
+                    }
+                }
+                _ => false,
+            };
+
+            if is_match {
+                // Execute the body of the matching arm
+                let value = result.register(self.visit(&arm.body_node, context));
+                if result.should_return() {
+                    return result;
+                }
+                return result.success(value);
+            }
+        }
+
+        // No match found - return null
+        result.success(Value::Number(Number::null()))
     }
 
     fn visit_unary_op(

@@ -637,6 +637,248 @@ impl Parser {
         result
     }
 
+    fn match_expr(&mut self) -> ParseResult {
+        let mut result = ParseResult::new();
+
+        // Expect 'match' keyword
+        let pos_start = match self.current_token() {
+            Some(t) if t.matches(TokenType::Keyword, Some("match")) => t.position_start.clone(),
+            Some(t) => {
+                return result.failure(
+                    InvalidSyntaxError::new(
+                        t.position_start.clone(),
+                        t.position_end.clone(),
+                        "Expected 'match'",
+                    )
+                    .base,
+                );
+            }
+            None => {
+                return result.failure(
+                    InvalidSyntaxError::new(
+                        Self::dummy_pos(),
+                        Self::dummy_pos(),
+                        "Expected 'match'",
+                    )
+                    .base,
+                );
+            }
+        };
+        self.advance(); // consume 'match'
+
+        // Parse the value to match against
+        let value_node = result.register(&self.expr());
+        if result.error.is_some() {
+            return result;
+        }
+
+        // Skip newlines before the '{'
+        while let Some(tok) = self.current_token() {
+            if tok.kind == TokenType::Newline {
+                self.advance();
+            } else {
+                break;
+            }
+        }
+
+        // Expect '{'
+        match self.current_token() {
+            Some(t) if t.kind == TokenType::LBrace => {
+                self.advance();
+            }
+            Some(t) => {
+                return result.failure(
+                    InvalidSyntaxError::new(
+                        t.position_start.clone(),
+                        t.position_end.clone(),
+                        "Expected '{'",
+                    )
+                    .base,
+                );
+            }
+            None => {
+                return result.failure(
+                    InvalidSyntaxError::new(Self::dummy_pos(), Self::dummy_pos(), "Expected '{'")
+                        .base,
+                );
+            }
+        }
+
+        // Parse match arms
+        let mut arms = Vec::new();
+
+        loop {
+            // Skip newlines before each arm
+            while let Some(t) = self.current_token() {
+                if t.kind == TokenType::Newline {
+                    self.advance();
+                } else {
+                    break;
+                }
+            }
+
+            // Check for closing brace
+            if let Some(t) = self.current_token() {
+                if t.kind == TokenType::RBrace {
+                    self.advance();
+                    break;
+                }
+            } else {
+                break;
+            }
+
+            // Parse a match arm - get position before consuming tokens
+            let arm_pos_start = match self.current_token() {
+                Some(t) => t.position_start.clone(),
+                None => break,
+            };
+
+            // Parse pattern (can be literal, identifier, or underscore)
+            let pattern_node = result.register(&self.match_pattern());
+            if result.error.is_some() {
+                return result;
+            }
+
+            // Skip newlines before '=>'
+            while let Some(t) = self.current_token() {
+                if t.kind == TokenType::Newline {
+                    self.advance();
+                } else {
+                    break;
+                }
+            }
+
+            // Expect '=>' (Arrow token)
+            match self.current_token() {
+                Some(t) if t.kind == TokenType::Arrow => {
+                    self.advance();
+                }
+                Some(t) => {
+                    return result.failure(
+                        InvalidSyntaxError::new(
+                            t.position_start.clone(),
+                            t.position_end.clone(),
+                            "Expected '=>'",
+                        )
+                        .base,
+                    );
+                }
+                None => {
+                    return result.failure(
+                        InvalidSyntaxError::new(
+                            Self::dummy_pos(),
+                            Self::dummy_pos(),
+                            "Expected '=>'",
+                        )
+                        .base,
+                    );
+                }
+            }
+
+            // Skip newlines after '=>' before body
+            while let Some(t) = self.current_token() {
+                if t.kind == TokenType::Newline {
+                    self.advance();
+                } else {
+                    break;
+                }
+            }
+
+            // Parse body (can be a block or a single expression)
+            let body_node = if let Some(t) = self.current_token() {
+                if t.kind == TokenType::LBrace {
+                    result.register(&self.block())
+                } else {
+                    result.register(&self.statement())
+                }
+            } else {
+                result.register(&self.statement())
+            };
+
+            if result.error.is_some() {
+                return result;
+            }
+
+            let arm_pos_end = self
+                .current_token()
+                .map(|t| t.position_end.clone())
+                .unwrap_or_else(|| arm_pos_start.clone());
+
+            if let (Some(pattern), Some(body)) = (pattern_node, body_node) {
+                arms.push(MatchArm {
+                    pattern_node: Box::new(pattern),
+                    body_node: Box::new(body),
+                    position_start: arm_pos_start,
+                    position_end: arm_pos_end,
+                });
+            }
+        }
+
+        let pos_end = self
+            .current_token()
+            .map(|t| t.position_end.clone())
+            .unwrap_or_else(|| pos_start.clone());
+
+        if let Some(value) = value_node {
+            result.success(Node::Match(Box::new(MatchNode {
+                value_node: Box::new(value),
+                arms,
+                position_start: pos_start,
+                position_end: pos_end,
+            })))
+        } else {
+            result
+        }
+    }
+
+    fn match_pattern(&mut self) -> ParseResult {
+        let mut result = ParseResult::new();
+
+        match self.current_token() {
+            Some(t) if t.kind == TokenType::Int || t.kind == TokenType::Float => {
+                let node = Node::Number(NumberNode::new(t.clone()));
+                self.advance();
+                result.success(node)
+            }
+            Some(t) if t.kind == TokenType::String => {
+                let node = Node::String(StringNode::new(t.clone()));
+                self.advance();
+                result.success(node)
+            }
+            Some(t) if t.kind == TokenType::Underscore => {
+                // Create a special variable access for underscore
+                let node = Node::VarAccess(VarAccessNode {
+                    variable_name_token: t.clone(),
+                    position_start: t.position_start.clone(),
+                    position_end: t.position_end.clone(),
+                });
+                self.advance();
+                result.success(node)
+            }
+            Some(t) if t.kind == TokenType::Identifier => {
+                let node = Node::VarAccess(VarAccessNode {
+                    variable_name_token: t.clone(),
+                    position_start: t.position_start.clone(),
+                    position_end: t.position_end.clone(),
+                });
+                self.advance();
+                result.success(node)
+            }
+            Some(t) => result.failure(
+                InvalidSyntaxError::new(
+                    t.position_start.clone(),
+                    t.position_end.clone(),
+                    "Expected pattern",
+                )
+                .base,
+            ),
+            None => result.failure(
+                InvalidSyntaxError::new(Self::dummy_pos(), Self::dummy_pos(), "Expected pattern")
+                    .base,
+            ),
+        }
+    }
+
     fn ternary_expr(&mut self) -> ParseResult {
         let mut result = ParseResult::new();
 
@@ -1209,6 +1451,9 @@ impl Parser {
                 }
                 _ if tok.matches(TokenType::Keyword, Some("method")) => {
                     return self.func_def();
+                }
+                _ if tok.matches(TokenType::Keyword, Some("match")) => {
+                    return self.match_expr();
                 }
                 _ => {}
             },

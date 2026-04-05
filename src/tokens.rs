@@ -50,6 +50,8 @@ pub enum TokenType {
     Arrow, // ->
     Newline,
     Eof,
+    Match,
+    Underscore,
 }
 
 /// A token representing a lexical unit
@@ -108,4 +110,5 @@ pub const KEYWORDS: &[&str] = &[
     "release",
     "skip",
     "stop",
+    "match",
 ];

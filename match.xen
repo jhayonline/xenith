@@ -1,0 +1,16 @@
+spawn grade = "B"
+
+match grade {
+    "A" => {
+        echo("Excellent!")
+    }
+    "B" => {
+        echo("Good")
+    }
+    "C" => {
+        echo("Average")
+    }
+    _ => {
+        echo("Unknown")
+    }
+}
