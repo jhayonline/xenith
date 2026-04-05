@@ -13,7 +13,7 @@ use crate::position::Position;
 use crate::runtime_result::RuntimeResult;
 use crate::symbol_table::SymbolTable;
 use crate::utils::value_to_interpolated_string;
-use crate::values::{BuiltInFunction, Function, List, Number, Value, XenithString};
+use crate::values::{BuiltInFunction, Function, List, Map, Number, Value, XenithString};
 
 /// Main interpreter that traverses and executes the AST
 pub struct Interpreter {
@@ -117,6 +117,7 @@ impl Interpreter {
             Node::InterpolatedString(n) => self.visit_interpolated_string(n, context),
             Node::MethodAccess(n) => self.visit_method_access(n, context),
             Node::Match(n) => self.visit_match(n, context),
+            Node::Map(n) => self.visit_map(n, context),
         }
     }
 
@@ -160,6 +161,47 @@ impl Interpreter {
         }
 
         result.success(Value::List(List::new(elements)))
+    }
+
+    fn visit_map(&mut self, node: &crate::nodes::MapNode, context: &mut Context) -> RuntimeResult {
+        let mut result = RuntimeResult::new();
+        let mut map = Map::new();
+
+        for pair in &node.pairs {
+            let key_node = &pair.key_node;
+            let value_node = &pair.value_node;
+
+            // Evaluate key (should be a string)
+            let key_value = result.register(self.visit(key_node, context));
+            if result.should_return() {
+                return result;
+            }
+
+            let key_str = match &key_value {
+                Value::String(s) => s.value.clone(),
+                _ => {
+                    return result.failure(
+                        RuntimeError::new(
+                            pair.position_start.clone(),
+                            pair.position_end.clone(),
+                            "Map keys must be strings",
+                            Some(context.clone()),
+                        )
+                        .base,
+                    );
+                }
+            };
+
+            // Evaluate value
+            let value = result.register(self.visit(value_node, context));
+            if result.should_return() {
+                return result;
+            }
+
+            map.set(key_str, value);
+        }
+
+        result.success(Value::Map(map))
     }
 
     fn visit_ternary(
@@ -274,7 +316,7 @@ impl Interpreter {
             crate::tokens::TokenType::Lte => left.less_than_or_equal(&right),
             crate::tokens::TokenType::Gte => left.greater_than_or_equal(&right),
             crate::tokens::TokenType::Index => {
-                // Handle list indexing: list[index]
+                // Handle indexing: list[index] or map[key]
                 match (&left, &right) {
                     (Value::List(list), Value::Number(idx)) => {
                         let idx_usize = idx.value as usize;
@@ -291,10 +333,23 @@ impl Interpreter {
                         }
                         Ok(list.elements[idx_usize].clone())
                     }
+                    (Value::Map(map), Value::String(key)) => {
+                        if let Some(value) = map.get(&key.value) {
+                            Ok(value.clone())
+                        } else {
+                            Err(RuntimeError::new(
+                                node.position_start.clone(),
+                                node.position_end.clone(),
+                                &format!("Key '{}' not found in map", key.value),
+                                Some(context.clone()),
+                            )
+                            .base)
+                        }
+                    }
                     _ => Err(RuntimeError::new(
                         node.position_start.clone(),
                         node.position_end.clone(),
-                        "Cannot index non-list with non-number",
+                        "Cannot index non-list/non-map with non-number/non-string",
                         Some(context.clone()),
                     )
                     .base),

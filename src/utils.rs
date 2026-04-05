@@ -129,6 +129,17 @@ pub fn value_to_string(value: &Value) -> String {
         Value::BuiltInFunction(b) => {
             format!("<built-in function {}>", b.name)
         }
+        Value::Map(map) => {
+            let mut result = String::from("{");
+            for (i, (key, val)) in map.pairs.iter().enumerate() {
+                if i > 0 {
+                    result.push_str(", ");
+                }
+                result.push_str(&format!("\"{}\": {}", key, value_to_string(val)));
+            }
+            result.push('}');
+            result
+        }
     }
 }
 
@@ -158,6 +169,21 @@ pub fn value_to_interpolated_string(value: &Value) -> String {
         }
         Value::BuiltInFunction(b) => {
             format!("<built-in function {}>", b.name)
+        }
+        Value::Map(map) => {
+            let mut result = String::from("{");
+            for (i, (key, val)) in map.pairs.iter().enumerate() {
+                if i > 0 {
+                    result.push_str(", ");
+                }
+                result.push_str(&format!(
+                    "\"{}\": {}",
+                    key,
+                    value_to_interpolated_string(val)
+                ));
+            }
+            result.push('}');
+            result
         }
     }
 }

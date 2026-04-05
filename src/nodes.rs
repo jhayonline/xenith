@@ -30,6 +30,7 @@ pub enum Node {
     InterpolatedString(InterpolatedStringNode),
     MethodAccess(MethodAccessNode),
     Match(Box<MatchNode>),
+    Map(MapNode),
 }
 
 impl Node {
@@ -54,6 +55,7 @@ impl Node {
             Node::InterpolatedString(n) => &n.position_start,
             Node::MethodAccess(n) => &n.position_start,
             Node::Match(n) => &n.position_start,
+            Node::Map(n) => &n.position_start,
         }
     }
 
@@ -78,6 +80,7 @@ impl Node {
             Node::InterpolatedString(n) => &n.position_end,
             Node::MethodAccess(n) => &n.position_end,
             Node::Match(n) => &n.position_end,
+            Node::Map(n) => &n.position_end,
         }
     }
 
@@ -315,6 +318,21 @@ pub struct MatchNode {
 pub struct MatchArm {
     pub pattern_node: Box<Node>,
     pub body_node: Box<Node>,
+    pub position_start: Position,
+    pub position_end: Position,
+}
+
+#[derive(Debug, Clone)]
+pub struct MapNode {
+    pub pairs: Vec<MapPair>,
+    pub position_start: Position,
+    pub position_end: Position,
+}
+
+#[derive(Debug, Clone)]
+pub struct MapPair {
+    pub key_node: Box<Node>,
+    pub value_node: Box<Node>,
     pub position_start: Position,
     pub position_end: Position,
 }

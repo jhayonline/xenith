@@ -33,6 +33,10 @@ impl Parser {
         self.tokens.get(self.token_index + 1)
     }
 
+    fn peek_token_at(&self, offset: usize) -> Option<&Token> {
+        self.tokens.get(self.token_index + offset)
+    }
+
     fn advance(&mut self) {
         self.token_index += 1;
     }
@@ -879,6 +883,233 @@ impl Parser {
         }
     }
 
+    fn map_expr(&mut self) -> ParseResult {
+        let mut result = ParseResult::new();
+        let mut pairs = Vec::new();
+
+        let pos_start = match self.current_token() {
+            Some(t) if t.kind == TokenType::LBrace => t.position_start.clone(),
+            Some(t) => {
+                return result.failure(
+                    InvalidSyntaxError::new(
+                        t.position_start.clone(),
+                        t.position_end.clone(),
+                        "Expected '{'",
+                    )
+                    .base,
+                );
+            }
+            None => {
+                return result.failure(
+                    InvalidSyntaxError::new(Self::dummy_pos(), Self::dummy_pos(), "Expected '{'")
+                        .base,
+                );
+            }
+        };
+        self.advance(); // consume '{'
+
+        // Skip newlines after the opening brace
+        while let Some(t) = self.current_token() {
+            if t.kind == TokenType::Newline {
+                self.advance();
+            } else {
+                break;
+            }
+        }
+
+        // Check for empty map - use peek to avoid borrowing issues
+        let is_empty = if let Some(t) = self.current_token() {
+            t.kind == TokenType::RBrace
+        } else {
+            false
+        };
+
+        if is_empty {
+            let pos_end = self.current_token().unwrap().position_end.clone();
+            self.advance(); // consume '}'
+            return result.success(Node::Map(MapNode {
+                pairs,
+                position_start: pos_start,
+                position_end: pos_end,
+            }));
+        }
+
+        // Parse key-value pairs
+        loop {
+            // Parse key (must be a string or identifier)
+            let key_node = match self.current_token() {
+                Some(t) if t.kind == TokenType::String => {
+                    let node = Node::String(StringNode::new(t.clone()));
+                    self.advance();
+                    node
+                }
+                Some(t) if t.kind == TokenType::Identifier => {
+                    let node = Node::String(StringNode::new(Token::new(
+                        TokenType::String,
+                        t.value.clone(),
+                        t.position_start.clone(),
+                        Some(t.position_end.clone()),
+                    )));
+                    self.advance();
+                    node
+                }
+                Some(t) => {
+                    return result.failure(
+                        InvalidSyntaxError::new(
+                            t.position_start.clone(),
+                            t.position_end.clone(),
+                            "Expected string or identifier as key",
+                        )
+                        .base,
+                    );
+                }
+                None => {
+                    return result.failure(
+                        InvalidSyntaxError::new(
+                            Self::dummy_pos(),
+                            Self::dummy_pos(),
+                            "Expected key",
+                        )
+                        .base,
+                    );
+                }
+            };
+
+            // Skip newlines before ':'
+            while let Some(t) = self.current_token() {
+                if t.kind == TokenType::Newline {
+                    self.advance();
+                } else {
+                    break;
+                }
+            }
+
+            // Expect ':'
+            match self.current_token() {
+                Some(t) if t.kind == TokenType::Colon => {
+                    self.advance();
+                }
+                Some(t) => {
+                    return result.failure(
+                        InvalidSyntaxError::new(
+                            t.position_start.clone(),
+                            t.position_end.clone(),
+                            "Expected ':'",
+                        )
+                        .base,
+                    );
+                }
+                None => {
+                    return result.failure(
+                        InvalidSyntaxError::new(
+                            Self::dummy_pos(),
+                            Self::dummy_pos(),
+                            "Expected ':'",
+                        )
+                        .base,
+                    );
+                }
+            }
+
+            // Skip newlines after ':'
+            while let Some(t) = self.current_token() {
+                if t.kind == TokenType::Newline {
+                    self.advance();
+                } else {
+                    break;
+                }
+            }
+
+            // Parse value
+            let value_node = result.register(&self.expr());
+            if result.error.is_some() {
+                return result;
+            }
+
+            let pair_pos_start = key_node.position_start().clone();
+            let pair_pos_end = value_node
+                .as_ref()
+                .map(|n| n.position_end().clone())
+                .unwrap_or(pair_pos_start.clone());
+
+            if let Some(val_node) = value_node {
+                pairs.push(MapPair {
+                    key_node: Box::new(key_node),
+                    value_node: Box::new(val_node),
+                    position_start: pair_pos_start,
+                    position_end: pair_pos_end,
+                });
+            }
+
+            // Skip newlines before comma or closing brace
+            while let Some(t) = self.current_token() {
+                if t.kind == TokenType::Newline {
+                    self.advance();
+                } else {
+                    break;
+                }
+            }
+
+            // Check for comma or closing brace
+            match self.current_token() {
+                Some(t) if t.kind == TokenType::Comma => {
+                    self.advance();
+                    // Skip newlines after comma
+                    while let Some(tok) = self.current_token() {
+                        if tok.kind == TokenType::Newline {
+                            self.advance();
+                        } else {
+                            break;
+                        }
+                    }
+                    // Check if next token is '}', if so, trailing comma is allowed
+                    if let Some(next) = self.current_token() {
+                        if next.kind == TokenType::RBrace {
+                            self.advance();
+                            break;
+                        }
+                    }
+                    continue;
+                }
+                Some(t) if t.kind == TokenType::RBrace => {
+                    self.advance();
+                    break;
+                }
+                Some(t) => {
+                    return result.failure(
+                        InvalidSyntaxError::new(
+                            t.position_start.clone(),
+                            t.position_end.clone(),
+                            "Expected ',' or '}'",
+                        )
+                        .base,
+                    );
+                }
+                None => {
+                    return result.failure(
+                        InvalidSyntaxError::new(
+                            Self::dummy_pos(),
+                            Self::dummy_pos(),
+                            "Expected ',' or '}'",
+                        )
+                        .base,
+                    );
+                }
+            }
+        }
+
+        let pos_end = self
+            .current_token()
+            .map(|t| t.position_end.clone())
+            .unwrap_or_else(|| pos_start.clone());
+
+        result.success(Node::Map(MapNode {
+            pairs,
+            position_start: pos_start,
+            position_end: pos_end,
+        }))
+    }
+
     fn ternary_expr(&mut self) -> ParseResult {
         let mut result = ParseResult::new();
 
@@ -1396,6 +1627,49 @@ impl Parser {
                         position_end: tok.position_end.clone(),
                     });
                     self.advance();
+
+                    // Check for dot access (e.g., user.name)
+                    // Clone the current token before checking to avoid borrowing issues
+                    if let Some(dot) = self.current_token().cloned() {
+                        if dot.kind == TokenType::Dot {
+                            self.advance(); // consume '.'
+                            if let Some(prop) = self.current_token().cloned() {
+                                if prop.kind == TokenType::Identifier {
+                                    let prop_name = prop.value.clone().unwrap();
+                                    self.advance();
+
+                                    // Create a map access: user["name"]
+                                    let key_node = Node::String(StringNode::new(Token::new(
+                                        TokenType::String,
+                                        Some(prop_name),
+                                        prop.position_start.clone(),
+                                        Some(prop.position_end.clone()),
+                                    )));
+
+                                    let index_token = Token::new(
+                                        TokenType::Index,
+                                        None,
+                                        dot.position_start.clone(),
+                                        Some(prop.position_end.clone()),
+                                    );
+
+                                    // Clone node before moving it into the Box
+                                    let node_clone = node.clone();
+                                    let access_node =
+                                        Node::BinaryOperator(Box::new(BinaryOperatorNode {
+                                            left_node: Box::new(node_clone),
+                                            operator_token: index_token,
+                                            right_node: Box::new(key_node),
+                                            position_start: node.position_start().clone(),
+                                            position_end: prop.position_end.clone(),
+                                        }));
+
+                                    return self.parse_indexing(access_node, result);
+                                }
+                            }
+                        }
+                    }
+
                     // Check for indexing after identifier
                     return self.parse_indexing(node, result);
                 }
@@ -1436,6 +1710,9 @@ impl Parser {
                             );
                         }
                     }
+                }
+                TokenType::LBrace => {
+                    return self.map_expr();
                 }
                 TokenType::LSquare => {
                     return self.list_expr();

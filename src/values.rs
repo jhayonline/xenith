@@ -5,6 +5,7 @@
 //! comparison, logical) and provides the foundation for the interpreter's
 //! execution semantics.
 
+use std::collections::HashMap;
 use std::io::{self, Write};
 
 use crate::context::Context;
@@ -22,6 +23,7 @@ pub enum Value {
     List(List),
     Function(Box<Function>),
     BuiltInFunction(BuiltInFunction),
+    Map(Map),
 }
 
 impl Value {
@@ -46,6 +48,7 @@ impl Value {
             Value::Number(n) => n.value != 0.0,
             Value::String(s) => !s.value.is_empty(),
             Value::List(l) => !l.elements.is_empty(),
+            Value::Map(m) => !m.pairs.is_empty(),
             Value::Function(_) => true,
             Value::BuiltInFunction(_) => true,
         }
@@ -882,5 +885,52 @@ impl BuiltInFunction {
                 .base,
             ),
         }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Map {
+    pub pairs: HashMap<String, Value>,
+}
+
+impl Map {
+    pub fn new() -> Self {
+        Self {
+            pairs: HashMap::new(),
+        }
+    }
+
+    pub fn get(&self, key: &str) -> Option<&Value> {
+        self.pairs.get(key)
+    }
+
+    pub fn set(&mut self, key: String, value: Value) {
+        self.pairs.insert(key, value);
+    }
+
+    pub fn remove(&mut self, key: &str) -> Option<Value> {
+        self.pairs.remove(key)
+    }
+
+    pub fn len(&self) -> usize {
+        self.pairs.len()
+    }
+
+    pub fn contains_key(&self, key: &str) -> bool {
+        self.pairs.contains_key(key)
+    }
+
+    pub fn keys(&self) -> Vec<String> {
+        self.pairs.keys().cloned().collect()
+    }
+
+    pub fn values(&self) -> Vec<Value> {
+        self.pairs.values().cloned().collect()
+    }
+}
+
+impl Default for Map {
+    fn default() -> Self {
+        Self::new()
     }
 }
