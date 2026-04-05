@@ -1,14 +1,21 @@
+//! # Utility Functions Module
+//!
+//! Provides helper functions for character classification and
+//! error message formatting with arrow pointers.
+
 use crate::position::Position;
 
-/// Char Utilities
+/// Checks if a character is a digit
 pub fn is_digit(c: char) -> bool {
     c.is_ascii_digit()
 }
 
+/// Checks if a character is a letter or underscore
 pub fn is_letter(c: char) -> bool {
     c.is_ascii_alphabetic() || c == '_'
 }
 
+/// Checks if a character is a letter, digit, or underscore
 pub fn is_letter_or_digit(c: char) -> bool {
     c.is_ascii_alphanumeric() || c == '_'
 }
@@ -32,7 +39,7 @@ pub fn string_with_arrows(
     // Find the start of the line containing pos_start
     let index_start = text[..position_start.index]
         .rfind('\n')
-        .map(|i| i + 1) // start after the newline
+        .map(|i| i + 1)
         .unwrap_or(0);
 
     // Find the end of the line containing pos_start
@@ -55,7 +62,7 @@ pub fn string_with_arrows(
         let col_end = if i == line_count - 1 {
             position_end.column
         } else {
-            line.len()
+            line.len().saturating_sub(1)
         };
 
         // Append the line itself
@@ -63,24 +70,23 @@ pub fn string_with_arrows(
         result.push('\n');
 
         // Append spaces and caret symbols '^' to indicate the error
-        let mut arrow_line = String::new();
         for _ in 0..col_start {
-            arrow_line.push(' ');
+            result.push(' ');
         }
         for _ in col_start..col_end {
-            arrow_line.push('^');
+            result.push('^');
         }
-        result.push_str(&arrow_line);
         result.push('\n');
 
         // Move to next line
         current_start = index_end + 1;
-        index_end = text[current_start..]
-            .find('\n')
-            .map(|i| current_start + i)
-            .unwrap_or(text.len());
+        if current_start < text.len() {
+            index_end = text[current_start..]
+                .find('\n')
+                .map(|i| current_start + i)
+                .unwrap_or(text.len());
+        }
     }
 
-    // Remove tabs for consistent formatting
     result.replace('\t', "")
 }

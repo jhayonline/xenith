@@ -1,26 +1,29 @@
+//! # Abstract Syntax Tree Nodes Module
+//!
+//! Defines all AST node types for Xenith language constructs
+//! (expressions, statements, control flow, function definitions, etc.).
+//! Each node stores relevant tokens and maintains position information
+//! for error reporting and code generation.
+
 use crate::position::Position;
 use crate::tokens::Token;
 
+/// All possible AST node types
 #[derive(Debug, Clone)]
 pub enum Node {
     Number(NumberNode),
     String(StringNode),
     List(ListNode),
     Ternary(Box<TernaryNode>),
-
     VarAccess(VarAccessNode),
     VarAssign(Box<VarAssignNode>),
-
     BinaryOperator(Box<BinaryOperatorNode>),
     UnaryOp(Box<UnaryOpNode>),
-
     If(Box<IfNode>),
     For(Box<ForNode>),
     While(Box<WhileNode>),
-
     FuncDef(Box<FuncDefNode>),
     Call(Box<CallNode>),
-
     Return(Box<ReturnNode>),
     Continue(ContinueNode),
     Break(BreakNode),
@@ -33,20 +36,15 @@ impl Node {
             Node::String(n) => &n.position_start,
             Node::List(n) => &n.position_start,
             Node::Ternary(n) => &n.position_start,
-
             Node::VarAccess(n) => &n.position_start,
             Node::VarAssign(n) => &n.position_start,
-
             Node::BinaryOperator(n) => &n.position_start,
             Node::UnaryOp(n) => &n.position_start,
-
             Node::If(n) => &n.position_start,
             Node::For(n) => &n.position_start,
             Node::While(n) => &n.position_start,
-
             Node::FuncDef(n) => &n.position_start,
             Node::Call(n) => &n.position_start,
-
             Node::Return(n) => &n.position_start,
             Node::Continue(n) => &n.position_start,
             Node::Break(n) => &n.position_start,
@@ -59,31 +57,34 @@ impl Node {
             Node::String(n) => &n.position_end,
             Node::List(n) => &n.position_end,
             Node::Ternary(n) => &n.position_end,
-
             Node::VarAccess(n) => &n.position_end,
             Node::VarAssign(n) => &n.position_end,
-
             Node::BinaryOperator(n) => &n.position_end,
             Node::UnaryOp(n) => &n.position_end,
-
             Node::If(n) => &n.position_end,
             Node::For(n) => &n.position_end,
             Node::While(n) => &n.position_end,
-
             Node::FuncDef(n) => &n.position_end,
             Node::Call(n) => &n.position_end,
-
             Node::Return(n) => &n.position_end,
             Node::Continue(n) => &n.position_end,
             Node::Break(n) => &n.position_end,
         }
     }
+
+    /// Creates a binary operation node
+    pub fn bin_op(left: Node, op_token: Token, right: Node) -> Self {
+        Node::BinaryOperator(Box::new(BinaryOperatorNode {
+            position_start: left.position_start().clone(),
+            position_end: right.position_end().clone(),
+            left_node: Box::new(left),
+            operator_token: op_token,
+            right_node: Box::new(right),
+        }))
+    }
 }
 
-// ---------------------------
-// Basic Nodes
-// ---------------------------
-
+/// Number literal node
 #[derive(Debug, Clone)]
 pub struct NumberNode {
     pub token: Token,
@@ -101,6 +102,7 @@ impl NumberNode {
     }
 }
 
+/// String literal node
 #[derive(Debug, Clone)]
 pub struct StringNode {
     pub token: Token,
@@ -118,20 +120,15 @@ impl StringNode {
     }
 }
 
-// ---------------------------
-// List Node
-// ---------------------------
-
+/// List literal node
 #[derive(Debug, Clone)]
 pub struct ListNode {
     pub element_nodes: Vec<Box<Node>>,
     pub position_start: Position,
     pub position_end: Position,
 }
-// ---------------------------
-// Ternary
-// ---------------------------
 
+/// Ternary expression node (condition ? true : false)
 #[derive(Debug, Clone)]
 pub struct TernaryNode {
     pub condition: Box<Node>,
@@ -141,10 +138,7 @@ pub struct TernaryNode {
     pub position_end: Position,
 }
 
-// ---------------------------
-// Variables
-// ---------------------------
-
+/// Variable access node
 #[derive(Debug, Clone)]
 pub struct VarAccessNode {
     pub variable_name_token: Token,
@@ -152,6 +146,7 @@ pub struct VarAccessNode {
     pub position_end: Position,
 }
 
+/// Variable assignment node
 #[derive(Debug, Clone)]
 pub struct VarAssignNode {
     pub variable_name_token: Token,
@@ -160,10 +155,7 @@ pub struct VarAssignNode {
     pub position_end: Position,
 }
 
-// ---------------------------
-// Operations
-// ---------------------------
-
+/// Binary operator node
 #[derive(Debug, Clone)]
 pub struct BinaryOperatorNode {
     pub left_node: Box<Node>,
@@ -173,18 +165,7 @@ pub struct BinaryOperatorNode {
     pub position_end: Position,
 }
 
-impl Node {
-    pub fn bin_op(left: Node, operator_token: Token, right: Node) -> Self {
-        Node::BinaryOperator(Box::new(BinaryOperatorNode {
-            position_start: left.position_start().clone(),
-            position_end: right.position_end().clone(),
-            left_node: Box::new(left),
-            operator_token,
-            right_node: Box::new(right),
-        }))
-    }
-}
-
+/// Unary operator node
 #[derive(Debug, Clone)]
 pub struct UnaryOpNode {
     pub operator_token: Token,
@@ -193,10 +174,7 @@ pub struct UnaryOpNode {
     pub position_end: Position,
 }
 
-// ---------------------------
-// Control Flow
-// ---------------------------
-
+/// If/elif/else conditional node
 #[derive(Debug, Clone)]
 pub struct IfNode {
     pub cases: Vec<(Box<Node>, Box<Node>)>,
@@ -205,6 +183,7 @@ pub struct IfNode {
     pub position_end: Position,
 }
 
+/// For loop node
 #[derive(Debug, Clone)]
 pub struct ForNode {
     pub variable_name_token: Token,
@@ -217,6 +196,7 @@ pub struct ForNode {
     pub position_end: Position,
 }
 
+/// While loop node
 #[derive(Debug, Clone)]
 pub struct WhileNode {
     pub condition_node: Box<Node>,
@@ -226,10 +206,7 @@ pub struct WhileNode {
     pub position_end: Position,
 }
 
-// ---------------------------
-// Functions
-// ---------------------------
-
+/// Function definition node
 #[derive(Debug, Clone)]
 pub struct FuncDefNode {
     pub variable_name_token: Option<Token>,
@@ -240,6 +217,7 @@ pub struct FuncDefNode {
     pub position_end: Position,
 }
 
+/// Function call node
 #[derive(Debug, Clone)]
 pub struct CallNode {
     pub node_to_call: Box<Node>,
@@ -248,10 +226,7 @@ pub struct CallNode {
     pub position_end: Position,
 }
 
-// ---------------------------
-// Flow Control
-// ---------------------------
-
+/// Return statement node
 #[derive(Debug, Clone)]
 pub struct ReturnNode {
     pub node_to_return: Option<Box<Node>>,
@@ -259,12 +234,14 @@ pub struct ReturnNode {
     pub position_end: Position,
 }
 
+/// Continue statement node
 #[derive(Debug, Clone)]
 pub struct ContinueNode {
     pub position_start: Position,
     pub position_end: Position,
 }
 
+/// Break statement node
 #[derive(Debug, Clone)]
 pub struct BreakNode {
     pub position_start: Position,

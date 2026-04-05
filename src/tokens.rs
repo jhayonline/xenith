@@ -1,41 +1,51 @@
+//! # Token Definition Module
+//!
+//! Defines all token types used in Xenith (operators, keywords, literals, etc.)
+//! and the Token class which represents lexical units with position information.
+//! Serves as the bridge between the lexer and parser.
+
 use crate::position::Position;
 
+/// All possible token types in the Xenith language
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenType {
+    // Literals
     Int,
     Float,
     String,
     Identifier,
     Keyword,
 
+    // Operators
     Plus,
     Minus,
     Mul,
     Div,
     Pow,
-    Eq,
+    Eq,  // =
+    Ee,  // ==
+    Ne,  // !=
+    Lt,  // <
+    Gt,  // >
+    Lte, // <=
+    Gte, // >=
 
+    // Delimiters
     LParen,
     RParen,
     LSquare,
     RSquare,
     LBrace,
     RBrace,
-
     Question,
     Colon,
-    Ee, // ==
-    Ne, // !=
-    Lt,
-    Gt,
-    Lte,
-    Gte,
     Comma,
     Arrow, // ->
     Newline,
     Eof,
 }
 
+/// A token representing a lexical unit
 #[derive(Debug, Clone)]
 pub struct Token {
     pub kind: TokenType,
@@ -45,6 +55,7 @@ pub struct Token {
 }
 
 impl Token {
+    /// Creates a new token
     pub fn new(
         kind: TokenType,
         value: Option<String>,
@@ -66,11 +77,14 @@ impl Token {
             position_end: pos_end,
         }
     }
+
+    /// Checks if the token matches the given type and optional value
     pub fn matches(&self, kind: TokenType, value: Option<&str>) -> bool {
         self.kind == kind && self.value.as_deref() == value
     }
 }
 
+/// Reserved keywords in the Xenith language
 pub const KEYWORDS: &[&str] = &[
     "spawn",
     "&&",

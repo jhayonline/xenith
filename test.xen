@@ -1,0 +1,402 @@
+# Comprehensive Xenith Language Test
+# This program tests all major features of the language
+
+#######################################
+# 1. BASIC OUTPUT AND COMMENTS
+#######################################
+
+echo("=" * 50)
+echo("XENITH LANGUAGE TEST SUITE")
+echo("=" * 50)
+echo("")
+
+# This is a single-line comment
+echo("1. BASIC OUTPUT:")
+echo("   Hello, World!")
+echo("   String concatenation: " + "Hello" + " " + "World")
+echo("")
+
+#######################################
+# 2. VARIABLES (spawn)
+#######################################
+
+echo("2. VARIABLES:")
+
+spawn age = 25
+spawn name = "Alice"
+spawn pi = 3.14159
+
+echo("   age = " + ret(age))
+echo("   name = " + name)
+echo("   pi = " + ret(pi))
+
+# Variable reassignment
+spawn age = 26
+echo("   age (updated) = " + ret(age))
+echo("")
+
+#######################################
+# 3. ARITHMETIC OPERATIONS
+#######################################
+
+echo("3. ARITHMETIC:")
+
+spawn a = 10
+spawn b = 3
+
+echo("   a = " + ret(a) + ", b = " + ret(b))
+echo("   a + b = " + ret(a + b))
+echo("   a - b = " + ret(a - b))
+echo("   a * b = " + ret(a * b))
+echo("   a / b = " + ret(a / b))
+echo("   a ^ b = " + ret(a ^ b))  # Power
+echo("   -a = " + ret(-a))
+echo("")
+
+#######################################
+# 4. COMPARISON OPERATORS
+#######################################
+
+echo("4. COMPARISONS:")
+
+spawn x = 5
+spawn y = 10
+spawn z = 5
+
+echo("   x = " + ret(x) + ", y = " + ret(y) + ", z = " + ret(z))
+echo("   x == z -> " + ret(x == z))
+echo("   x != y -> " + ret(x != y))
+echo("   x < y -> " + ret(x < y))
+echo("   y > x -> " + ret(y > x))
+echo("   x <= 5 -> " + ret(x <= 5))
+echo("   y >= 10 -> " + ret(y >= 10))
+echo("")
+
+#######################################
+# 5. LOGICAL OPERATORS
+#######################################
+
+echo("5. LOGICAL OPERATORS:")
+
+spawn t = 1
+spawn f = 0
+
+echo("   TRUE = " + ret(t) + ", FALSE = " + ret(f))
+echo("   t && t -> " + ret(t && t))
+echo("   t && f -> " + ret(t && f))
+echo("   t || f -> " + ret(t || f))
+echo("   f || f -> " + ret(f || f))
+echo("   !t -> " + ret(!t))
+echo("   !f -> " + ret(!f))
+echo("")
+
+#######################################
+# 6. CONTROL FLOW (IF/ELIF/ELSE)
+#######################################
+
+echo("6. CONTROL FLOW:")
+
+spawn score = 85
+
+when score >= 90 {
+    echo("   Grade: A")
+} or when score >= 80 {
+    echo("   Grade: B")
+} or when score >= 70 {
+    echo("   Grade: C")
+} otherwise {
+    echo("   Grade: F")
+}
+
+# Nested if
+spawn outer = 10
+spawn inner = 20
+
+when outer > 5 {
+    when inner > 15 {
+        echo("   Nested condition passed!")
+    }
+}
+echo("")
+
+#######################################
+# 7. TERNARY OPERATOR
+#######################################
+
+echo("7. TERNARY OPERATOR:")
+
+spawn age2 = 18
+spawn status = age2 >= 18 ? "Adult" : "Minor"
+echo("   age " + ret(age2) + " -> " + status)
+
+spawn age3 = 16
+spawn status2 = age3 >= 18 ? "Adult" : "Minor"
+echo("   age " + ret(age3) + " -> " + status2)
+echo("")
+
+#######################################
+# 8. LISTS
+#######################################
+
+echo("8. LISTS:")
+
+spawn fruits = ["apple", "banana", "orange"]
+echo("   Original list: " + ret(fruits))
+
+# Access list elements
+echo("   fruits/0 = " + fruits/0)
+echo("   fruits/1 = " + fruits/1)
+echo("   fruits/2 = " + fruits/2)
+
+# Append to list
+append(fruits, "grape")
+echo("   After append: " + ret(fruits))
+
+# Pop from list
+spawn popped = pop(fruits, 1)
+echo("   Popped index 1: " + popped)
+echo("   List after pop: " + ret(fruits))
+
+# List length
+echo("   List length: " + ret(len(fruits)))
+
+# List concatenation
+spawn list1 = [1, 2, 3]
+spawn list2 = [4, 5, 6]
+spawn combined = list1 + list2
+echo("   Concatenated: " + ret(combined))
+
+# Nested lists
+spawn matrix = [[1, 2], [3, 4], [5, 6]]
+echo("   matrix/1/0 = " + ret(matrix/1/0))
+echo("")
+
+#######################################
+# 9. LOOPS
+#######################################
+
+echo("9. LOOPS:")
+
+# FOR loop
+echo("   FOR loop 0 to 4:")
+for i = 0 to 5 {
+    echo("     i = " + ret(i))
+}
+
+# FOR loop with STEP
+echo("   FOR loop with STEP 2:")
+for i = 0 to 10 step 2 {
+    echo("     i = " + ret(i))
+}
+
+# FOR loop with negative STEP
+echo("   FOR loop with negative STEP:")
+for i = 5 to 0 step -1 {
+    echo("     i = " + ret(i))
+}
+
+# WHILE loop
+echo("   WHILE loop countdown:")
+spawn count = 3
+while count > 0 {
+    echo("     countdown: " + ret(count))
+    spawn count = count - 1
+}
+
+# BREAK
+echo("   BREAK example:")
+for i = 0 to 10 {
+    when i == 5 {
+        stop
+    }
+    echo("     i = " + ret(i))
+}
+
+# CONTINUE (skip)
+echo("   CONTINUE (skip) example:")
+for i = 0 to 5 {
+    when i == 3 {
+        skip
+    }
+    echo("     i = " + ret(i))
+}
+echo("")
+
+#######################################
+# 10. FUNCTIONS (method)
+#######################################
+
+echo("10. FUNCTIONS:")
+
+# Basic function
+method greet(name) {
+    release "Hello, " + name + "!"
+}
+
+echo("   greet(\"Bob\") = " + greet("Bob"))
+
+# Function with multiple parameters
+method add(a, b) {
+    release a + b
+}
+
+echo("   add(5, 3) = " + ret(add(5, 3)))
+
+# Arrow function (single expression)
+method double(x) -> x * 2
+echo("   double(7) = " + ret(double(7)))
+
+# Function with complex logic
+method factorial(n) {
+    spawn result = 1
+    spawn i = 1
+    while i <= n {
+        spawn result = result * i
+        spawn i = i + 1
+    }
+    release result
+}
+
+echo("   factorial(5) = " + ret(factorial(5)))
+
+# Function returning a list
+method range(n) {
+    spawn result = []
+    spawn i = 0
+    while i < n {
+        append(result, i)
+        spawn i = i + 1
+    }
+    release result
+}
+
+echo("   range(5) = " + ret(range(5)))
+
+# First-class functions
+spawn my_double = double
+echo("   my_double(10) = " + ret(my_double(10)))
+echo("")
+
+#######################################
+# 11. BUILT-IN FUNCTIONS
+#######################################
+
+echo("11. BUILT-IN FUNCTIONS:")
+
+# Type checking
+echo("   is_num(42): " + ret(is_num(42)))
+echo("   is_num(\"hello\"): " + ret(is_num("hello")))
+echo("   is_str(\"hello\"): " + ret(is_str("hello")))
+echo("   is_list([1,2,3]): " + ret(is_list([1, 2, 3])))
+echo("   is_fun(double): " + ret(is_fun(double)))
+
+# ret() function (converts to string)
+spawn captured = ret(12345)
+echo("   ret(12345) = " + captured)
+
+# Constants
+echo("   MATH_PI = " + ret(MATH_PI))
+echo("   TRUE = " + ret(TRUE))
+echo("   FALSE = " + ret(FALSE))
+echo("   NULL = " + ret(NULL))
+echo("")
+
+#######################################
+# 12. COMPLEX EXAMPLE - FIBONACCI
+#######################################
+
+echo("12. FIBONACCI SEQUENCE:")
+
+method fibonacci(n) {
+    when n <= 1 {
+        release n
+    }
+    spawn a = 0
+    spawn b = 1
+    spawn i = 2
+    while i <= n {
+        spawn c = a + b
+        spawn a = b
+        spawn b = c
+        spawn i = i + 1
+    }
+    release b
+}
+
+echo("   fibonacci(0) = " + ret(fibonacci(0)))
+echo("   fibonacci(1) = " + ret(fibonacci(1)))
+echo("   fibonacci(2) = " + ret(fibonacci(2)))
+echo("   fibonacci(5) = " + ret(fibonacci(5)))
+echo("   fibonacci(8) = " + ret(fibonacci(8)))
+echo("")
+
+#######################################
+# 13. COMPLEX EXAMPLE - DATA PROCESSING
+#######################################
+
+echo("13. DATA PROCESSING:")
+
+# Student records as lists
+spawn students = []
+spawn alice = ["Alice", 85]
+spawn bob = ["Bob", 62]
+spawn charlie = ["Charlie", 95]
+spawn diana = ["Diana", 78]
+
+append(students, alice)
+append(students, bob)
+append(students, charlie)
+append(students, diana)
+
+method process_grades(student_list) {
+    spawn results = []
+    spawn total = 0
+    spawn i = 0
+    
+    while i < len(student_list) {
+        spawn student = student_list/i
+        spawn name = student/0
+        spawn score = student/1
+        
+        spawn grade = "F"
+        when score >= 90 {
+            spawn grade = "A"
+        } or when score >= 80 {
+            spawn grade = "B"
+        } or when score >= 70 {
+            spawn grade = "C"
+        } or when score >= 60 {
+            spawn grade = "D"
+        }
+        
+        append(results, name + ": " + ret(score) + " -> " + grade)
+        spawn total = total + score
+        spawn i = i + 1
+    }
+    
+    spawn average = total / len(student_list)
+    release [results, average]
+}
+
+spawn processed = process_grades(students)
+spawn grades = processed/0
+spawn avg = processed/1
+
+spawn j = 0
+while j < len(grades) {
+    echo("   " + grades/j)
+    spawn j = j + 1
+}
+echo("   Class average: " + ret(avg))
+echo("")
+
+#######################################
+# 14. TEST SUMMARY
+#######################################
+
+echo("=" * 50)
+echo("TEST COMPLETE")
+echo("=" * 50)
+echo("")
+echo("If you see this message, all tests passed!")
+echo("")

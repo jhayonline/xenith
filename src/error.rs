@@ -1,13 +1,14 @@
-//////////////////////////////////////////
-// ERROR HANDLING MODULE
-// Defines the error hierarchy for Xenith including lexical errors,
-// syntax errors, and runtime errors with traceback support.
-// Provides formatted error messages with arrow pointers to source code.
-//////////////////////////////////////////
+//! # Error Handling Module
+//!
+//! Defines the error hierarchy for Xenith including lexical errors,
+//! syntax errors, and runtime errors with traceback support.
+//! Provides formatted error messages with arrow pointers to source code.
 
+use crate::context::Context;
 use crate::position::Position;
 use crate::utils::string_with_arrows;
 
+/// Base error structure containing common error information
 #[derive(Debug, Clone)]
 pub struct Error {
     pub position_start: Position,
@@ -47,9 +48,7 @@ impl Error {
     }
 }
 
-// ---------------------------
-// Specialized Errors
-// ---------------------------
+/// Error for illegal characters in source code
 #[derive(Debug, Clone)]
 pub struct IllegalCharError {
     pub base: Error,
@@ -61,12 +60,9 @@ impl IllegalCharError {
             base: Error::new(position_start, position_end, "Illegal Character", details),
         }
     }
-
-    pub fn as_string(&self) -> String {
-        self.base.as_string()
-    }
 }
 
+/// Error for missing expected characters
 #[derive(Debug, Clone)]
 pub struct ExpectedCharError {
     pub base: Error,
@@ -78,12 +74,9 @@ impl ExpectedCharError {
             base: Error::new(position_start, position_end, "Expected Character", details),
         }
     }
-
-    pub fn as_string(&self) -> String {
-        self.base.as_string()
-    }
 }
 
+/// Error for invalid syntax
 #[derive(Debug, Clone)]
 pub struct InvalidSyntaxError {
     pub base: Error,
@@ -95,22 +88,16 @@ impl InvalidSyntaxError {
             base: Error::new(position_start, position_end, "Invalid Syntax", details),
         }
     }
-
-    pub fn as_string(&self) -> String {
-        self.base.as_string()
-    }
 }
 
-// ---------------------------
-// Runtime Error with Context
-// ---------------------------
+/// Runtime error with execution context traceback
 #[derive(Debug, Clone)]
-pub struct RTError {
+pub struct RuntimeError {
     pub base: Error,
     pub context: Option<Box<Context>>,
 }
 
-impl RTError {
+impl RuntimeError {
     pub fn new(
         position_start: Position,
         position_end: Position,
@@ -134,49 +121,31 @@ impl RTError {
         result
     }
 
-    pub fn generate_traceback(&self) -> String {
+    fn generate_traceback(&self) -> String {
         let mut result = String::new();
         let mut position = self.base.position_start.clone();
         let mut context: Option<&Context> = self.context.as_deref();
 
-        while let Some(c) = context {
+        while let Some(ctx) = context {
             result = format!(
                 "  File {}, line {}, in {}\n{}",
                 position.file_name,
                 position.line + 1,
-                c.display_name,
+                ctx.display_name,
                 result
             );
-            if let Some(parent_position) = &c.parent_entry_position {
+            if let Some(parent_position) = &ctx.parent_entry_position {
                 position = parent_position.clone();
             }
-            context = c.parent.as_ref().map(|b| &**b);
+            context = ctx.parent.as_ref().map(|b| &**b);
         }
 
         format!("Traceback (most recent call last):\n{}", result)
     }
 }
 
-// ---------------------------
-// Context Struct (needed for RTError)
-// ---------------------------
-#[derive(Debug, Clone)]
-pub struct Context {
-    pub display_name: String,
-    pub parent: Option<Box<Context>>,
-    pub parent_entry_position: Option<Position>,
-}
-
-impl Context {
-    pub fn new(
-        display_name: &str,
-        parent: Option<Context>,
-        parent_entry_position: Option<Position>,
-    ) -> Self {
-        Self {
-            display_name: display_name.to_string(),
-            parent: parent.map(Box::new),
-            parent_entry_position,
-        }
+impl From<ExpectedCharError> for IllegalCharError {
+    fn from(err: ExpectedCharError) -> Self {
+        IllegalCharError { base: err.base }
     }
 }
