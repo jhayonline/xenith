@@ -30,8 +30,8 @@ echo("   age = " + ret(age))
 echo("   name = " + name)
 echo("   pi = " + ret(pi))
 
-# Variable reassignment
-spawn age = 26
+# Variable reassignment (no spawn keyword needed!)
+age = 26
 echo("   age (updated) = " + ret(age))
 echo("")
 
@@ -146,11 +146,13 @@ echo("   fruits/0 = " + fruits/0)
 echo("   fruits/1 = " + fruits/1)
 echo("   fruits/2 = " + fruits/2)
 
-append(fruits, "grape")
+# Note: append returns a new list, so we need to reassign
+fruits = append(fruits, "grape")
 echo("   After append: " + ret(fruits))
 
 spawn popped = pop(fruits, 1)
 echo("   Popped index 1: " + popped)
+fruits = pop(fruits, 1)  # Update fruits after pop
 echo("   List after pop: " + ret(fruits))
 
 echo("   List length: " + ret(len(fruits)))
@@ -189,7 +191,7 @@ echo("   WHILE loop countdown:")
 spawn count = 3
 while count > 0 {
     echo("     countdown: " + ret(count))
-    spawn count = count - 1
+    count = count - 1  # Reassignment without spawn
 }
 
 echo("   BREAK example:")
@@ -234,8 +236,8 @@ method factorial(n) {
     spawn result = 1
     spawn i = 1
     while i <= n {
-        spawn result = result * i
-        spawn i = i + 1
+        result = result * i  # Reassignment without spawn
+        i = i + 1            # Reassignment without spawn
     }
     release result
 }
@@ -246,8 +248,8 @@ method range(n) {
     spawn result = []
     spawn i = 0
     while i < n {
-        append(result, i)
-        spawn i = i + 1
+        result = append(result, i)  # Capture the returned list
+        i = i + 1
     }
     release result
 }
@@ -294,9 +296,9 @@ method fibonacci(n) {
     spawn i = 2
     while i <= n {
         spawn c = a + b
-        spawn a = b
-        spawn b = c
-        spawn i = i + 1
+        a = b
+        b = c
+        i = i + 1
     }
     release b
 }
@@ -324,10 +326,10 @@ method add_student(list, student) {
 }
 
 spawn students = []
-spawn students = add_student(students, alice)
-spawn students = add_student(students, bob)
-spawn students = add_student(students, charlie)
-spawn students = add_student(students, diana)
+students = add_student(students, alice)
+students = add_student(students, bob)
+students = add_student(students, charlie)
+students = add_student(students, diana)
 
 method process_grades(student_list) {
     spawn results = []
@@ -341,18 +343,18 @@ method process_grades(student_list) {
 
         spawn grade = "F"
         when score >= 90 {
-            spawn grade = "A"
+            grade = "A"
         } or when score >= 80 {
-            spawn grade = "B"
+            grade = "B"
         } or when score >= 70 {
-            spawn grade = "C"
+            grade = "C"
         } or when score >= 60 {
-            spawn grade = "D"
+            grade = "D"
         }
 
-        append(results, name + ": " + ret(score) + " -> " + grade)
-        spawn total = total + score
-        spawn i = i + 1
+        results = append(results, name + ": " + ret(score) + " -> " + grade)
+        total = total + score
+        i = i + 1
     }
 
     spawn average = total / len(student_list)
@@ -366,7 +368,7 @@ spawn avg = processed/1
 spawn j = 0
 while j < len(grades) {
     echo("   " + grades/j)
-    spawn j = j + 1
+    j = j + 1
 }
 echo("   Class average: " + ret(avg))
 echo("")

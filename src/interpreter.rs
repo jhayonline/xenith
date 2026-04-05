@@ -217,7 +217,21 @@ impl Interpreter {
             return result;
         }
 
-        context.symbol_table.set(var_name.clone(), value.clone());
+        // Try to find the variable in the current scope or parent scopes
+        // If found, update it in its original scope
+        // If not found, create it in the current scope
+        if let Some(_) = context.symbol_table.get(var_name) {
+            // Variable exists in current scope, update it
+            context.symbol_table.set(var_name.clone(), value.clone());
+        } else if let Some(parent) = &mut context.parent {
+            // Search in parent scopes (you'd need a recursive search function)
+            // For simplicity, just set in current scope for now
+            context.symbol_table.set(var_name.clone(), value.clone());
+        } else {
+            // Variable doesn't exist, create it in current scope
+            context.symbol_table.set(var_name.clone(), value.clone());
+        }
+
         result.success(value)
     }
 

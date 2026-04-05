@@ -256,87 +256,178 @@ impl Parser {
     }
 
     fn expr(&mut self) -> ParseResult {
-        // Check for variable assignment
+        // Check for variable declaration with 'spawn'
         if let Some(tok) = self.current_token() {
             if tok.matches(TokenType::Keyword, Some("spawn")) {
-                let mut result = ParseResult::new();
-                let pos_start = tok.position_start.clone();
-                self.advance();
+                return self.var_declaration();
+            }
+        }
 
-                let var_name = match self.current_token() {
-                    Some(t) if t.kind == TokenType::Identifier => t.clone(),
-                    Some(t) => {
-                        return result.failure(
-                            InvalidSyntaxError::new(
-                                t.position_start.clone(),
-                                t.position_end.clone(),
-                                "Expected identifier",
-                            )
-                            .base,
-                        );
+        // Check for variable reassignment (identifier followed by '=' without 'spawn')
+        if let Some(tok) = self.current_token() {
+            if tok.kind == TokenType::Identifier {
+                // Peek ahead to see if next token is '='
+                if let Some(next_tok) = self.peek_token() {
+                    if next_tok.kind == TokenType::Eq {
+                        return self.var_reassignment();
                     }
-                    None => {
-                        return result.failure(
-                            InvalidSyntaxError::new(
-                                Self::dummy_pos(),
-                                Self::dummy_pos(),
-                                "Expected identifier",
-                            )
-                            .base,
-                        );
-                    }
-                };
-                self.advance();
-
-                match self.current_token() {
-                    Some(t) if t.kind == TokenType::Eq => {
-                        self.advance();
-                    }
-                    Some(t) => {
-                        return result.failure(
-                            InvalidSyntaxError::new(
-                                t.position_start.clone(),
-                                t.position_end.clone(),
-                                "Expected '='",
-                            )
-                            .base,
-                        );
-                    }
-                    None => {
-                        return result.failure(
-                            InvalidSyntaxError::new(
-                                Self::dummy_pos(),
-                                Self::dummy_pos(),
-                                "Expected '='",
-                            )
-                            .base,
-                        );
-                    }
-                }
-
-                let value = result.register(&self.expr());
-                if result.error.is_some() {
-                    return result;
-                }
-
-                if let Some(val_node) = value {
-                    let pos_end = self
-                        .current_token()
-                        .map(|t| t.position_end.clone())
-                        .unwrap_or_else(|| pos_start.clone());
-
-                    return result.success(Node::VarAssign(Box::new(VarAssignNode {
-                        variable_name_token: var_name,
-                        value_node: Box::new(val_node),
-                        position_start: pos_start,
-                        position_end: pos_end,
-                    })));
                 }
             }
         }
 
-        // Parse ternary expression
+        // Parse ternary expression (for non-assignment expressions)
         self.ternary_expr()
+    }
+
+    // Variable declaration with 'spawn' keyword
+    fn var_declaration(&mut self) -> ParseResult {
+        let mut result = ParseResult::new();
+        let pos_start = match self.current_token() {
+            Some(t) if t.matches(TokenType::Keyword, Some("spawn")) => t.position_start.clone(),
+            _ => {
+                return result.failure(
+                    InvalidSyntaxError::new(
+                        Self::dummy_pos(),
+                        Self::dummy_pos(),
+                        "Expected 'spawn'",
+                    )
+                    .base,
+                );
+            }
+        };
+        self.advance(); // consume 'spawn'
+
+        let var_name = match self.current_token() {
+            Some(t) if t.kind == TokenType::Identifier => t.clone(),
+            Some(t) => {
+                return result.failure(
+                    InvalidSyntaxError::new(
+                        t.position_start.clone(),
+                        t.position_end.clone(),
+                        "Expected identifier",
+                    )
+                    .base,
+                );
+            }
+            None => {
+                return result.failure(
+                    InvalidSyntaxError::new(
+                        Self::dummy_pos(),
+                        Self::dummy_pos(),
+                        "Expected identifier",
+                    )
+                    .base,
+                );
+            }
+        };
+        self.advance();
+
+        match self.current_token() {
+            Some(t) if t.kind == TokenType::Eq => {
+                self.advance();
+            }
+            Some(t) => {
+                return result.failure(
+                    InvalidSyntaxError::new(
+                        t.position_start.clone(),
+                        t.position_end.clone(),
+                        "Expected '='",
+                    )
+                    .base,
+                );
+            }
+            None => {
+                return result.failure(
+                    InvalidSyntaxError::new(Self::dummy_pos(), Self::dummy_pos(), "Expected '='")
+                        .base,
+                );
+            }
+        }
+
+        let value = result.register(&self.expr());
+        if result.error.is_some() {
+            return result;
+        }
+
+        if let Some(val_node) = value {
+            let pos_end = self
+                .current_token()
+                .map(|t| t.position_end.clone())
+                .unwrap_or_else(|| pos_start.clone());
+
+            return result.success(Node::VarAssign(Box::new(VarAssignNode {
+                variable_name_token: var_name,
+                value_node: Box::new(val_node),
+                position_start: pos_start,
+                position_end: pos_end,
+            })));
+        }
+
+        result
+    }
+
+    // Variable reassignment (without 'spawn')
+    fn var_reassignment(&mut self) -> ParseResult {
+        let mut result = ParseResult::new();
+
+        let var_name = match self.current_token() {
+            Some(t) if t.kind == TokenType::Identifier => t.clone(),
+            _ => {
+                return result.failure(
+                    InvalidSyntaxError::new(
+                        Self::dummy_pos(),
+                        Self::dummy_pos(),
+                        "Expected identifier",
+                    )
+                    .base,
+                );
+            }
+        };
+        let pos_start = var_name.position_start.clone();
+        self.advance(); // consume identifier
+
+        match self.current_token() {
+            Some(t) if t.kind == TokenType::Eq => {
+                self.advance(); // consume '='
+            }
+            Some(t) => {
+                return result.failure(
+                    InvalidSyntaxError::new(
+                        t.position_start.clone(),
+                        t.position_end.clone(),
+                        "Expected '='",
+                    )
+                    .base,
+                );
+            }
+            None => {
+                return result.failure(
+                    InvalidSyntaxError::new(Self::dummy_pos(), Self::dummy_pos(), "Expected '='")
+                        .base,
+                );
+            }
+        }
+
+        let value = result.register(&self.expr());
+        if result.error.is_some() {
+            return result;
+        }
+
+        if let Some(val_node) = value {
+            let pos_end = self
+                .current_token()
+                .map(|t| t.position_end.clone())
+                .unwrap_or_else(|| pos_start.clone());
+
+            return result.success(Node::VarAssign(Box::new(VarAssignNode {
+                variable_name_token: var_name,
+                value_node: Box::new(val_node),
+                position_start: pos_start,
+                position_end: pos_end,
+            })));
+        }
+
+        result
     }
 
     fn ternary_expr(&mut self) -> ParseResult {
