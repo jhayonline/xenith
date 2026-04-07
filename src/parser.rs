@@ -377,6 +377,103 @@ impl Parser {
         }
     }
 
+    fn statement(&mut self) -> ParseResult {
+        let mut result = ParseResult::new();
+        let pos_start = self
+            .current_token()
+            .map(|t| t.position_start.clone())
+            .unwrap_or_else(Self::dummy_pos);
+
+        // Check for match statement FIRST (before other checks)
+        if let Some(tok) = self.current_token() {
+            if tok.matches(TokenType::Keyword, Some("match")) {
+                return self.match_expr();
+            }
+        }
+
+        // Check for struct definition
+        if let Some(tok) = self.current_token() {
+            if tok.kind == TokenType::TypeStruct || tok.matches(TokenType::Keyword, Some("struct"))
+            {
+                return self.struct_definition();
+            }
+        }
+
+        // Check for grab statement
+        if let Some(tok) = self.current_token() {
+            if tok.matches(TokenType::Keyword, Some("grab")) {
+                return self.grab_statement();
+            }
+        }
+
+        // Check for export statement
+        if let Some(tok) = self.current_token() {
+            if tok.matches(TokenType::Keyword, Some("export")) {
+                return self.export_statement();
+            }
+        }
+
+        // Check for return statement
+        if let Some(tok) = self.current_token() {
+            if tok.matches(TokenType::Keyword, Some("release")) {
+                self.advance();
+                let expr = result.try_register(&self.expr());
+                let pos_end = self
+                    .current_token()
+                    .map(|t| t.position_end.clone())
+                    .unwrap_or_else(|| pos_start.clone());
+
+                return result.success(Node::Return(Box::new(ReturnNode {
+                    node_to_return: expr.map(|e| Box::new(e)),
+                    position_start: pos_start,
+                    position_end: pos_end,
+                })));
+            }
+        }
+
+        // Check for continue statement
+        if let Some(tok) = self.current_token() {
+            if tok.matches(TokenType::Keyword, Some("skip")) {
+                self.advance();
+                let pos_end = self
+                    .current_token()
+                    .map(|t| t.position_end.clone())
+                    .unwrap_or_else(|| pos_start.clone());
+                return result.success(Node::Continue(ContinueNode {
+                    position_start: pos_start,
+                    position_end: pos_end,
+                }));
+            }
+        }
+
+        // Check for break statement
+        if let Some(tok) = self.current_token() {
+            if tok.matches(TokenType::Keyword, Some("stop")) {
+                self.advance();
+                let pos_end = self
+                    .current_token()
+                    .map(|t| t.position_end.clone())
+                    .unwrap_or_else(|| pos_start.clone());
+                return result.success(Node::Break(BreakNode {
+                    position_start: pos_start,
+                    position_end: pos_end,
+                }));
+            }
+        }
+
+        // Parse expression statement
+        let expr = result.register(&self.expr());
+        if result.error.is_some() {
+            return result;
+        }
+
+        if let Some(node) = expr {
+            result.success(node)
+        } else {
+            result
+        }
+    }
+
     fn statements(&mut self) -> ParseResult {
         let mut result = ParseResult::new();
         let mut statements = Vec::new();
@@ -499,96 +596,6 @@ impl Parser {
             result.failure(
                 InvalidSyntaxError::new(pos_start.clone(), pos_start, "Invalid block").base,
             )
-        }
-    }
-
-    fn statement(&mut self) -> ParseResult {
-        let mut result = ParseResult::new();
-        let pos_start = self
-            .current_token()
-            .map(|t| t.position_start.clone())
-            .unwrap_or_else(Self::dummy_pos);
-
-        // Check for struct definition
-        if let Some(tok) = self.current_token() {
-            if tok.kind == TokenType::TypeStruct || tok.matches(TokenType::Keyword, Some("struct"))
-            {
-                return self.struct_definition();
-            }
-        }
-
-        // Check for grab statement
-        if let Some(tok) = self.current_token() {
-            if tok.matches(TokenType::Keyword, Some("grab")) {
-                return self.grab_statement();
-            }
-        }
-
-        // Check for export statement
-        if let Some(tok) = self.current_token() {
-            if tok.matches(TokenType::Keyword, Some("export")) {
-                return self.export_statement();
-            }
-        }
-
-        // Check for return statement
-        if let Some(tok) = self.current_token() {
-            if tok.matches(TokenType::Keyword, Some("release")) {
-                self.advance();
-                let expr = result.try_register(&self.expr());
-                let pos_end = self
-                    .current_token()
-                    .map(|t| t.position_end.clone())
-                    .unwrap_or_else(|| pos_start.clone());
-
-                return result.success(Node::Return(Box::new(ReturnNode {
-                    node_to_return: expr.map(|e| Box::new(e)),
-                    position_start: pos_start,
-                    position_end: pos_end,
-                })));
-            }
-        }
-
-        // Check for continue statement
-        if let Some(tok) = self.current_token() {
-            if tok.matches(TokenType::Keyword, Some("skip")) {
-                self.advance();
-                let pos_end = self
-                    .current_token()
-                    .map(|t| t.position_end.clone())
-                    .unwrap_or_else(|| pos_start.clone());
-                return result.success(Node::Continue(ContinueNode {
-                    position_start: pos_start,
-                    position_end: pos_end,
-                }));
-            }
-        }
-
-        // Check for break statement
-        if let Some(tok) = self.current_token() {
-            if tok.matches(TokenType::Keyword, Some("stop")) {
-                self.advance();
-                let pos_end = self
-                    .current_token()
-                    .map(|t| t.position_end.clone())
-                    .unwrap_or_else(|| pos_start.clone());
-                return result.success(Node::Break(BreakNode {
-                    position_start: pos_start,
-                    position_end: pos_end,
-                }));
-            }
-        }
-
-        // Parse expression statement
-        let expr = result.register(&self.expr());
-        if result.error.is_some() {
-            return result;
-        }
-
-        if let Some(node) = expr {
-            result.success(node)
-        } else {
-            result
         }
     }
 
@@ -1596,22 +1603,51 @@ impl Parser {
                 );
             }
         };
-        self.advance(); // consume 'match'
+        self.advance();
 
-        // Parse the value to match against
-        let value_node = result.register(&self.expr());
-        if result.error.is_some() {
-            return result;
-        }
-
-        // Skip newlines before the '{'
-        while let Some(tok) = self.current_token() {
-            if tok.kind == TokenType::Newline {
+        // Parse the value to match against - only simple expressions, not full expressions
+        // This prevents expr() from consuming the '{' that follows
+        let value_node = match self.current_token() {
+            Some(t) if t.kind == TokenType::Identifier => {
+                let node = Node::VarAccess(VarAccessNode {
+                    variable_name_token: t.clone(),
+                    position_start: t.position_start.clone(),
+                    position_end: t.position_end.clone(),
+                });
                 self.advance();
-            } else {
-                break;
+                Some(node)
             }
-        }
+            Some(t) if t.kind == TokenType::String => {
+                let node = Node::String(StringNode::new(t.clone()));
+                self.advance();
+                Some(node)
+            }
+            Some(t) if t.kind == TokenType::Int || t.kind == TokenType::Float => {
+                let node = Node::Number(NumberNode::new(t.clone()));
+                self.advance();
+                Some(node)
+            }
+            Some(t) => {
+                return result.failure(
+                    InvalidSyntaxError::new(
+                        t.position_start.clone(),
+                        t.position_end.clone(),
+                        &format!("Expected expression to match on, got {:?}", t.kind),
+                    )
+                    .base,
+                );
+            }
+            None => {
+                return result.failure(
+                    InvalidSyntaxError::new(
+                        Self::dummy_pos(),
+                        Self::dummy_pos(),
+                        "Expected expression to match on",
+                    )
+                    .base,
+                );
+            }
+        };
 
         // Expect '{'
         match self.current_token() {
@@ -1636,11 +1672,10 @@ impl Parser {
             }
         }
 
-        // Parse match arms
         let mut arms = Vec::new();
 
         loop {
-            // Skip newlines before each arm
+            // Skip newlines
             while let Some(t) = self.current_token() {
                 if t.kind == TokenType::Newline {
                     self.advance();
@@ -1655,21 +1690,54 @@ impl Parser {
                     self.advance();
                     break;
                 }
-            } else {
-                break;
             }
 
-            // Parse a match arm - get position before consuming tokens
-            let arm_pos_start = match self.current_token() {
-                Some(t) => t.position_start.clone(),
-                None => break,
+            // Parse pattern - handle string literals directly
+            let pattern_node = match self.current_token() {
+                Some(t) if t.kind == TokenType::String => {
+                    let node = Node::String(StringNode::new(t.clone()));
+                    self.advance();
+                    node
+                }
+                Some(t) if t.kind == TokenType::Underscore => {
+                    let node = Node::VarAccess(VarAccessNode {
+                        variable_name_token: t.clone(),
+                        position_start: t.position_start.clone(),
+                        position_end: t.position_end.clone(),
+                    });
+                    self.advance();
+                    node
+                }
+                Some(t) if t.kind == TokenType::Identifier => {
+                    let node = Node::VarAccess(VarAccessNode {
+                        variable_name_token: t.clone(),
+                        position_start: t.position_start.clone(),
+                        position_end: t.position_end.clone(),
+                    });
+                    self.advance();
+                    node
+                }
+                Some(t) => {
+                    return result.failure(
+                        InvalidSyntaxError::new(
+                            t.position_start.clone(),
+                            t.position_end.clone(),
+                            &format!("Expected pattern, got {:?}", t.kind),
+                        )
+                        .base,
+                    );
+                }
+                None => {
+                    return result.failure(
+                        InvalidSyntaxError::new(
+                            Self::dummy_pos(),
+                            Self::dummy_pos(),
+                            "Expected pattern",
+                        )
+                        .base,
+                    );
+                }
             };
-
-            // Parse pattern (can be literal, identifier, or underscore)
-            let pattern_node = result.register(&self.match_pattern());
-            if result.error.is_some() {
-                return result;
-            }
 
             // Skip newlines before '=>'
             while let Some(t) = self.current_token() {
@@ -1680,9 +1748,9 @@ impl Parser {
                 }
             }
 
-            // Expect '=>' (Arrow token)
+            // Expect '=>'
             match self.current_token() {
-                Some(t) if t.kind == TokenType::Arrow => {
+                Some(t) if t.kind == TokenType::FatArrow => {
                     self.advance();
                 }
                 Some(t) => {
@@ -1707,7 +1775,7 @@ impl Parser {
                 }
             }
 
-            // Skip newlines after '=>' before body
+            // Skip newlines after '=>'
             while let Some(t) = self.current_token() {
                 if t.kind == TokenType::Newline {
                     self.advance();
@@ -1716,34 +1784,48 @@ impl Parser {
                 }
             }
 
-            // Parse body (can be a block or a single expression)
-            let body_node = if let Some(t) = self.current_token() {
-                if t.kind == TokenType::LBrace {
-                    result.register(&self.block())
-                } else {
-                    result.register(&self.statement())
+            // Parse body (block)
+            let body_node = match self.current_token() {
+                Some(t) if t.kind == TokenType::LBrace => match result.register(&self.block()) {
+                    Some(node) => node,
+                    None => {
+                        return result.failure(
+                            InvalidSyntaxError::new(
+                                Self::dummy_pos(),
+                                Self::dummy_pos(),
+                                "Expected block body",
+                            )
+                            .base,
+                        );
+                    }
+                },
+                _ => {
+                    return result.failure(
+                        InvalidSyntaxError::new(
+                            Self::dummy_pos(),
+                            Self::dummy_pos(),
+                            "Expected '{' for match arm body",
+                        )
+                        .base,
+                    );
                 }
-            } else {
-                result.register(&self.statement())
             };
 
             if result.error.is_some() {
                 return result;
             }
 
-            let arm_pos_end = self
-                .current_token()
-                .map(|t| t.position_end.clone())
-                .unwrap_or_else(|| arm_pos_start.clone());
+            // Store pattern and body positions before moving them
+            let pattern_pos_start = pattern_node.position_start().clone();
+            let pattern_pos_end = pattern_node.position_end().clone();
+            let body_pos_end = body_node.position_end().clone();
 
-            if let (Some(pattern), Some(body)) = (pattern_node, body_node) {
-                arms.push(MatchArm {
-                    pattern_node: Box::new(pattern),
-                    body_node: Box::new(body),
-                    position_start: arm_pos_start,
-                    position_end: arm_pos_end,
-                });
-            }
+            arms.push(MatchArm {
+                pattern_node: Box::new(pattern_node),
+                body_node: Box::new(body_node),
+                position_start: pattern_pos_start,
+                position_end: body_pos_end,
+            });
         }
 
         let pos_end = self
@@ -1751,16 +1833,12 @@ impl Parser {
             .map(|t| t.position_end.clone())
             .unwrap_or_else(|| pos_start.clone());
 
-        if let Some(value) = value_node {
-            result.success(Node::Match(Box::new(MatchNode {
-                value_node: Box::new(value),
-                arms,
-                position_start: pos_start,
-                position_end: pos_end,
-            })))
-        } else {
-            result
-        }
+        result.success(Node::Match(Box::new(MatchNode {
+            value_node: Box::new(value_node.unwrap()),
+            arms,
+            position_start: pos_start,
+            position_end: pos_end,
+        })))
     }
 
     fn match_pattern(&mut self) -> ParseResult {
@@ -1778,7 +1856,6 @@ impl Parser {
                 result.success(node)
             }
             Some(t) if t.kind == TokenType::Underscore => {
-                // Create a special variable access for underscore
                 let node = Node::VarAccess(VarAccessNode {
                     variable_name_token: t.clone(),
                     position_start: t.position_start.clone(),
@@ -1788,6 +1865,8 @@ impl Parser {
                 result.success(node)
             }
             Some(t) if t.kind == TokenType::Identifier => {
+                // For identifiers in patterns, treat them as variable references
+                // (except '_' which we already handled)
                 let node = Node::VarAccess(VarAccessNode {
                     variable_name_token: t.clone(),
                     position_start: t.position_start.clone(),
@@ -1800,7 +1879,7 @@ impl Parser {
                 InvalidSyntaxError::new(
                     t.position_start.clone(),
                     t.position_end.clone(),
-                    "Expected pattern",
+                    &format!("Expected pattern, got {:?}", t.kind),
                 )
                 .base,
             ),
@@ -2582,9 +2661,11 @@ impl Parser {
                     // Advance before checking for lbrace to avoid borrow issues
                     self.advance();
 
-                    // Check if this is a struct instantiation (followed by {})
+                    // Check if this is a struct instantiation (followed by {} ON THE SAME LINE)
                     if let Some(lbrace) = self.current_token() {
-                        if lbrace.kind == TokenType::LBrace {
+                        if lbrace.kind == TokenType::LBrace
+                            && lbrace.position_start.line == struct_pos_end.line
+                        {
                             return self.struct_instantiation(struct_name);
                         }
                     }

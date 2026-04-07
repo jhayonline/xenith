@@ -22,17 +22,24 @@ echo("")
 
 echo("2. VARIABLES:")
 
-spawn age = 25
-spawn name = "Alice"
-spawn pi = 3.14159
+spawn age: int = 25
+spawn name: string = "Alice"
+spawn pi: float = 3.14159
+spawn is_active: bool = true
 
 echo("   age = {age}")
 echo("   name = {name}")
 echo("   pi = {pi}")
+echo("   is_active = {is_active}")
 
 # Variable reassignment (no spawn keyword needed!)
 age = 26
 echo("   age (updated) = {age}")
+echo("")
+
+# Test const spawn
+const spawn MAX_SIZE: int = 100
+echo("   MAX_SIZE = {MAX_SIZE}")
 echo("")
 
 #######################################
@@ -41,8 +48,8 @@ echo("")
 
 echo("3. ARITHMETIC:")
 
-spawn a = 10
-spawn b = 3
+spawn a: int = 10
+spawn b: int = 3
 
 echo("   a = {a}, b = {b}")
 echo("   a + b = {a + b}")
@@ -59,9 +66,9 @@ echo("")
 
 echo("4. COMPARISONS:")
 
-spawn x = 5
-spawn y = 10
-spawn z = 5
+spawn x: int = 5
+spawn y: int = 10
+spawn z: int = 5
 
 echo("   x = {x}, y = {y}, z = {z}")
 echo("   x == z -> {x == z}")
@@ -78,8 +85,8 @@ echo("")
 
 echo("5. LOGICAL OPERATORS:")
 
-spawn t = 1
-spawn f = 0
+spawn t: bool = true
+spawn f: bool = false
 
 echo("   TRUE = {t}, FALSE = {f}")
 echo("   t && t -> {t && t}")
@@ -96,7 +103,7 @@ echo("")
 
 echo("6. CONTROL FLOW:")
 
-spawn score = 85
+spawn score: int = 85
 
 when score >= 90 {
     echo("   Grade: A")
@@ -108,8 +115,8 @@ when score >= 90 {
     echo("   Grade: F")
 }
 
-spawn outer = 10
-spawn inner = 20
+spawn outer: int = 10
+spawn inner: int = 20
 
 when outer > 5 {
     when inner > 15 {
@@ -124,12 +131,12 @@ echo("")
 
 echo("7. TERNARY OPERATOR:")
 
-spawn age2 = 18
-spawn status = age2 >= 18 ? "Adult" : "Minor"
+spawn age2: int = 18
+spawn status: string = age2 >= 18 ? "Adult" : "Minor"
 echo("   age {age2} -> {status}")
 
-spawn age3 = 16
-spawn status2 = age3 >= 18 ? "Adult" : "Minor"
+spawn age3: int = 16
+spawn status2: string = age3 >= 18 ? "Adult" : "Minor"
 echo("   age {age3} -> {status2}")
 echo("")
 
@@ -139,7 +146,7 @@ echo("")
 
 echo("8. LISTS (Modern Syntax):")
 
-spawn fruits = ["apple", "banana", "orange"]
+spawn fruits: list<string> = ["apple", "banana", "orange"]
 echo("   Original list: {ret(fruits)}")
 
 # Modern indexing with []
@@ -151,20 +158,20 @@ echo("   fruits[2] = {fruits[2]}")
 fruits.append("grape")
 echo("   After append: {ret(fruits)}")
 
-spawn popped = fruits.pop(1)
+spawn popped: string = fruits.pop(1)
 echo("   Popped index 1: {popped}")
 echo("   List after pop: {ret(fruits)}")
 
 echo("   List length: {fruits.len()}")
 
 # List concatenation (returns new list)
-spawn list1 = [1, 2, 3]
-spawn list2 = [4, 5, 6]
-spawn combined = list1 + list2
+spawn list1: list<int> = [1, 2, 3]
+spawn list2: list<int> = [4, 5, 6]
+spawn combined: list<int> = list1 + list2
 echo("   Concatenated: {ret(combined)}")
 
 # Nested list indexing
-spawn matrix = [[1, 2], [3, 4], [5, 6]]
+spawn matrix: list<list<int>> = [[1, 2], [3, 4], [5, 6]]
 echo("   matrix[1][0] = {matrix[1][0]}")
 echo("")
 
@@ -190,7 +197,7 @@ for i = 5 to 0 step -1 {
 }
 
 echo("   WHILE loop countdown:")
-spawn count = 3
+spawn count: int = 3
 while count > 0 {
     echo("     countdown: {count}")
     count = count - 1
@@ -219,38 +226,35 @@ echo("")
 
 echo("10. FUNCTIONS:")
 
-method greet(name) {
+method greet(name: string) -> string {
     release "Hello, {name}!"
 }
 
 echo("   greet(\"Bob\") = {greet("Bob")}")
 
-method add(a, b) {
+method add(a: int, b: int) -> int {
     release a + b
 }
 
 echo("   add(5, 3) = {add(5, 3)}")
 
-method double(x) -> x * 2
+method double(x: int) -> int => x * 2
 echo("   double(7) = {double(7)}")
 
-method factorial(n) {
-    spawn result = 1
-    spawn i = 1
-    while i <= n {
-        result = result * i
-        i = i + 1
+method factorial(n: int) -> int {
+    when n <= 1 {
+        release 1
     }
-    release result
+    release n * factorial(n - 1)
 }
 
 echo("   factorial(5) = {factorial(5)}")
 
-method range(n) {
-    spawn result = []
-    spawn i = 0
+method range(n: int) -> list<int> {
+    spawn result: list<int> = []
+    spawn i: int = 0
     while i < n {
-        result.append(i)  # In-place modification, no reassignment needed
+        result.append(i)
         i = i + 1
     }
     release result
@@ -258,15 +262,42 @@ method range(n) {
 
 echo("   range(5) = {ret(range(5))}")
 
-spawn my_double = double
+spawn my_double: method(int) -> int = double
 echo("   my_double(10) = {my_double(10)}")
+
+# Test void function
+method log_message(msg: string) -> null {
+    echo("   Log: {msg}")
+    release null
+}
+
+log_message("Void function test")
 echo("")
 
 #######################################
-# 11. BUILT-IN FUNCTIONS
+# 11. MAPS
 #######################################
 
-echo("11. BUILT-IN FUNCTIONS:")
+echo("11. MAPS:")
+
+# Test maps with types - use double quotes for keys
+spawn user: map<string, int> = {"age": 25}
+spawn scores: map<string, list<int>> = {"Alice": [100, 95, 90]}
+
+echo("   User age: {user["age"]}")
+echo("   Alice's scores: {ret(scores["Alice"])}")
+
+# Map operations
+echo("   Map keys: {ret(user.keys())}")
+echo("   Map values: {ret(user.values())}")
+echo("   Map has age? {user.has_key("age")}")
+echo("")
+
+#######################################
+# 12. BUILT-IN FUNCTIONS
+#######################################
+
+echo("12. BUILT-IN FUNCTIONS:")
 
 echo("   is_num(42): {is_num(42)}")
 echo("   is_num(\"hello\"): {is_num("hello")}")
@@ -281,20 +312,20 @@ echo("   NULL = {NULL}")
 echo("")
 
 #######################################
-# 12. FIBONACCI
+# 13. FIBONACCI
 #######################################
 
-echo("12. FIBONACCI SEQUENCE:")
+echo("13. FIBONACCI SEQUENCE:")
 
-method fibonacci(n) {
+method fibonacci(n: int) -> int {
     when n <= 1 {
         release n
     }
-    spawn a = 0
-    spawn b = 1
-    spawn i = 2
+    spawn a: int = 0
+    spawn b: int = 1
+    spawn i: int = 2
     while i <= n {
-        spawn c = a + b
+        spawn c: int = a + b
         a = b
         b = c
         i = i + 1
@@ -310,33 +341,49 @@ echo("   fibonacci(8) = {fibonacci(8)}")
 echo("")
 
 #######################################
-# 13. DATA PROCESSING WITH MODERN SYNTAX
+# 14. STRUCTS
 #######################################
 
-echo("13. DATA PROCESSING (Modern Syntax):")
+echo("14. STRUCTS:")
 
-spawn alice = ["Alice", 85]
-spawn bob = ["Bob", 62]
-spawn charlie = ["Charlie", 95]
-spawn diana = ["Diana", 78]
+struct Student {
+    name: string,
+    score: int
+}
 
-spawn students = []
-students.append(alice)      # In-place modification
-students.append(bob)
-students.append(charlie)
-students.append(diana)
+spawn alice: Student = Student { name: "Alice", score: 85 }
+spawn bob: Student = Student { name: "Bob", score: 62 }
+spawn charlie: Student = Student { name: "Charlie", score: 95 }
+spawn diana: Student = Student { name: "Diana", score: 78 }
 
-method process_grades(student_list) {
-    spawn results = []
-    spawn total = 0.0
-    spawn i = 0
+echo("   Alice: {alice.name} = {alice.score}")
+echo("   Bob: {bob.name} = {bob.score}")
+echo("   Charlie: {charlie.name} = {charlie.score}")
+echo("   Diana: {diana.name} = {diana.score}")
+
+# Modify struct field
+alice.score = 90
+echo("   Alice updated score: {alice.score}")
+echo("")
+
+#######################################
+# 15. DATA PROCESSING WITH STRUCTS
+#######################################
+
+echo("15. DATA PROCESSING:")
+
+spawn students: list<Student> = [alice, bob, charlie, diana]
+
+method process_grades(student_list: list<Student>) -> list<string> {
+    spawn results: list<string> = []
+    spawn i: int = 0
 
     while i < student_list.len() {
-        spawn student = student_list[i]
-        spawn name = student[0]
-        spawn score = student[1]
+        spawn student: Student = student_list[i]
+        spawn name: string = student.name
+        spawn score: int = student.score
 
-        spawn grade = "F"
+        spawn grade: string = "F"
         when score >= 90 {
             grade = "A"
         } or when score >= 80 {
@@ -347,35 +394,28 @@ method process_grades(student_list) {
             grade = "D"
         }
 
-        # In-place modification
-        results.append("{name}: {score} -> {grade}")  
-        total = total + score
+        results.append("{name}: {score} -> {grade}")
         i = i + 1
     }
-
-    spawn average = total / student_list.len()
-    release [results, average]
+    release results
 }
 
-spawn processed = process_grades(students)
-spawn grades = processed[0]
-spawn avg = processed[1]
+spawn grades: list<string> = process_grades(students)
 
-spawn j = 0
+spawn j: int = 0
 while j < grades.len() {
     echo("   {grades[j]}")
     j = j + 1
 }
-echo("   Class average: {avg}")
 echo("")
 
 #######################################
-# 14. INCREMENT/DECREMENT OPERATORS
+# 16. INCREMENT/DECREMENT OPERATORS
 #######################################
 
-echo("14. INCREMENT/DECREMENT OPERATORS:")
+echo("16. INCREMENT/DECREMENT OPERATORS:")
 
-spawn counter = 5
+spawn counter: int = 5
 echo("   Initial counter = {counter}")
 
 counter++
@@ -384,38 +424,56 @@ echo("   After counter++: {counter}")
 counter--
 echo("   After counter--: {counter}")
 
-spawn x = 10
-x += 3
-echo("   x += 3 -> {x}")
+spawn x_val: int = 10
+x_val += 3
+echo("   x += 3 -> {x_val}")
 
-x -= 2
-echo("   x -= 2 -> {x}")
+x_val -= 2
+echo("   x -= 2 -> {x_val}")
 
-# Post-increment as standalone statement
-spawn y = 5
-echo("   Initial y = {y}")
-y++
-echo("   After y++: {y}")
+spawn y_val: int = 5
+y_val++
+echo("   y++ -> {y_val}")
 
-# Post-decrement as standalone statement
-spawn z = 8
-echo("   Initial z = {z}")
-z--
-echo("   After z--: {z}")
+spawn z_val: int = 8
+z_val--
+echo("   z-- -> {z_val}")
 
-# Compound assignment with variables
-spawn a = 7
-a += a
-echo("   a += a -> {a}")
+spawn a_val: int = 7
+a_val += a_val
+echo("   a += a -> {a_val}")
 
-spawn b = 10
-b -= 3
-echo("   b -= 3 -> {b}")
-
+spawn b_val: int = 10
+b_val -= 3
+echo("   b -= 3 -> {b_val}")
 echo("")
 
 #######################################
-# 15. TEST SUMMARY
+# 17. TYPE CONVERSION
+#######################################
+
+echo("17. TYPE CONVERSION:")
+
+spawn int_val: int = 42
+spawn float_val: float = int_val as float
+spawn string_val: string = int_val as string
+spawn bool_val: bool = int_val as bool
+
+echo("   int 42 -> float: {float_val}")
+echo("   int 42 -> string: {string_val}")
+echo("   int 42 -> bool: {bool_val}")
+
+spawn pi_val: float = 3.14159
+spawn pi_int: int = pi_val as int
+echo("   float 3.14159 -> int: {pi_int}")
+
+spawn true_val: bool = true
+spawn true_int: int = true_val as int
+echo("   bool true -> int: {true_int}")
+echo("")
+
+#######################################
+# 18. TEST SUMMARY
 #######################################
 
 echo("")
