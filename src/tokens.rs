@@ -115,4 +115,8 @@ pub const KEYWORDS: &[&str] = &[
     "try",
     "catch",
     "panic",
+    "grab",
+    "export",
+    "as",
+    "from",
 ];

@@ -1,0 +1,14 @@
+export method add(a, b) {
+    release a + b
+}
+
+export method multiply(a, b) {
+    release a * b
+}
+
+export spawn PI = 3.14159
+
+# Private function
+method _helper(x) {
+    release x * 2
+}

@@ -6,6 +6,8 @@
 
 use crate::position::Position;
 use crate::symbol_table::SymbolTable;
+use crate::values::Value;
+use std::collections::HashMap;
 use std::rc::Rc;
 
 #[derive(Debug, Clone)]
@@ -14,6 +16,7 @@ pub struct Context {
     pub parent: Option<Box<Context>>,
     pub parent_entry_position: Option<Position>,
     pub symbol_table: SymbolTable,
+    pub exports: HashMap<String, Value>,
 }
 
 impl Context {
@@ -33,6 +36,7 @@ impl Context {
             parent: parent.map(Box::new),
             parent_entry_position,
             symbol_table,
+            exports: HashMap::new(),
         }
     }
 
@@ -42,6 +46,15 @@ impl Context {
             parent: Some(Box::new(self.clone())),
             parent_entry_position: Some(entry_pos),
             symbol_table: SymbolTable::with_parent(Rc::new(self.symbol_table.clone())),
+            exports: HashMap::new(), // Add this line - child starts with empty exports
         }
+    }
+
+    pub fn add_export(&mut self, name: String, value: Value) {
+        self.exports.insert(name, value);
+    }
+
+    pub fn get_exports(&self) -> &HashMap<String, Value> {
+        &self.exports
     }
 }

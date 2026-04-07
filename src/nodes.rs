@@ -33,6 +33,8 @@ pub enum Node {
     Map(MapNode),
     TryCatch(Box<TryCatchNode>),
     Panic(Box<PanicNode>),
+    Grab(Box<GrabNode>),
+    Export(Box<ExportNode>),
 }
 
 impl Node {
@@ -60,6 +62,8 @@ impl Node {
             Node::Map(n) => &n.position_start,
             Node::TryCatch(n) => &n.position_start,
             Node::Panic(n) => &n.position_start,
+            Node::Grab(n) => &n.position_start,
+            Node::Export(n) => &n.position_start,
         }
     }
 
@@ -87,6 +91,8 @@ impl Node {
             Node::Map(n) => &n.position_end,
             Node::TryCatch(n) => &n.position_end,
             Node::Panic(n) => &n.position_end,
+            Node::Grab(n) => &n.position_end,
+            Node::Export(n) => &n.position_end,
         }
     }
 
@@ -357,6 +363,34 @@ pub struct TryCatchNode {
 #[derive(Debug, Clone)]
 pub struct PanicNode {
     pub message_node: Box<Node>,
+    pub position_start: Position,
+    pub position_end: Position,
+}
+
+// Grab/import node
+#[derive(Debug, Clone)]
+pub struct GrabNode {
+    pub imports: Vec<ImportSpec>,
+    pub from_module: String, // Module path like "std::math" or "math"
+    pub is_namespace_import: bool,
+    pub namespace_alias: Option<String>, // For "grab * as name"
+    pub position_start: Position,
+    pub position_end: Position,
+}
+
+#[derive(Debug, Clone)]
+pub struct ImportSpec {
+    pub original_name: String,
+    pub alias: Option<String>,
+    pub position_start: Position,
+    pub position_end: Position,
+}
+
+// Export annotation for items
+#[derive(Debug, Clone)]
+pub struct ExportNode {
+    pub exported_name: String,
+    pub node: Box<Node>,
     pub position_start: Position,
     pub position_end: Position,
 }

@@ -20,6 +20,7 @@ pub mod context;
 pub mod error;
 pub mod interpreter;
 pub mod lexer;
+pub mod modules;
 pub mod nodes;
 pub mod parse_result;
 pub mod parser;

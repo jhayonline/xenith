@@ -218,6 +218,20 @@ impl Parser {
             .map(|t| t.position_start.clone())
             .unwrap_or_else(Self::dummy_pos);
 
+        // Check for grab statement
+        if let Some(tok) = self.current_token() {
+            if tok.matches(TokenType::Keyword, Some("grab")) {
+                return self.grab_statement();
+            }
+        }
+
+        // Check for export statement
+        if let Some(tok) = self.current_token() {
+            if tok.matches(TokenType::Keyword, Some("export")) {
+                return self.export_statement();
+            }
+        }
+
         // Check for return statement
         if let Some(tok) = self.current_token() {
             if tok.matches(TokenType::Keyword, Some("release")) {
@@ -417,6 +431,368 @@ impl Parser {
 
         result.success(Node::Panic(Box::new(PanicNode {
             message_node: Box::new(message.unwrap()),
+            position_start: pos_start,
+            position_end: pos_end,
+        })))
+    }
+
+    /// Parse grab/import statement
+    /// Syntax: grab { name, other as alias } from "module"
+    ///         grab * as namespace from "module"
+    fn grab_statement(&mut self) -> ParseResult {
+        let mut result = ParseResult::new();
+        let pos_start = self.current_token().unwrap().position_start.clone();
+
+        // Consume 'grab'
+        self.advance();
+
+        // Check for namespace import (grab * as name)
+        let is_namespace_import = if let Some(tok) = self.current_token() {
+            tok.matches(TokenType::Mul, None)
+        } else {
+            false
+        };
+
+        let mut imports = Vec::new();
+        let mut namespace_alias = None;
+
+        if is_namespace_import {
+            // Consume '*'
+            self.advance();
+
+            // Expect 'as'
+            match self.current_token() {
+                Some(tok) if tok.matches(TokenType::Keyword, Some("as")) => {
+                    self.advance();
+                }
+                Some(tok) => {
+                    return result.failure(
+                        InvalidSyntaxError::new(
+                            tok.position_start.clone(),
+                            tok.position_end.clone(),
+                            "Expected 'as' after '*'",
+                        )
+                        .base,
+                    );
+                }
+                None => {
+                    return result.failure(
+                        InvalidSyntaxError::new(
+                            Self::dummy_pos(),
+                            Self::dummy_pos(),
+                            "Expected 'as' after '*'",
+                        )
+                        .base,
+                    );
+                }
+            }
+
+            // Parse namespace alias (identifier)
+            match self.current_token() {
+                Some(tok) if tok.kind == TokenType::Identifier => {
+                    namespace_alias = Some(tok.value.clone().unwrap());
+                    self.advance();
+                }
+                Some(tok) => {
+                    return result.failure(
+                        InvalidSyntaxError::new(
+                            tok.position_start.clone(),
+                            tok.position_end.clone(),
+                            "Expected identifier for namespace alias",
+                        )
+                        .base,
+                    );
+                }
+                None => {
+                    return result.failure(
+                        InvalidSyntaxError::new(
+                            Self::dummy_pos(),
+                            Self::dummy_pos(),
+                            "Expected identifier for namespace alias",
+                        )
+                        .base,
+                    );
+                }
+            }
+        } else {
+            // Parse named imports: { name, other as alias }
+            match self.current_token() {
+                Some(tok) if tok.kind == TokenType::LBrace => {
+                    self.advance(); // consume '{'
+
+                    // Parse import specifiers
+                    loop {
+                        // Skip newlines
+                        while let Some(t) = self.current_token() {
+                            if t.kind == TokenType::Newline {
+                                self.advance();
+                            } else {
+                                break;
+                            }
+                        }
+
+                        // Check for closing brace
+                        if let Some(tok) = self.current_token() {
+                            if tok.kind == TokenType::RBrace {
+                                self.advance();
+                                break;
+                            }
+                        }
+
+                        // Parse identifier
+                        let name_start = self.current_token().unwrap().position_start.clone();
+                        let name = match self.current_token() {
+                            Some(tok) if tok.kind == TokenType::Identifier => {
+                                let name = tok.value.clone().unwrap();
+                                self.advance();
+                                name
+                            }
+                            Some(tok) => {
+                                return result.failure(
+                                    InvalidSyntaxError::new(
+                                        tok.position_start.clone(),
+                                        tok.position_end.clone(),
+                                        "Expected identifier",
+                                    )
+                                    .base,
+                                );
+                            }
+                            None => {
+                                return result.failure(
+                                    InvalidSyntaxError::new(
+                                        Self::dummy_pos(),
+                                        Self::dummy_pos(),
+                                        "Expected identifier",
+                                    )
+                                    .base,
+                                );
+                            }
+                        };
+
+                        let name_end = self
+                            .current_token()
+                            .map(|t| t.position_start.clone())
+                            .unwrap_or_else(Self::dummy_pos);
+
+                        // Check for 'as' alias
+                        let alias = if let Some(tok) = self.current_token() {
+                            if tok.matches(TokenType::Keyword, Some("as")) {
+                                self.advance(); // consume 'as'
+
+                                match self.current_token() {
+                                    Some(alias_tok) if alias_tok.kind == TokenType::Identifier => {
+                                        let alias_name = alias_tok.value.clone().unwrap();
+                                        self.advance();
+                                        Some(alias_name)
+                                    }
+                                    Some(tok) => {
+                                        return result.failure(
+                                            InvalidSyntaxError::new(
+                                                tok.position_start.clone(),
+                                                tok.position_end.clone(),
+                                                "Expected identifier after 'as'",
+                                            )
+                                            .base,
+                                        );
+                                    }
+                                    None => {
+                                        return result.failure(
+                                            InvalidSyntaxError::new(
+                                                Self::dummy_pos(),
+                                                Self::dummy_pos(),
+                                                "Expected identifier after 'as'",
+                                            )
+                                            .base,
+                                        );
+                                    }
+                                }
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        };
+
+                        imports.push(ImportSpec {
+                            original_name: name,
+                            alias,
+                            position_start: name_start,
+                            position_end: name_end,
+                        });
+
+                        // Check for comma
+                        if let Some(tok) = self.current_token() {
+                            if tok.kind == TokenType::Comma {
+                                self.advance();
+                                continue;
+                            } else if tok.kind == TokenType::RBrace {
+                                self.advance();
+                                break;
+                            } else {
+                                break;
+                            }
+                        } else {
+                            break;
+                        }
+                    }
+                }
+                Some(tok) => {
+                    return result.failure(
+                        InvalidSyntaxError::new(
+                            tok.position_start.clone(),
+                            tok.position_end.clone(),
+                            "Expected '{' or '*'",
+                        )
+                        .base,
+                    );
+                }
+                None => {
+                    return result.failure(
+                        InvalidSyntaxError::new(
+                            Self::dummy_pos(),
+                            Self::dummy_pos(),
+                            "Expected '{' or '*'",
+                        )
+                        .base,
+                    );
+                }
+            }
+        }
+
+        // Expect 'from'
+        match self.current_token() {
+            Some(tok) if tok.matches(TokenType::Keyword, Some("from")) => {
+                self.advance();
+            }
+            Some(tok) => {
+                return result.failure(
+                    InvalidSyntaxError::new(
+                        tok.position_start.clone(),
+                        tok.position_end.clone(),
+                        "Expected 'from'",
+                    )
+                    .base,
+                );
+            }
+            None => {
+                return result.failure(
+                    InvalidSyntaxError::new(
+                        Self::dummy_pos(),
+                        Self::dummy_pos(),
+                        "Expected 'from'",
+                    )
+                    .base,
+                );
+            }
+        }
+
+        // Parse module path (string)
+        let module_path = match self.current_token() {
+            Some(tok) if tok.kind == TokenType::String => {
+                let path = tok.value.clone().unwrap();
+                self.advance();
+                path
+            }
+            Some(tok) => {
+                return result.failure(
+                    InvalidSyntaxError::new(
+                        tok.position_start.clone(),
+                        tok.position_end.clone(),
+                        "Expected module path string",
+                    )
+                    .base,
+                );
+            }
+            None => {
+                return result.failure(
+                    InvalidSyntaxError::new(
+                        Self::dummy_pos(),
+                        Self::dummy_pos(),
+                        "Expected module path string",
+                    )
+                    .base,
+                );
+            }
+        };
+
+        let pos_end = self
+            .current_token()
+            .map(|t| t.position_end.clone())
+            .unwrap_or(pos_start.clone());
+
+        result.success(Node::Grab(Box::new(GrabNode {
+            imports,
+            from_module: module_path,
+            is_namespace_import,
+            namespace_alias,
+            position_start: pos_start,
+            position_end: pos_end,
+        })))
+    }
+
+    /// Parse export statement
+    /// Syntax: export <item>
+    fn export_statement(&mut self) -> ParseResult {
+        let mut result = ParseResult::new();
+        let pos_start = self.current_token().unwrap().position_start.clone();
+
+        // Consume 'export'
+        self.advance();
+
+        // Parse the exported item (function, variable, etc.)
+        let item = result.register(&self.expr());
+        if result.error.is_some() {
+            return result;
+        }
+
+        let pos_end = item
+            .as_ref()
+            .map(|n| n.position_end().clone())
+            .unwrap_or(pos_start.clone());
+
+        // Get the name of the exported item
+        let exported_name = if let Some(node) = &item {
+            match node {
+                Node::VarAssign(var_assign) => var_assign
+                    .variable_name_token
+                    .value
+                    .as_ref()
+                    .unwrap()
+                    .clone(),
+                Node::FuncDef(func_def) => {
+                    if let Some(token) = &func_def.variable_name_token {
+                        token.value.as_ref().unwrap().clone()
+                    } else {
+                        return result.failure(
+                            InvalidSyntaxError::new(
+                                pos_start.clone(),
+                                pos_end.clone(),
+                                "Cannot export anonymous function",
+                            )
+                            .base,
+                        );
+                    }
+                }
+                _ => {
+                    return result.failure(
+                        InvalidSyntaxError::new(
+                            pos_start.clone(),
+                            pos_end.clone(),
+                            "Can only export variables and functions",
+                        )
+                        .base,
+                    );
+                }
+            }
+        } else {
+            return result.failure(
+                InvalidSyntaxError::new(pos_start.clone(), pos_end, "Expected item to export").base,
+            );
+        };
+
+        result.success(Node::Export(Box::new(ExportNode {
+            exported_name,
+            node: Box::new(item.unwrap()),
             position_start: pos_start,
             position_end: pos_end,
         })))

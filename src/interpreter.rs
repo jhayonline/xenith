@@ -7,6 +7,7 @@
 use crate::context::Context;
 use crate::error::RuntimeError;
 use crate::lexer::Lexer;
+use crate::modules::{Module, ModuleRegistry};
 use crate::nodes::{Node, PanicNode, TryCatchNode};
 use crate::parser::Parser;
 use crate::position::Position;
@@ -21,6 +22,8 @@ use crate::values::{
 pub struct Interpreter {
     /// Global symbol table with built-in functions
     pub global_symbol_table: SymbolTable,
+    /// Module registry for caching loaded modules
+    pub module_registry: Option<ModuleRegistry>,
 }
 
 impl Interpreter {
@@ -94,7 +97,32 @@ impl Interpreter {
 
         Self {
             global_symbol_table: global,
+            module_registry: None,
         }
+    }
+
+    fn load_module(
+        &mut self,
+        module_path: &str,
+        pos: &Position,
+        context: &Context,
+    ) -> Result<Module, String> {
+        // Initialize module registry if needed
+        if self.module_registry.is_none() {
+            self.module_registry = Some(ModuleRegistry::new(&pos.file_name));
+        }
+
+        // Take ownership of the registry temporarily
+        let mut registry = self.module_registry.take().unwrap();
+        let result = registry.load_module(module_path, self);
+        self.module_registry = Some(registry);
+
+        result
+    }
+
+    /// Get module registry (for testing)
+    pub fn get_module_registry(&self) -> Option<&ModuleRegistry> {
+        self.module_registry.as_ref()
     }
 
     /// Visits a node and executes it
@@ -122,7 +150,94 @@ impl Interpreter {
             Node::Map(n) => self.visit_map(n, context),
             Node::TryCatch(n) => self.visit_try_catch(n, context),
             Node::Panic(n) => self.visit_panic(n, context),
+            Node::Grab(n) => self.visit_grab(n, context),
+            Node::Export(n) => self.visit_export(n, context),
         }
+    }
+
+    fn visit_export(
+        &mut self,
+        node: &crate::nodes::ExportNode,
+        context: &mut Context,
+    ) -> RuntimeResult {
+        // Execute the inner node
+        let inner_result = self.visit(&node.node, context);
+
+        // Mark the value as exported in the current context's module exports
+        if let Some(value) = &inner_result.value {
+            // Store in a special "exports" table in the context
+            // We'll need to add an exports field to Context
+            context.add_export(node.exported_name.clone(), value.clone());
+        }
+
+        inner_result
+    }
+
+    fn visit_grab(
+        &mut self,
+        node: &crate::nodes::GrabNode,
+        context: &mut Context,
+    ) -> RuntimeResult {
+        let mut result = RuntimeResult::new();
+
+        // Create module registry if not exists (store in interpreter)
+        // We'll add a field to Interpreter for this
+        let module_path = node.from_module.clone();
+
+        // Load the module
+        let module = match self.load_module(&module_path, &node.position_start, context) {
+            Ok(m) => m,
+            Err(err) => {
+                return result.failure(
+                    RuntimeError::new(
+                        node.position_start.clone(),
+                        node.position_end.clone(),
+                        &err,
+                        Some(context.clone()),
+                    )
+                    .base,
+                );
+            }
+        };
+
+        if node.is_namespace_import {
+            // Import * as namespace
+            if let Some(alias) = &node.namespace_alias {
+                // Create a namespace object (a map of exports)
+                let mut namespace_map = Map::new();
+                for (name, value) in &module.exports {
+                    namespace_map.set(name.clone(), value.clone());
+                }
+                context
+                    .symbol_table
+                    .set(alias.clone(), Value::Map(namespace_map));
+            }
+        } else {
+            // Import specific items
+            for spec in &node.imports {
+                let original_name = &spec.original_name;
+                let target_name = spec.alias.as_ref().unwrap_or(original_name);
+
+                if let Some(value) = module.exports.get(original_name) {
+                    context.symbol_table.set(target_name.clone(), value.clone());
+                } else {
+                    return result.failure(
+                        RuntimeError::new(
+                            spec.position_start.clone(),
+                            spec.position_end.clone(),
+                            &format!(
+                                "'{}' is not exported from module '{}'",
+                                original_name, module_path
+                            ),
+                            Some(context.clone()),
+                        )
+                        .base,
+                    );
+                }
+            }
+        }
+
+        result.success(Value::Number(Number::null()))
     }
 
     fn visit_number(

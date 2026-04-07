@@ -1,0 +1,12 @@
+grab { add, multiply, PI } from "math"
+
+spawn sum = add(5, 3)
+spawn product = multiply(4, 2)
+
+echo("5 + 3 = {sum}")
+echo("4 * 2 = {product}")
+echo("PI = {PI}")
+
+# Namespace import example (currently has issues)
+# grab * as m from "math"
+# echo("Using namespace: {m.add(10, 20)}")
