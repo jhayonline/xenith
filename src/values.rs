@@ -101,20 +101,21 @@ impl Value {
                 new.push_str(&b.value);
                 Ok(Value::String(XenithString::new(new)))
             }
-            // String + Number: convert number to string automatically
             (Value::String(a), Value::Number(b)) => {
                 let mut new = a.value.clone();
                 new.push_str(&b.value.to_string());
                 Ok(Value::String(XenithString::new(new)))
             }
-            // Number + String: convert number to string automatically
             (Value::Number(a), Value::String(b)) => {
                 let mut new = a.value.to_string();
                 new.push_str(&b.value);
                 Ok(Value::String(XenithString::new(new)))
             }
-            // Number + Number (already handled)
-            // String + String (already handled)
+            (Value::List(a), Value::List(b)) => {
+                let mut new = a.clone();
+                new.elements.extend(b.elements.clone());
+                Ok(Value::List(new))
+            }
             (Value::List(a), b) => {
                 let mut new = a.clone();
                 new.elements.push(b.clone());
