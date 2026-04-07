@@ -32,6 +32,34 @@
 |------|-------------|---------|
 | `method(params) -> return` | Function type | `type Callback = method(string) -> void` |
 
+## Function Syntax
+
+### Block Functions (multiple statements)
+```xen
+method add(a: int, b: int) -> int {
+    release a + b
+}
+```
+
+### Arrow Functions (single expression)
+```xen
+method double(x: int) -> int => x * 2
+```
+
+### Void Functions (no return value)
+```xen
+method log(message: string) -> null {
+    echo(message)
+    release null
+}
+```
+
+**Note:** 
+- `->` always denotes the **return type**
+- `=>` denotes an **arrow function body** (single expression)
+- Arrow functions still specify return type before `=>`
+- Block functions use `{ }` with explicit `release`
+
 ## Struct Types
 
 | Type | Description | Example |
@@ -62,6 +90,7 @@ spawn complex: map<string, map<string, list<int>>> = {
 
 # 4+ levels - unlimited nesting supported
 spawn deep: list<list<list<list<int>>>> = ...
+```
 
 ## Variable Declaration
 
@@ -234,4 +263,3 @@ Xenith's type system is:
 
 This is the complete type system for Xenith - strict, explicit, safe, fast, and predictable!
 ```
-
