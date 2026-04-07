@@ -101,10 +101,18 @@ pub fn string_with_arrows(
 /// A string representation of the value
 pub fn value_to_string(value: &Value) -> String {
     match value {
-        Value::Number(n) => n.value.to_string(),
+        Value::Number(n) => {
+            // Check if this is actually a boolean value
+            if n.value == 0.0 {
+                "false".to_string()
+            } else if n.value == 1.0 {
+                "true".to_string()
+            } else {
+                n.value.to_string()
+            }
+        }
         Value::String(s) => s.value.clone(),
         Value::List(l) => {
-            // If the list has only one element, don't add brackets
             if l.elements.len() == 1 {
                 value_to_string(&l.elements[0])
             } else {
@@ -146,16 +154,24 @@ pub fn value_to_string(value: &Value) -> String {
 /// Converts a Value to its string representation for interpolation
 pub fn value_to_interpolated_string(value: &Value) -> String {
     match value {
-        Value::Number(n) => n.value.to_string(),
+        Value::Number(n) => {
+            // Check if this is actually a boolean value
+            if n.value == 0.0 {
+                "false".to_string()
+            } else if n.value == 1.0 {
+                "true".to_string()
+            } else {
+                n.value.to_string()
+            }
+        }
         Value::String(s) => s.value.clone(),
         Value::List(l) => {
-            // For interpolation, we want to show lists without extra formatting
             let mut result = String::from("[");
             for (i, elem) in l.elements.iter().enumerate() {
                 if i > 0 {
                     result.push_str(", ");
                 }
-                result.push_str(&value_to_interpolated_string(elem)); // Use interpolated version recursively
+                result.push_str(&value_to_interpolated_string(elem));
             }
             result.push(']');
             result
