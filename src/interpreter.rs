@@ -236,15 +236,12 @@ impl Interpreter {
     ) -> RuntimeResult {
         let var_name = node.variable_name_token.value.as_ref().unwrap();
 
-        // Walk up the context chain
-        let mut search: Option<&Context> = Some(context);
-        while let Some(ctx) = search {
-            if let Some(value) = ctx.symbol_table.get(var_name) {
-                return RuntimeResult::new().success(value.clone());
-            }
-            search = ctx.parent.as_deref();
+        // Use symbol table's get which already traverses parent chain
+        if let Some(value) = context.symbol_table.get(var_name) {
+            return RuntimeResult::new().success(value.clone());
         }
 
+        // Check global scope
         match self.global_symbol_table.get(var_name) {
             Some(value) => RuntimeResult::new().success(value.clone()),
             None => RuntimeResult::new().failure(
@@ -272,20 +269,11 @@ impl Interpreter {
             return result;
         }
 
-        // Try to find the variable in the current scope or parent scopes
-        // If found, update it in its original scope
-        // If not found, create it in the current scope
-        if let Some(_) = context.symbol_table.get(var_name) {
-            // Variable exists in current scope, update it
-            context.symbol_table.set(var_name.clone(), value.clone());
-        } else if let Some(parent) = &mut context.parent {
-            // Search in parent scopes (you'd need a recursive search function)
-            // For simplicity, just set in current scope for now
-            context.symbol_table.set(var_name.clone(), value.clone());
-        } else {
-            // Variable doesn't exist, create it in current scope
-            context.symbol_table.set(var_name.clone(), value.clone());
-        }
+        // Use set_existing to update the variable in its original scope,
+        // or create it in current scope if it doesn't exist
+        context
+            .symbol_table
+            .set_existing(var_name.clone(), value.clone());
 
         result.success(value)
     }

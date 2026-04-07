@@ -1,0 +1,20 @@
+spawn x = 10
+echo("Outer x: {x}")
+
+method test() {
+    echo("Inside function - x before: {x}")
+    x = 20  # This should update the outer x
+    echo("Inside function - x after: {x}")
+}
+
+test()
+echo("Outer x after function call: {x}")
+
+# Test nested blocks
+spawn y = 5
+when y == 5 {
+    echo("Inside block - y before: {y}")
+    y = 15
+    echo("Inside block - y after: {y}")
+}
+echo("Outer y after block: {y}")

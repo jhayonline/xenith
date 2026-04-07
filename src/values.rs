@@ -549,22 +549,23 @@ impl Function {
             );
         }
 
-        // Create new context for function execution
+        // Create child context (this properly links the symbol tables!)
         let mut func_context = context.create_child(
             self.name.as_deref().unwrap_or("<anonymous>"),
             crate::position::Position::new(0, 0, 0, "", ""),
         );
 
-        // Bind arguments
+        // Bind arguments in the function's local scope
         for (i, arg_name) in self.arg_names.iter().enumerate() {
             func_context
                 .symbol_table
-                .set(arg_name.clone(), args[i].clone());
+                .set_local(arg_name.clone(), args[i].clone());
         }
 
         // Execute function body
         let exec_result = interpreter.visit(&self.body_node, &mut func_context);
 
+        // Handle return value
         if let Some(err) = exec_result.error {
             return RuntimeResult::new().failure(err);
         }
