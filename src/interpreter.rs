@@ -164,7 +164,23 @@ impl Interpreter {
     }
 
     fn visit_struct_def(&mut self, node: &StructDefNode, context: &mut Context) -> RuntimeResult {
-        // TODO: Implement struct definition
+        // Store struct definition in the symbol table
+        let struct_name = node.name.value.as_ref().unwrap().clone();
+
+        // Create a map of field names to their types for validation
+        let mut field_types = Vec::new();
+        for field in &node.fields {
+            let field_name = field.name.value.as_ref().unwrap().clone();
+            field_types.push((field_name, field.field_type.clone()));
+        }
+
+        // Store the struct definition (we'll need a separate struct registry)
+        // For now, just store a marker in the symbol table
+        context.symbol_table.set(
+            struct_name.clone(),
+            Value::String(XenithString::new(format!("__struct__{}", struct_name))),
+        );
+
         RuntimeResult::new().success(Value::Number(Number::null()))
     }
 
@@ -449,11 +465,87 @@ impl Interpreter {
     ) -> RuntimeResult {
         let mut result = RuntimeResult::new();
 
+        // Handle assignment separately before evaluating both sides
+        if node.operator_token.kind == crate::tokens::TokenType::Eq {
+            if let Node::MethodAccess(field_node) = &*node.left_node {
+                let object_value = result.register(self.visit(&field_node.object, context));
+                if result.should_return() {
+                    return result;
+                }
+                let right = result.register(self.visit(&node.right_node, context));
+                if result.should_return() {
+                    return result;
+                }
+
+                let field_name = field_node.method_name.value.as_ref().unwrap();
+
+                // Get the variable name to write back
+                let var_name = if let Node::VarAccess(var_node) = &*field_node.object {
+                    Some(var_node.variable_name_token.value.as_ref().unwrap().clone())
+                } else {
+                    None
+                };
+
+                let updated = match object_value {
+                    Value::Struct(mut s) => {
+                        s.set_field(field_name.clone(), right.clone());
+                        Ok(Value::Struct(s))
+                    }
+                    Value::Map(mut m) => {
+                        m.set(field_name.clone(), right.clone());
+                        Ok(Value::Map(m))
+                    }
+                    _ => Err(RuntimeError::new(
+                        node.position_start.clone(),
+                        node.position_end.clone(),
+                        &format!(
+                            "Cannot set field '{}' on non-struct/non-map value",
+                            field_name
+                        ),
+                        Some(context.clone()),
+                    )
+                    .base),
+                };
+
+                return match updated {
+                    Ok(new_obj) => {
+                        // Write the mutated object back to the variable
+                        if let Some(name) = var_name {
+                            context.symbol_table.set_existing(name, new_obj.clone());
+                        }
+                        result.success(new_obj)
+                    }
+                    Err(e) => RuntimeResult::new().failure(e),
+                };
+            } else {
+                // Plain variable assignment
+                let right = result.register(self.visit(&node.right_node, context));
+                if result.should_return() {
+                    return result;
+                }
+                let var_name = if let Node::VarAccess(var_node) = &*node.left_node {
+                    var_node.variable_name_token.value.as_ref().unwrap().clone()
+                } else {
+                    return result.failure(
+                        RuntimeError::new(
+                            node.position_start.clone(),
+                            node.position_end.clone(),
+                            "Invalid left-hand side in assignment",
+                            Some(context.clone()),
+                        )
+                        .base,
+                    );
+                };
+                context.symbol_table.set_existing(var_name, right.clone());
+                return result.success(right);
+            }
+        }
+
+        // All non-assignment operators: evaluate both sides first
         let left = result.register(self.visit(&node.left_node, context));
         if result.should_return() {
             return result;
         }
-
         let right = result.register(self.visit(&node.right_node, context));
         if result.should_return() {
             return result;
@@ -473,47 +565,43 @@ impl Interpreter {
             crate::tokens::TokenType::Gt => left.greater_than(&right),
             crate::tokens::TokenType::Lte => left.less_than_or_equal(&right),
             crate::tokens::TokenType::Gte => left.greater_than_or_equal(&right),
-            crate::tokens::TokenType::Index => {
-                // Handle indexing: list[index] or map[key]
-                match (&left, &right) {
-                    (Value::List(list), Value::Number(idx)) => {
-                        let idx_usize = idx.value as usize;
-                        if idx_usize >= list.elements.len() {
-                            return RuntimeResult::new().failure(
-                                RuntimeError::new(
-                                    node.position_start.clone(),
-                                    node.position_end.clone(),
-                                    "List index out of bounds",
-                                    Some(context.clone()),
-                                )
-                                .base,
-                            );
-                        }
-                        Ok(list.elements[idx_usize].clone())
-                    }
-                    (Value::Map(map), Value::String(key)) => {
-                        if let Some(value) = map.get(&key.value) {
-                            Ok(value.clone())
-                        } else {
-                            Err(RuntimeError::new(
+            crate::tokens::TokenType::Index => match (&left, &right) {
+                (Value::List(list), Value::Number(idx)) => {
+                    let idx_usize = idx.value as usize;
+                    if idx_usize >= list.elements.len() {
+                        return RuntimeResult::new().failure(
+                            RuntimeError::new(
                                 node.position_start.clone(),
                                 node.position_end.clone(),
-                                &format!("Key '{}' not found in map", key.value),
+                                "List index out of bounds",
                                 Some(context.clone()),
                             )
-                            .base)
-                        }
+                            .base,
+                        );
                     }
-                    _ => Err(RuntimeError::new(
-                        node.position_start.clone(),
-                        node.position_end.clone(),
-                        "Cannot index non-list/non-map with non-number/non-string",
-                        Some(context.clone()),
-                    )
-                    .base),
+                    Ok(list.elements[idx_usize].clone())
                 }
-            }
-            // Add logical operators
+                (Value::Map(map), Value::String(key)) => {
+                    if let Some(value) = map.get(&key.value) {
+                        Ok(value.clone())
+                    } else {
+                        Err(RuntimeError::new(
+                            node.position_start.clone(),
+                            node.position_end.clone(),
+                            &format!("Key '{}' not found in map", key.value),
+                            Some(context.clone()),
+                        )
+                        .base)
+                    }
+                }
+                _ => Err(RuntimeError::new(
+                    node.position_start.clone(),
+                    node.position_end.clone(),
+                    "Cannot index non-list/non-map with non-number/non-string",
+                    Some(context.clone()),
+                )
+                .base),
+            },
             _ if op.matches(crate::tokens::TokenType::Keyword, Some("&&")) => left.anded_by(&right),
             _ if op.matches(crate::tokens::TokenType::Keyword, Some("||")) => left.ored_by(&right),
             _ => {

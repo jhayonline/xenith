@@ -243,7 +243,13 @@ impl Parser {
         };
 
         // Only advance if we didn't already advance inside the match
-        if !matches!(type_token.kind, TokenType::TypeList | TokenType::TypeMap) {
+        if !matches!(
+            type_token.kind,
+            TokenType::TypeList
+                | TokenType::TypeMap
+                | TokenType::Identifier
+                | TokenType::TypeStruct
+        ) {
             self.advance();
         }
 
@@ -503,6 +509,14 @@ impl Parser {
             .map(|t| t.position_start.clone())
             .unwrap_or_else(Self::dummy_pos);
 
+        // Check for struct definition
+        if let Some(tok) = self.current_token() {
+            if tok.kind == TokenType::TypeStruct || tok.matches(TokenType::Keyword, Some("struct"))
+            {
+                return self.struct_definition();
+            }
+        }
+
         // Check for grab statement
         if let Some(tok) = self.current_token() {
             if tok.matches(TokenType::Keyword, Some("grab")) {
@@ -578,7 +592,104 @@ impl Parser {
         }
     }
 
+    fn try_parse_field_access(&mut self) -> Option<Node> {
+        let start_index = self.token_index;
+
+        // Parse the object (should be an identifier)
+        let object = match self.current_token() {
+            Some(tok) if tok.kind == TokenType::Identifier => {
+                let obj_node = Node::VarAccess(VarAccessNode {
+                    variable_name_token: tok.clone(),
+                    position_start: tok.position_start.clone(),
+                    position_end: tok.position_end.clone(),
+                });
+                self.advance();
+                obj_node
+            }
+            _ => {
+                self.token_index = start_index;
+                return None;
+            }
+        };
+
+        // Check for dot
+        match self.current_token() {
+            Some(tok) if tok.kind == TokenType::Dot => {
+                self.advance();
+            }
+            _ => {
+                self.token_index = start_index;
+                return None;
+            }
+        }
+
+        // Parse the field name
+        let field_name = match self.current_token() {
+            Some(tok) if tok.kind == TokenType::Identifier => {
+                let field = tok.clone();
+                self.advance();
+                field
+            }
+            _ => {
+                self.token_index = start_index;
+                return None;
+            }
+        };
+
+        // Create a method access node (which we'll treat as field access)
+        let method_token = Token::new(
+            TokenType::Identifier,
+            field_name.value.clone(),
+            field_name.position_start.clone(),
+            Some(field_name.position_end.clone()),
+        );
+
+        Some(Node::MethodAccess(MethodAccessNode {
+            object: Box::new(object.clone()), // Clone here to avoid move
+            method_name: method_token,
+            position_start: object.position_start().clone(),
+            position_end: field_name.position_end.clone(),
+        }))
+    }
+
     fn expr(&mut self) -> ParseResult {
+        // Check for field assignment (e.g., object.field = value)
+        let start_index = self.token_index;
+
+        // Try to parse a field access
+        if let Some(mut node) = self.try_parse_field_access() {
+            // Check if next token is '='
+            if let Some(eq) = self.current_token() {
+                if eq.kind == TokenType::Eq {
+                    let eq_token = eq.clone();
+                    self.advance(); // consume '='
+
+                    // Parse the value
+                    let value_result = self.expr();
+                    if value_result.error.is_some() {
+                        return value_result;
+                    }
+                    let value = value_result.node.unwrap();
+
+                    // Create an assignment node for the field
+                    let pos_end = value.position_end().clone();
+
+                    // Create a binary operation node for field assignment
+                    let assign_node = Node::BinaryOperator(Box::new(BinaryOperatorNode {
+                        left_node: Box::new(node),
+                        operator_token: eq_token,
+                        right_node: Box::new(value),
+                        position_start: self.tokens[start_index].position_start.clone(),
+                        position_end: pos_end,
+                    }));
+
+                    return ParseResult::new().success(assign_node);
+                }
+            }
+        }
+        // If not a field assignment, reset and continue
+        self.token_index = start_index;
+
         // Check for const spawn declaration
         if let Some(tok) = self.current_token() {
             if tok.matches(TokenType::Keyword, Some("const")) {
@@ -2464,12 +2575,31 @@ impl Parser {
                     return result.success(node);
                 }
                 TokenType::Identifier => {
-                    let node = Node::VarAccess(VarAccessNode {
-                        variable_name_token: tok.clone(),
-                        position_start: tok.position_start.clone(),
-                        position_end: tok.position_end.clone(),
-                    });
+                    let struct_name = tok.value.clone().unwrap();
+                    let struct_pos_start = tok.position_start.clone();
+                    let struct_pos_end = tok.position_end.clone();
+
+                    // Advance before checking for lbrace to avoid borrow issues
                     self.advance();
+
+                    // Check if this is a struct instantiation (followed by {})
+                    if let Some(lbrace) = self.current_token() {
+                        if lbrace.kind == TokenType::LBrace {
+                            return self.struct_instantiation(struct_name);
+                        }
+                    }
+
+                    // Not a struct instantiation, create variable access node
+                    let node = Node::VarAccess(VarAccessNode {
+                        variable_name_token: Token::new(
+                            TokenType::Identifier,
+                            Some(struct_name.clone()),
+                            struct_pos_start.clone(),
+                            Some(struct_pos_end.clone()),
+                        ),
+                        position_start: struct_pos_start,
+                        position_end: struct_pos_end,
+                    });
 
                     // Check for dot access (e.g., user.name or user.keys())
                     if let Some(dot) = self.current_token().cloned() {
@@ -2648,6 +2778,140 @@ impl Parser {
             InvalidSyntaxError::new(Self::dummy_pos(), Self::dummy_pos(), "Expected expression")
                 .base,
         )
+    }
+
+    fn struct_instantiation(&mut self, struct_name: String) -> ParseResult {
+        let mut result = ParseResult::new();
+        let pos_start = self.current_token().unwrap().position_start.clone();
+
+        // Consume '{'
+        self.advance();
+
+        let mut fields = Vec::new();
+
+        // Parse fields
+        loop {
+            // Skip newlines
+            while let Some(t) = self.current_token() {
+                if t.kind == TokenType::Newline {
+                    self.advance();
+                } else {
+                    break;
+                }
+            }
+
+            // Check for closing brace
+            if let Some(t) = self.current_token() {
+                if t.kind == TokenType::RBrace {
+                    self.advance();
+                    break;
+                }
+            }
+
+            // Parse field name
+            let field_name = match self.current_token() {
+                Some(t) if t.kind == TokenType::Identifier => {
+                    let name = t.clone();
+                    self.advance();
+                    name
+                }
+                Some(t) => {
+                    return result.failure(
+                        InvalidSyntaxError::new(
+                            t.position_start.clone(),
+                            t.position_end.clone(),
+                            "Expected field name",
+                        )
+                        .base,
+                    );
+                }
+                None => {
+                    return result.failure(
+                        InvalidSyntaxError::new(
+                            Self::dummy_pos(),
+                            Self::dummy_pos(),
+                            "Expected field name",
+                        )
+                        .base,
+                    );
+                }
+            };
+
+            // Expect ':'
+            match self.current_token() {
+                Some(t) if t.kind == TokenType::Colon => {
+                    self.advance();
+                }
+                Some(t) => {
+                    return result.failure(
+                        InvalidSyntaxError::new(
+                            t.position_start.clone(),
+                            t.position_end.clone(),
+                            "Expected ':'",
+                        )
+                        .base,
+                    );
+                }
+                None => {
+                    return result.failure(
+                        InvalidSyntaxError::new(
+                            Self::dummy_pos(),
+                            Self::dummy_pos(),
+                            "Expected ':'",
+                        )
+                        .base,
+                    );
+                }
+            }
+
+            // Parse field value
+            let field_value = result.register(&self.expr());
+            if result.error.is_some() {
+                return result;
+            }
+
+            fields.push((field_name, field_value.unwrap()));
+
+            // Check for comma or closing brace
+            if let Some(t) = self.current_token() {
+                if t.kind == TokenType::Comma {
+                    self.advance();
+                    continue;
+                } else if t.kind == TokenType::RBrace {
+                    self.advance();
+                    break;
+                }
+            }
+        }
+
+        let pos_end = self
+            .current_token()
+            .map(|t| t.position_end.clone())
+            .unwrap_or(pos_start.clone());
+
+        // Create a struct instantiation node
+        // For now, we'll create a map node that represents the struct
+        let mut pairs = Vec::new();
+        for (name, value) in fields {
+            let key_node = Node::String(StringNode::new(Token::new(
+                TokenType::String,
+                Some(name.value.clone().unwrap()),
+                name.position_start.clone(),
+                Some(name.position_end.clone()),
+            )));
+            pairs.push(MapPair {
+                key_node: Box::new(key_node),
+                value_node: Box::new(value.clone()), // Clone here
+                position_start: name.position_start,
+                position_end: value.position_end().clone(),
+            });
+        }
+
+        result.success(Node::Map(MapNode {
+            pairs,
+            position_start: pos_start,
+            position_end: pos_end,
+        }))
     }
 
     // Method to handle indexing (e.g., fruits[0], matrix[1][0])
@@ -3602,6 +3866,180 @@ impl Parser {
             return_type,
             body_node: Box::new(body),
             is_arrow,
+            position_start: pos_start,
+            position_end: pos_end,
+        })))
+    }
+
+    /// Parse struct definition
+    /// Syntax: struct Name { field: type, field2: type }
+    fn struct_definition(&mut self) -> ParseResult {
+        let mut result = ParseResult::new();
+        let pos_start = self.current_token().unwrap().position_start.clone();
+
+        // Consume 'struct'
+        self.advance();
+
+        // Parse struct name
+        let struct_name = match self.current_token() {
+            Some(t) if t.kind == TokenType::Identifier => t.clone(),
+            Some(t) => {
+                return result.failure(
+                    InvalidSyntaxError::new(
+                        t.position_start.clone(),
+                        t.position_end.clone(),
+                        "Expected struct name",
+                    )
+                    .base,
+                );
+            }
+            None => {
+                return result.failure(
+                    InvalidSyntaxError::new(
+                        Self::dummy_pos(),
+                        Self::dummy_pos(),
+                        "Expected struct name",
+                    )
+                    .base,
+                );
+            }
+        };
+        self.advance();
+
+        // Expect '{'
+        match self.current_token() {
+            Some(t) if t.kind == TokenType::LBrace => {
+                self.advance();
+            }
+            Some(t) => {
+                return result.failure(
+                    InvalidSyntaxError::new(
+                        t.position_start.clone(),
+                        t.position_end.clone(),
+                        "Expected '{'",
+                    )
+                    .base,
+                );
+            }
+            None => {
+                return result.failure(
+                    InvalidSyntaxError::new(Self::dummy_pos(), Self::dummy_pos(), "Expected '{'")
+                        .base,
+                );
+            }
+        }
+
+        let mut fields = Vec::new();
+
+        // Parse fields
+        loop {
+            // Skip newlines
+            while let Some(t) = self.current_token() {
+                if t.kind == TokenType::Newline {
+                    self.advance();
+                } else {
+                    break;
+                }
+            }
+
+            // Check for closing brace
+            if let Some(t) = self.current_token() {
+                if t.kind == TokenType::RBrace {
+                    self.advance();
+                    break;
+                }
+            }
+
+            // Parse field name
+            let field_name = match self.current_token() {
+                Some(t) if t.kind == TokenType::Identifier => t.clone(),
+                Some(t) => {
+                    return result.failure(
+                        InvalidSyntaxError::new(
+                            t.position_start.clone(),
+                            t.position_end.clone(),
+                            "Expected field name",
+                        )
+                        .base,
+                    );
+                }
+                None => {
+                    return result.failure(
+                        InvalidSyntaxError::new(
+                            Self::dummy_pos(),
+                            Self::dummy_pos(),
+                            "Expected field name",
+                        )
+                        .base,
+                    );
+                }
+            };
+            self.advance();
+
+            // Expect ':'
+            match self.current_token() {
+                Some(t) if t.kind == TokenType::Colon => {
+                    self.advance();
+                }
+                Some(t) => {
+                    return result.failure(
+                        InvalidSyntaxError::new(
+                            t.position_start.clone(),
+                            t.position_end.clone(),
+                            "Expected ':'",
+                        )
+                        .base,
+                    );
+                }
+                None => {
+                    return result.failure(
+                        InvalidSyntaxError::new(
+                            Self::dummy_pos(),
+                            Self::dummy_pos(),
+                            "Expected ':'",
+                        )
+                        .base,
+                    );
+                }
+            }
+
+            // Parse field type
+            let field_type = result.register_type(&self.parse_type());
+            if result.error.is_some() {
+                return result;
+            }
+
+            fields.push(StructFieldNode {
+                name: field_name.clone(),
+                field_type,
+                is_constant: false, // Fields are mutable by default
+                position_start: field_name.position_start.clone(),
+                position_end: self
+                    .current_token()
+                    .map(|t| t.position_end.clone())
+                    .unwrap_or(field_name.position_end.clone()),
+            });
+
+            // Check for comma or closing brace
+            if let Some(t) = self.current_token() {
+                if t.kind == TokenType::Comma {
+                    self.advance();
+                    continue;
+                } else if t.kind == TokenType::RBrace {
+                    self.advance();
+                    break;
+                }
+            }
+        }
+
+        let pos_end = self
+            .current_token()
+            .map(|t| t.position_end.clone())
+            .unwrap_or(pos_start.clone());
+
+        result.success(Node::StructDef(Box::new(StructDefNode {
+            name: struct_name,
+            fields,
             position_start: pos_start,
             position_end: pos_end,
         })))

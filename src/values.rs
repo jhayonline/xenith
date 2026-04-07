@@ -24,6 +24,7 @@ pub enum Value {
     Function(Box<Function>),
     BuiltInFunction(BuiltInFunction),
     Map(Map),
+    Struct(Struct),
 }
 
 impl Value {
@@ -49,6 +50,7 @@ impl Value {
             Value::String(s) => !s.value.is_empty(),
             Value::List(l) => !l.elements.is_empty(),
             Value::Map(m) => !m.pairs.is_empty(),
+            Value::Struct(s) => !s.fields.is_empty(),
             Value::Function(_) => true,
             Value::BuiltInFunction(_) => true,
         }
@@ -969,4 +971,28 @@ impl Default for Map {
 #[derive(Debug, Clone)]
 pub struct CaughtError {
     pub message: String,
+}
+
+/// Struct instance
+#[derive(Debug, Clone)]
+pub struct Struct {
+    pub name: String,
+    pub fields: HashMap<String, Value>,
+}
+
+impl Struct {
+    pub fn new(name: String) -> Self {
+        Self {
+            name,
+            fields: HashMap::new(),
+        }
+    }
+
+    pub fn get_field(&self, name: &str) -> Option<&Value> {
+        self.fields.get(name)
+    }
+
+    pub fn set_field(&mut self, name: String, value: Value) {
+        self.fields.insert(name, value);
+    }
 }

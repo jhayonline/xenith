@@ -148,6 +148,17 @@ pub fn value_to_string(value: &Value) -> String {
             result.push('}');
             result
         }
+        Value::Struct(s) => {
+            let mut result = format!("<struct {}>{{", s.name);
+            for (i, (key, val)) in s.fields.iter().enumerate() {
+                if i > 0 {
+                    result.push_str(", ");
+                }
+                result.push_str(&format!("{}: {}", key, value_to_string(val)));
+            }
+            result.push('}');
+            result
+        }
     }
 }
 
@@ -197,6 +208,17 @@ pub fn value_to_interpolated_string(value: &Value) -> String {
                     key,
                     value_to_interpolated_string(val)
                 ));
+            }
+            result.push('}');
+            result
+        }
+        Value::Struct(s) => {
+            let mut result = format!("<struct {}>{{", s.name);
+            for (i, (key, val)) in s.fields.iter().enumerate() {
+                if i > 0 {
+                    result.push_str(", ");
+                }
+                result.push_str(&format!("{}: {}", key, value_to_string(val)));
             }
             result.push('}');
             result

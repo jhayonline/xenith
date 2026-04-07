@@ -1,0 +1,27 @@
+# Define a struct
+struct Person {
+    name: string,
+    age: int
+}
+
+# Create a struct instance
+spawn alice: Person = Person {
+    name: "Alice",
+    age: 25
+}
+
+echo("Name: {alice.name}")
+echo("Age: {alice.age}")
+
+# Modify a field (since mutable by default)
+alice.age = 26
+echo("Updated age: {alice.age}")
+
+# Create another person
+spawn bob: Person = Person {
+    name: "Bob",
+    age: 30
+}
+
+echo("Bob's name: {bob.name}")
+echo("Bob's age: {bob.age}")
