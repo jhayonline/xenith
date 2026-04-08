@@ -450,6 +450,40 @@ impl Interpreter {
             Value::BuiltInFunction(BuiltInFunction::new("__json_has_key")),
         );
 
+        // std::dotenv  Dot Env
+        global.set(
+            "__dotenv_load".to_string(),
+            Value::BuiltInFunction(BuiltInFunction::new("__dotenv_load")),
+        );
+        global.set(
+            "__dotenv_load_file".to_string(),
+            Value::BuiltInFunction(BuiltInFunction::new("__dotenv_load_file")),
+        );
+        global.set(
+            "__dotenv_get".to_string(),
+            Value::BuiltInFunction(BuiltInFunction::new("__dotenv_get")),
+        );
+        global.set(
+            "__dotenv_get_or_default".to_string(),
+            Value::BuiltInFunction(BuiltInFunction::new("__dotenv_get_or_default")),
+        );
+        global.set(
+            "__dotenv_has".to_string(),
+            Value::BuiltInFunction(BuiltInFunction::new("__dotenv_has")),
+        );
+        global.set(
+            "__dotenv_set".to_string(),
+            Value::BuiltInFunction(BuiltInFunction::new("__dotenv_set")),
+        );
+        global.set(
+            "__dotenv_unset".to_string(),
+            Value::BuiltInFunction(BuiltInFunction::new("__dotenv_unset")),
+        );
+        global.set(
+            "__dotenv_vars".to_string(),
+            Value::BuiltInFunction(BuiltInFunction::new("__dotenv_vars")),
+        );
+
         Self {
             global_symbol_table: global,
             module_registry: None,

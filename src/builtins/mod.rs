@@ -1,3 +1,4 @@
+pub mod dotenv;
 pub mod fs;
 pub mod json;
 pub mod math;

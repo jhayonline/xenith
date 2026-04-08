@@ -702,6 +702,16 @@ impl BuiltInFunction {
             "__json_set" => crate::builtins::json::set(args),
             "__json_has_key" => crate::builtins::json::has_key(args),
 
+            // std::dotenv  Dot Env
+            "__dotenv_load" => crate::builtins::dotenv::load(args),
+            "__dotenv_load_file" => crate::builtins::dotenv::load_file(args),
+            "__dotenv_get" => crate::builtins::dotenv::get(args),
+            "__dotenv_get_or_default" => crate::builtins::dotenv::get_or_default(args),
+            "__dotenv_has" => crate::builtins::dotenv::has(args),
+            "__dotenv_set" => crate::builtins::dotenv::set(args),
+            "__dotenv_unset" => crate::builtins::dotenv::unset(args),
+            "__dotenv_vars" => crate::builtins::dotenv::vars(args),
+
             _ => RuntimeResult::new().failure(
                 RuntimeError::new(
                     crate::position::Position::new(0, 0, 0, "", ""),

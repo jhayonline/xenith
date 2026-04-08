@@ -1,0 +1,58 @@
+grab { load, load_file, get, get_or_default, has, set, unset, vars } from "std::dotenv"
+
+echo("=== .env Module Test ===\n")
+
+# Test load
+echo("1. Loading .env file:")
+try {
+    load()
+    echo("   .env loaded successfully\n")
+} catch err {
+    echo("   Error: {err}\n")
+}
+
+# Test get
+echo("2. Getting values:")
+spawn db_host: string = get("DB_HOST")
+spawn db_port: string = get("DB_PORT")
+echo("   DB_HOST: {db_host}")
+echo("   DB_PORT: {db_port}\n")
+
+# Test get_or_default
+echo("3. Get with default:")
+spawn api_key: string = get_or_default("API_KEY", "default_key")
+spawn missing: string = get_or_default("MISSING_VAR", "default_value")
+echo("   API_KEY: {api_key}")
+echo("   MISSING_VAR: {missing}\n")
+
+# Test has
+echo("4. Check existence:")
+echo("   Has DB_HOST? {has("DB_HOST")}")
+echo("   Has FAKE_VAR? {has("FAKE_VAR")}\n")
+
+# Test set
+echo("5. Set new variable:")
+set("TEST_VAR", "test_value")
+spawn test_val: string = get_or_default("TEST_VAR", "")
+echo("   TEST_VAR: {test_val}\n")
+
+# Test vars
+echo("6. All variables (first 5):")
+spawn all_vars: map<string, string> = vars()
+spawn count: int = 0
+for key, value in all_vars.items() {
+    when count >= 5 {
+        stop
+    }
+    echo("   {key} = {value}")
+    count = count + 1
+}
+echo("")
+
+# Test unset
+echo("7. Unset variable:")
+unset("TEST_VAR")
+spawn exists: bool = has("TEST_VAR")
+echo("   TEST_VAR exists? {exists}\n")
+
+echo("=== All tests completed! ===")

@@ -1,0 +1,46 @@
+# Standard Library: .env File Management
+# Provides loading and accessing environment variables from .env files
+
+# Loads .env file from current directory
+export method load() -> null {
+    __dotenv_load()
+    release null
+}
+
+# Loads .env file from specific path
+export method load_file(path: string) -> null {
+    __dotenv_load_file(path)
+    release null
+}
+
+# Gets an environment variable (errors if not found)
+export method get(key: string) -> string {
+    release __dotenv_get(key)
+}
+
+# Gets an environment variable with a default fallback
+export method get_or_default(key: string, default: string) -> string {
+    release __dotenv_get_or_default(key, default)
+}
+
+# Checks if an environment variable exists
+export method has(key: string) -> bool {
+    release __dotenv_has(key)
+}
+
+# Sets an environment variable at runtime
+export method set(key: string, value: string) -> null {
+    __dotenv_set(key, value)
+    release null
+}
+
+# Removes an environment variable
+export method unset(key: string) -> null {
+    __dotenv_unset(key)
+    release null
+}
+
+# Returns all loaded environment variables as a map
+export method vars() -> map<string, string> {
+    release __dotenv_vars()
+}
