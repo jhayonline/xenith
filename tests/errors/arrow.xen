@@ -1,0 +1,3 @@
+spawn x: string = 42
+
+echo(x)

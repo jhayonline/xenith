@@ -12,7 +12,9 @@ use crate::context::Context;
 use crate::error::{Error, RuntimeError};
 use crate::interpreter::Interpreter;
 use crate::nodes::Node;
+use crate::position::Position;
 use crate::runtime_result::RuntimeResult;
+use crate::types::Type;
 use crate::utils::value_to_string;
 
 /// All possible runtime values in Xenith
@@ -501,6 +503,7 @@ pub struct Function {
     pub name: Option<String>,
     pub body_node: Box<Node>,
     pub arg_names: Vec<String>,
+    pub param_types: Vec<Type>,
     pub should_auto_return: bool,
 }
 
@@ -509,12 +512,14 @@ impl Function {
         name: Option<String>,
         body_node: Node,
         arg_names: Vec<String>,
+        param_types: Vec<Type>,
         should_auto_return: bool,
     ) -> Self {
         Self {
             name,
             body_node: Box::new(body_node),
             arg_names,
+            param_types,
             should_auto_return,
         }
     }
@@ -524,37 +529,43 @@ impl Function {
         args: Vec<Value>,
         context: Context,
         interpreter: &mut Interpreter,
+        call_position: Position, // NEW
     ) -> RuntimeResult {
         let mut result = RuntimeResult::new();
 
         // Check argument count
         if args.len() != self.arg_names.len() {
-            return RuntimeResult::new().failure(
-                RuntimeError::new(
-                    crate::position::Position::new(0, 0, 0, "", ""),
-                    crate::position::Position::new(0, 0, 0, "", ""),
-                    &format!(
-                        "Expected {} arguments, got {}",
-                        self.arg_names.len(),
-                        args.len()
-                    ),
-                    Some(context),
-                )
-                .base,
-            );
+            return RuntimeResult::new().failure(Error::too_few_arguments(
+                self.arg_names.len(),
+                args.len(),
+                call_position.clone(),
+                call_position,
+            ));
+        }
+
+        // Check argument types
+        for (i, (arg, expected_type)) in args.iter().zip(self.param_types.iter()).enumerate() {
+            if !Self::value_matches_type(arg, expected_type) {
+                return RuntimeResult::new().failure(Error::type_mismatch(
+                    &expected_type.to_string(),
+                    &Self::get_type_name(arg),
+                    call_position.clone(),
+                    call_position.clone(),
+                ));
+            }
         }
 
         // Create child context
         let mut func_context = context.create_child(
             self.name.as_deref().unwrap_or("<anonymous>"),
-            crate::position::Position::new(0, 0, 0, "", ""),
+            call_position.clone(),
         );
 
         // Bind arguments in the function's local scope
         for (i, arg_name) in self.arg_names.iter().enumerate() {
             func_context
                 .symbol_table
-                .set_local(arg_name.clone(), args[i].clone()); // set_local now takes &self
+                .set_local(arg_name.clone(), args[i].clone());
         }
 
         // Execute function body
@@ -576,6 +587,48 @@ impl Function {
         }
 
         RuntimeResult::new().success(Value::Number(Number::null()))
+    }
+
+    pub fn value_matches_type(value: &Value, expected_type: &Type) -> bool {
+        match (value, expected_type) {
+            (Value::Number(n), Type::Int) => n.value.fract() == 0.0,
+            (Value::Number(_), Type::Float) => true,
+            (Value::String(_), Type::String) => true,
+            (Value::Bool(_), Type::Bool) => true,
+            (Value::List(l), Type::List(elem_type)) => l
+                .elements
+                .iter()
+                .all(|v| Self::value_matches_type(v, elem_type)),
+            (Value::Map(m), Type::Map(key_type, val_type)) => {
+                // Keys are always strings in runtime
+                m.pairs
+                    .values()
+                    .all(|v| Self::value_matches_type(v, val_type))
+            }
+            (Value::Struct(s), Type::Struct(name, _)) => &s.name == name,
+            (Value::Json(_), Type::Json) => true,
+            _ => false,
+        }
+    }
+
+    pub fn get_type_name(value: &Value) -> String {
+        match value {
+            Value::Number(n) => {
+                if n.value.fract() == 0.0 {
+                    "int".to_string()
+                } else {
+                    "float".to_string()
+                }
+            }
+            Value::String(_) => "string".to_string(),
+            Value::Bool(_) => "bool".to_string(),
+            Value::List(_) => "list".to_string(),
+            Value::Map(_) => "map".to_string(),
+            Value::Struct(s) => format!("struct {}", s.name),
+            Value::Function(_) => "function".to_string(),
+            Value::BuiltInFunction(_) => "builtin".to_string(),
+            Value::Json(_) => "json".to_string(),
+        }
     }
 }
 

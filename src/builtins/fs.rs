@@ -1,7 +1,7 @@
 //! File system built-in functions
 //! These are called by the std::fs wrapper module
 
-use crate::error::RuntimeError;
+use crate::error::Error;
 use crate::position::Position;
 use crate::runtime_result::RuntimeResult;
 use crate::values::{List, Number, Value, XenithString};
@@ -15,98 +15,77 @@ fn dummy_pos() -> Position {
 pub fn read(args: Vec<Value>) -> RuntimeResult {
     if args.len() != 1 {
         return RuntimeResult::new().failure(
-            RuntimeError::new(
+            Error::new(
                 dummy_pos(),
                 dummy_pos(),
+                "Argument Error",
                 "__fs_read expects 1 argument (path)",
-                None,
             )
-            .base,
+            .with_code("XEN100"),
         );
     }
 
     let path = match &args[0] {
         Value::String(s) => &s.value,
         _ => {
-            return RuntimeResult::new().failure(
-                RuntimeError::new(
-                    dummy_pos(),
-                    dummy_pos(),
-                    "__fs_read: argument must be a string",
-                    None,
-                )
-                .base,
-            );
+            return RuntimeResult::new().failure(Error::type_mismatch(
+                "string",
+                "other",
+                dummy_pos(),
+                dummy_pos(),
+            ));
         }
     };
 
     match fs::read_to_string(path) {
         Ok(content) => RuntimeResult::new().success(Value::String(XenithString::new(content))),
-        Err(e) => RuntimeResult::new().failure(
-            RuntimeError::new(
-                dummy_pos(),
-                dummy_pos(),
-                &format!("Failed to read file '{}': {}", path, e),
-                None,
-            )
-            .base,
-        ),
+        Err(_) => {
+            RuntimeResult::new().failure(Error::file_not_found(path, dummy_pos(), dummy_pos()))
+        }
     }
 }
 
 pub fn write(args: Vec<Value>) -> RuntimeResult {
     if args.len() != 2 {
         return RuntimeResult::new().failure(
-            RuntimeError::new(
+            Error::new(
                 dummy_pos(),
                 dummy_pos(),
+                "Argument Error",
                 "__fs_write expects 2 arguments (path, content)",
-                None,
             )
-            .base,
+            .with_code("XEN100"),
         );
     }
 
     let path = match &args[0] {
         Value::String(s) => &s.value,
         _ => {
-            return RuntimeResult::new().failure(
-                RuntimeError::new(
-                    dummy_pos(),
-                    dummy_pos(),
-                    "__fs_write: first argument must be a string (path)",
-                    None,
-                )
-                .base,
-            );
+            return RuntimeResult::new().failure(Error::type_mismatch(
+                "string",
+                "other",
+                dummy_pos(),
+                dummy_pos(),
+            ));
         }
     };
 
     let content = match &args[1] {
         Value::String(s) => &s.value,
         _ => {
-            return RuntimeResult::new().failure(
-                RuntimeError::new(
-                    dummy_pos(),
-                    dummy_pos(),
-                    "__fs_write: second argument must be a string (content)",
-                    None,
-                )
-                .base,
-            );
+            return RuntimeResult::new().failure(Error::type_mismatch(
+                "string",
+                "other",
+                dummy_pos(),
+                dummy_pos(),
+            ));
         }
     };
 
     match fs::write(path, content) {
         Ok(_) => RuntimeResult::new().success(Value::Number(Number::null())),
         Err(e) => RuntimeResult::new().failure(
-            RuntimeError::new(
-                dummy_pos(),
-                dummy_pos(),
-                &format!("Failed to write to file '{}': {}", path, e),
-                None,
-            )
-            .base,
+            Error::permission_denied(path, dummy_pos(), dummy_pos()).with_note(&e.to_string()),
         ),
     }
 }
@@ -114,43 +93,37 @@ pub fn write(args: Vec<Value>) -> RuntimeResult {
 pub fn append(args: Vec<Value>) -> RuntimeResult {
     if args.len() != 2 {
         return RuntimeResult::new().failure(
-            RuntimeError::new(
+            Error::new(
                 dummy_pos(),
                 dummy_pos(),
+                "Argument Error",
                 "__fs_append expects 2 arguments (path, content)",
-                None,
             )
-            .base,
+            .with_code("XEN100"),
         );
     }
 
     let path = match &args[0] {
         Value::String(s) => &s.value,
         _ => {
-            return RuntimeResult::new().failure(
-                RuntimeError::new(
-                    dummy_pos(),
-                    dummy_pos(),
-                    "__fs_append: first argument must be a string (path)",
-                    None,
-                )
-                .base,
-            );
+            return RuntimeResult::new().failure(Error::type_mismatch(
+                "string",
+                "other",
+                dummy_pos(),
+                dummy_pos(),
+            ));
         }
     };
 
     let content = match &args[1] {
         Value::String(s) => &s.value,
         _ => {
-            return RuntimeResult::new().failure(
-                RuntimeError::new(
-                    dummy_pos(),
-                    dummy_pos(),
-                    "__fs_append: second argument must be a string (content)",
-                    None,
-                )
-                .base,
-            );
+            return RuntimeResult::new().failure(Error::type_mismatch(
+                "string",
+                "other",
+                dummy_pos(),
+                dummy_pos(),
+            ));
         }
     };
 
@@ -160,24 +133,13 @@ pub fn append(args: Vec<Value>) -> RuntimeResult {
             match file.write_all(content.as_bytes()) {
                 Ok(_) => RuntimeResult::new().success(Value::Number(Number::null())),
                 Err(e) => RuntimeResult::new().failure(
-                    RuntimeError::new(
-                        dummy_pos(),
-                        dummy_pos(),
-                        &format!("Failed to append to file '{}': {}", path, e),
-                        None,
-                    )
-                    .base,
+                    Error::permission_denied(path, dummy_pos(), dummy_pos())
+                        .with_note(&e.to_string()),
                 ),
             }
         }
         Err(e) => RuntimeResult::new().failure(
-            RuntimeError::new(
-                dummy_pos(),
-                dummy_pos(),
-                &format!("Failed to open file '{}' for appending: {}", path, e),
-                None,
-            )
-            .base,
+            Error::permission_denied(path, dummy_pos(), dummy_pos()).with_note(&e.to_string()),
         ),
     }
 }
@@ -185,28 +147,25 @@ pub fn append(args: Vec<Value>) -> RuntimeResult {
 pub fn exists(args: Vec<Value>) -> RuntimeResult {
     if args.len() != 1 {
         return RuntimeResult::new().failure(
-            RuntimeError::new(
+            Error::new(
                 dummy_pos(),
                 dummy_pos(),
+                "Argument Error",
                 "__fs_exists expects 1 argument (path)",
-                None,
             )
-            .base,
+            .with_code("XEN100"),
         );
     }
 
     let path = match &args[0] {
         Value::String(s) => &s.value,
         _ => {
-            return RuntimeResult::new().failure(
-                RuntimeError::new(
-                    dummy_pos(),
-                    dummy_pos(),
-                    "__fs_exists: argument must be a string",
-                    None,
-                )
-                .base,
-            );
+            return RuntimeResult::new().failure(Error::type_mismatch(
+                "string",
+                "other",
+                dummy_pos(),
+                dummy_pos(),
+            ));
         }
     };
 
@@ -217,28 +176,25 @@ pub fn exists(args: Vec<Value>) -> RuntimeResult {
 pub fn is_file(args: Vec<Value>) -> RuntimeResult {
     if args.len() != 1 {
         return RuntimeResult::new().failure(
-            RuntimeError::new(
+            Error::new(
                 dummy_pos(),
                 dummy_pos(),
+                "Argument Error",
                 "__fs_is_file expects 1 argument (path)",
-                None,
             )
-            .base,
+            .with_code("XEN100"),
         );
     }
 
     let path = match &args[0] {
         Value::String(s) => &s.value,
         _ => {
-            return RuntimeResult::new().failure(
-                RuntimeError::new(
-                    dummy_pos(),
-                    dummy_pos(),
-                    "__fs_is_file: argument must be a string",
-                    None,
-                )
-                .base,
-            );
+            return RuntimeResult::new().failure(Error::type_mismatch(
+                "string",
+                "other",
+                dummy_pos(),
+                dummy_pos(),
+            ));
         }
     };
 
@@ -249,28 +205,25 @@ pub fn is_file(args: Vec<Value>) -> RuntimeResult {
 pub fn is_dir(args: Vec<Value>) -> RuntimeResult {
     if args.len() != 1 {
         return RuntimeResult::new().failure(
-            RuntimeError::new(
+            Error::new(
                 dummy_pos(),
                 dummy_pos(),
+                "Argument Error",
                 "__fs_is_dir expects 1 argument (path)",
-                None,
             )
-            .base,
+            .with_code("XEN100"),
         );
     }
 
     let path = match &args[0] {
         Value::String(s) => &s.value,
         _ => {
-            return RuntimeResult::new().failure(
-                RuntimeError::new(
-                    dummy_pos(),
-                    dummy_pos(),
-                    "__fs_is_dir: argument must be a string",
-                    None,
-                )
-                .base,
-            );
+            return RuntimeResult::new().failure(Error::type_mismatch(
+                "string",
+                "other",
+                dummy_pos(),
+                dummy_pos(),
+            ));
         }
     };
 
@@ -281,41 +234,32 @@ pub fn is_dir(args: Vec<Value>) -> RuntimeResult {
 pub fn mkdir(args: Vec<Value>) -> RuntimeResult {
     if args.len() != 1 {
         return RuntimeResult::new().failure(
-            RuntimeError::new(
+            Error::new(
                 dummy_pos(),
                 dummy_pos(),
+                "Argument Error",
                 "__fs_mkdir expects 1 argument (path)",
-                None,
             )
-            .base,
+            .with_code("XEN100"),
         );
     }
 
     let path = match &args[0] {
         Value::String(s) => &s.value,
         _ => {
-            return RuntimeResult::new().failure(
-                RuntimeError::new(
-                    dummy_pos(),
-                    dummy_pos(),
-                    "__fs_mkdir: argument must be a string",
-                    None,
-                )
-                .base,
-            );
+            return RuntimeResult::new().failure(Error::type_mismatch(
+                "string",
+                "other",
+                dummy_pos(),
+                dummy_pos(),
+            ));
         }
     };
 
     match fs::create_dir(path) {
         Ok(_) => RuntimeResult::new().success(Value::Number(Number::null())),
         Err(e) => RuntimeResult::new().failure(
-            RuntimeError::new(
-                dummy_pos(),
-                dummy_pos(),
-                &format!("Failed to create directory '{}': {}", path, e),
-                None,
-            )
-            .base,
+            Error::permission_denied(path, dummy_pos(), dummy_pos()).with_note(&e.to_string()),
         ),
     }
 }
@@ -323,41 +267,32 @@ pub fn mkdir(args: Vec<Value>) -> RuntimeResult {
 pub fn mkdir_all(args: Vec<Value>) -> RuntimeResult {
     if args.len() != 1 {
         return RuntimeResult::new().failure(
-            RuntimeError::new(
+            Error::new(
                 dummy_pos(),
                 dummy_pos(),
+                "Argument Error",
                 "__fs_mkdir_all expects 1 argument (path)",
-                None,
             )
-            .base,
+            .with_code("XEN100"),
         );
     }
 
     let path = match &args[0] {
         Value::String(s) => &s.value,
         _ => {
-            return RuntimeResult::new().failure(
-                RuntimeError::new(
-                    dummy_pos(),
-                    dummy_pos(),
-                    "__fs_mkdir_all: argument must be a string",
-                    None,
-                )
-                .base,
-            );
+            return RuntimeResult::new().failure(Error::type_mismatch(
+                "string",
+                "other",
+                dummy_pos(),
+                dummy_pos(),
+            ));
         }
     };
 
     match fs::create_dir_all(path) {
         Ok(_) => RuntimeResult::new().success(Value::Number(Number::null())),
         Err(e) => RuntimeResult::new().failure(
-            RuntimeError::new(
-                dummy_pos(),
-                dummy_pos(),
-                &format!("Failed to create directory tree '{}': {}", path, e),
-                None,
-            )
-            .base,
+            Error::permission_denied(path, dummy_pos(), dummy_pos()).with_note(&e.to_string()),
         ),
     }
 }
@@ -365,28 +300,25 @@ pub fn mkdir_all(args: Vec<Value>) -> RuntimeResult {
 pub fn remove(args: Vec<Value>) -> RuntimeResult {
     if args.len() != 1 {
         return RuntimeResult::new().failure(
-            RuntimeError::new(
+            Error::new(
                 dummy_pos(),
                 dummy_pos(),
+                "Argument Error",
                 "__fs_remove expects 1 argument (path)",
-                None,
             )
-            .base,
+            .with_code("XEN100"),
         );
     }
 
     let path = match &args[0] {
         Value::String(s) => &s.value,
         _ => {
-            return RuntimeResult::new().failure(
-                RuntimeError::new(
-                    dummy_pos(),
-                    dummy_pos(),
-                    "__fs_remove: argument must be a string",
-                    None,
-                )
-                .base,
-            );
+            return RuntimeResult::new().failure(Error::type_mismatch(
+                "string",
+                "other",
+                dummy_pos(),
+                dummy_pos(),
+            ));
         }
     };
 
@@ -394,13 +326,7 @@ pub fn remove(args: Vec<Value>) -> RuntimeResult {
         Ok(m) => m,
         Err(e) => {
             return RuntimeResult::new().failure(
-                RuntimeError::new(
-                    dummy_pos(),
-                    dummy_pos(),
-                    &format!("Failed to remove '{}': {}", path, e),
-                    None,
-                )
-                .base,
+                Error::file_not_found(path, dummy_pos(), dummy_pos()).with_note(&e.to_string()),
             );
         }
     };
@@ -414,13 +340,7 @@ pub fn remove(args: Vec<Value>) -> RuntimeResult {
     match result {
         Ok(_) => RuntimeResult::new().success(Value::Number(Number::null())),
         Err(e) => RuntimeResult::new().failure(
-            RuntimeError::new(
-                dummy_pos(),
-                dummy_pos(),
-                &format!("Failed to remove '{}': {}", path, e),
-                None,
-            )
-            .base,
+            Error::permission_denied(path, dummy_pos(), dummy_pos()).with_note(&e.to_string()),
         ),
     }
 }
@@ -428,41 +348,32 @@ pub fn remove(args: Vec<Value>) -> RuntimeResult {
 pub fn remove_all(args: Vec<Value>) -> RuntimeResult {
     if args.len() != 1 {
         return RuntimeResult::new().failure(
-            RuntimeError::new(
+            Error::new(
                 dummy_pos(),
                 dummy_pos(),
+                "Argument Error",
                 "__fs_remove_all expects 1 argument (path)",
-                None,
             )
-            .base,
+            .with_code("XEN100"),
         );
     }
 
     let path = match &args[0] {
         Value::String(s) => &s.value,
         _ => {
-            return RuntimeResult::new().failure(
-                RuntimeError::new(
-                    dummy_pos(),
-                    dummy_pos(),
-                    "__fs_remove_all: argument must be a string",
-                    None,
-                )
-                .base,
-            );
+            return RuntimeResult::new().failure(Error::type_mismatch(
+                "string",
+                "other",
+                dummy_pos(),
+                dummy_pos(),
+            ));
         }
     };
 
     match fs::remove_dir_all(path) {
         Ok(_) => RuntimeResult::new().success(Value::Number(Number::null())),
         Err(e) => RuntimeResult::new().failure(
-            RuntimeError::new(
-                dummy_pos(),
-                dummy_pos(),
-                &format!("Failed to remove directory tree '{}': {}", path, e),
-                None,
-            )
-            .base,
+            Error::permission_denied(path, dummy_pos(), dummy_pos()).with_note(&e.to_string()),
         ),
     }
 }
@@ -470,28 +381,25 @@ pub fn remove_all(args: Vec<Value>) -> RuntimeResult {
 pub fn list_dir(args: Vec<Value>) -> RuntimeResult {
     if args.len() != 1 {
         return RuntimeResult::new().failure(
-            RuntimeError::new(
+            Error::new(
                 dummy_pos(),
                 dummy_pos(),
+                "Argument Error",
                 "__fs_list_dir expects 1 argument (path)",
-                None,
             )
-            .base,
+            .with_code("XEN100"),
         );
     }
 
     let path = match &args[0] {
         Value::String(s) => &s.value,
         _ => {
-            return RuntimeResult::new().failure(
-                RuntimeError::new(
-                    dummy_pos(),
-                    dummy_pos(),
-                    "__fs_list_dir: argument must be a string",
-                    None,
-                )
-                .base,
-            );
+            return RuntimeResult::new().failure(Error::type_mismatch(
+                "string",
+                "other",
+                dummy_pos(),
+                dummy_pos(),
+            ));
         }
     };
 
@@ -507,13 +415,8 @@ pub fn list_dir(args: Vec<Value>) -> RuntimeResult {
                     }
                     Err(e) => {
                         return RuntimeResult::new().failure(
-                            RuntimeError::new(
-                                dummy_pos(),
-                                dummy_pos(),
-                                &format!("Failed to read directory entry: {}", e),
-                                None,
-                            )
-                            .base,
+                            Error::permission_denied(path, dummy_pos(), dummy_pos())
+                                .with_note(&e.to_string()),
                         );
                     }
                 }
@@ -521,13 +424,7 @@ pub fn list_dir(args: Vec<Value>) -> RuntimeResult {
             RuntimeResult::new().success(Value::List(List::new(items)))
         }
         Err(e) => RuntimeResult::new().failure(
-            RuntimeError::new(
-                dummy_pos(),
-                dummy_pos(),
-                &format!("Failed to list directory '{}': {}", path, e),
-                None,
-            )
-            .base,
+            Error::file_not_found(path, dummy_pos(), dummy_pos()).with_note(&e.to_string()),
         ),
     }
 }
@@ -535,56 +432,44 @@ pub fn list_dir(args: Vec<Value>) -> RuntimeResult {
 pub fn copy(args: Vec<Value>) -> RuntimeResult {
     if args.len() != 2 {
         return RuntimeResult::new().failure(
-            RuntimeError::new(
+            Error::new(
                 dummy_pos(),
                 dummy_pos(),
+                "Argument Error",
                 "__fs_copy expects 2 arguments (from, to)",
-                None,
             )
-            .base,
+            .with_code("XEN100"),
         );
     }
 
     let from = match &args[0] {
         Value::String(s) => &s.value,
         _ => {
-            return RuntimeResult::new().failure(
-                RuntimeError::new(
-                    dummy_pos(),
-                    dummy_pos(),
-                    "__fs_copy: first argument must be a string (source)",
-                    None,
-                )
-                .base,
-            );
+            return RuntimeResult::new().failure(Error::type_mismatch(
+                "string",
+                "other",
+                dummy_pos(),
+                dummy_pos(),
+            ));
         }
     };
 
     let to = match &args[1] {
         Value::String(s) => &s.value,
         _ => {
-            return RuntimeResult::new().failure(
-                RuntimeError::new(
-                    dummy_pos(),
-                    dummy_pos(),
-                    "__fs_copy: second argument must be a string (destination)",
-                    None,
-                )
-                .base,
-            );
+            return RuntimeResult::new().failure(Error::type_mismatch(
+                "string",
+                "other",
+                dummy_pos(),
+                dummy_pos(),
+            ));
         }
     };
 
     match fs::copy(from, to) {
         Ok(_) => RuntimeResult::new().success(Value::Number(Number::null())),
         Err(e) => RuntimeResult::new().failure(
-            RuntimeError::new(
-                dummy_pos(),
-                dummy_pos(),
-                &format!("Failed to copy '{}' to '{}': {}", from, to, e),
-                None,
-            )
-            .base,
+            Error::file_not_found(from, dummy_pos(), dummy_pos()).with_note(&e.to_string()),
         ),
     }
 }

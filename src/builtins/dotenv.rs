@@ -1,7 +1,7 @@
 //! .env file built-in functions
 //! These are called by the std::dotenv wrapper module
 
-use crate::error::RuntimeError;
+use crate::error::{Error, RuntimeError};
 use crate::position::Position;
 use crate::runtime_result::RuntimeResult;
 use crate::values::{Map, Number, Value, XenithString};
@@ -98,28 +98,25 @@ pub fn load_file(args: Vec<Value>) -> RuntimeResult {
 pub fn get(args: Vec<Value>) -> RuntimeResult {
     if args.len() != 1 {
         return RuntimeResult::new().failure(
-            RuntimeError::new(
+            Error::new(
                 dummy_pos(),
                 dummy_pos(),
+                "Argument Error",
                 "__dotenv_get expects 1 argument (key)",
-                None,
             )
-            .base,
+            .with_code("XEN100"),
         );
     }
 
     let key = match &args[0] {
         Value::String(s) => &s.value,
         _ => {
-            return RuntimeResult::new().failure(
-                RuntimeError::new(
-                    dummy_pos(),
-                    dummy_pos(),
-                    "__dotenv_get: argument must be a string",
-                    None,
-                )
-                .base,
-            );
+            return RuntimeResult::new().failure(Error::type_mismatch(
+                "string",
+                "other",
+                dummy_pos(),
+                dummy_pos(),
+            ));
         }
     };
 
@@ -128,15 +125,7 @@ pub fn get(args: Vec<Value>) -> RuntimeResult {
         Some(value) => {
             RuntimeResult::new().success(Value::String(XenithString::new(value.clone())))
         }
-        None => RuntimeResult::new().failure(
-            RuntimeError::new(
-                dummy_pos(),
-                dummy_pos(),
-                &format!("Environment variable '{}' not found", key),
-                None,
-            )
-            .base,
-        ),
+        None => RuntimeResult::new().failure(Error::env_not_found(key, dummy_pos(), dummy_pos())),
     }
 }
 

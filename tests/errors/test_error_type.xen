@@ -1,0 +1,8 @@
+method add(a: int, b: int) -> int {
+    release a + b
+}
+
+spawn x: string = "5"
+spawn y: int = 10
+spawn result: int = add(x, y)
+echo(result)

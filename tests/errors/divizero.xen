@@ -1,0 +1,3 @@
+# Test division by zero
+spawn result: int = 10 / 0
+echo(result)

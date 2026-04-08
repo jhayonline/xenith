@@ -3,7 +3,7 @@
 //! Implements recursive descent parsing to transform token streams
 //! into an Abstract Syntax Tree (AST). Uses {} block syntax.
 
-use crate::error::InvalidSyntaxError;
+use crate::error::{Error, InvalidSyntaxError};
 use crate::nodes::*;
 use crate::parse_result::ParseResult;
 use crate::position::Position;
@@ -76,14 +76,12 @@ impl Parser {
         // Check we consumed all tokens
         if let Some(tok) = self.current_token() {
             if tok.kind != TokenType::Eof {
-                return result.failure(
-                    InvalidSyntaxError::new(
-                        tok.position_start.clone(),
-                        tok.position_end.clone(),
-                        "Unexpected token",
-                    )
-                    .base,
-                );
+                return result.failure(Error::unexpected_token(
+                    &format!("{:?}", tok.kind),
+                    "end of file or valid token",
+                    tok.position_start.clone(),
+                    tok.position_end.clone(),
+                ));
             }
         }
 
@@ -97,10 +95,12 @@ impl Parser {
         let type_token = match self.current_token() {
             Some(tok) => tok.clone(),
             None => {
-                return result.failure(
-                    InvalidSyntaxError::new(Self::dummy_pos(), Self::dummy_pos(), "Expected type")
-                        .base,
-                );
+                return result.failure(Error::unexpected_token(
+                    "nothing",
+                    "type",
+                    Self::dummy_pos(),
+                    Self::dummy_pos(),
+                ));
             }
         };
 
@@ -257,14 +257,12 @@ impl Parser {
                                 self.advance();
                             }
                             _ => {
-                                return result.failure(
-                                    InvalidSyntaxError::new(
-                                        Self::dummy_pos(),
-                                        Self::dummy_pos(),
-                                        "Expected '>'",
-                                    )
-                                    .base,
-                                );
+                                return result.failure(Error::unexpected_token(
+                                    &format!("{:?}", self.current_token().unwrap().kind),
+                                    "'>'",
+                                    self.current_token().unwrap().position_start.clone(),
+                                    self.current_token().unwrap().position_end.clone(),
+                                ));
                             }
                         }
 
@@ -681,14 +679,12 @@ impl Parser {
                 self.advance();
             }
             Some(tok) => {
-                return result.failure(
-                    InvalidSyntaxError::new(
-                        tok.position_start.clone(),
-                        tok.position_end.clone(),
-                        "Expected '{'",
-                    )
-                    .base,
-                );
+                return result.failure(Error::unexpected_token(
+                    &format!("{:?}", tok.kind),
+                    "'{'",
+                    tok.position_start.clone(),
+                    tok.position_end.clone(),
+                ));
             }
             None => {
                 return result.failure(
@@ -1699,14 +1695,12 @@ impl Parser {
         let var_name = match self.current_token() {
             Some(t) if t.kind == TokenType::Identifier => t.clone(),
             Some(t) => {
-                return result.failure(
-                    InvalidSyntaxError::new(
-                        t.position_start.clone(),
-                        t.position_end.clone(),
-                        "Expected identifier",
-                    )
-                    .base,
-                );
+                return result.failure(Error::unexpected_token(
+                    &format!("{:?}", t.kind),
+                    "identifier",
+                    t.position_start.clone(),
+                    t.position_end.clone(),
+                ));
             }
             None => {
                 return result.failure(
@@ -1732,14 +1726,12 @@ impl Parser {
                 Some(typ)
             }
             _ => {
-                return result.failure(
-                    InvalidSyntaxError::new(
-                        var_name.position_start.clone(),
-                        var_name.position_end.clone(),
-                        "Expected type annotation ':'",
-                    )
-                    .base,
-                );
+                return result.failure(Error::unexpected_token(
+                    "end of input",
+                    "':'",
+                    var_name.position_start.clone(),
+                    var_name.position_end.clone(),
+                ));
             }
         };
 
@@ -1994,14 +1986,12 @@ impl Parser {
                     node
                 }
                 Some(t) => {
-                    return result.failure(
-                        InvalidSyntaxError::new(
-                            t.position_start.clone(),
-                            t.position_end.clone(),
-                            &format!("Expected pattern, got {:?}", t.kind),
-                        )
-                        .base,
-                    );
+                    return result.failure(Error::unexpected_token(
+                        &format!("{:?}", t.kind),
+                        "pattern",
+                        t.position_start.clone(),
+                        t.position_end.clone(),
+                    ));
                 }
                 None => {
                     return result.failure(
@@ -4125,14 +4115,12 @@ impl Parser {
                         param_types.push(param_type);
                     }
                     _ => {
-                        return result.failure(
-                            InvalidSyntaxError::new(
-                                param_name.position_start.clone(),
-                                param_name.position_end.clone(),
-                                "Expected type annotation ':' for parameter",
-                            )
-                            .base,
-                        );
+                        return result.failure(Error::unexpected_token(
+                            "end of input",
+                            "':'",
+                            param_name.position_start.clone(),
+                            param_name.position_end.clone(),
+                        ));
                     }
                 }
 

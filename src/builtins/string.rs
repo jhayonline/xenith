@@ -1,7 +1,7 @@
 //! String utility built-in functions
 //! These are called by the std::string wrapper module
 
-use crate::error::RuntimeError;
+use crate::error::{Error, RuntimeError};
 use crate::position::Position;
 use crate::runtime_result::RuntimeResult;
 use crate::values::{List, Value, XenithString};
@@ -10,14 +10,14 @@ fn dummy_pos() -> Position {
     Position::new(0, 0, 0, "", "")
 }
 
-fn get_string_arg(args: &[Value], index: usize) -> Result<String, RuntimeError> {
+fn get_string_arg(args: &[Value], index: usize) -> Result<String, Error> {
     match &args[index] {
         Value::String(s) => Ok(s.value.clone()),
-        _ => Err(RuntimeError::new(
+        _ => Err(Error::type_mismatch(
+            "string",
+            "other",
             dummy_pos(),
             dummy_pos(),
-            &format!("Argument {} must be a string", index),
-            None,
         )),
     }
 }
@@ -37,12 +37,12 @@ pub fn split(args: Vec<Value>) -> RuntimeResult {
 
     let text = match get_string_arg(&args, 0) {
         Ok(s) => s,
-        Err(e) => return RuntimeResult::new().failure(e.base),
+        Err(e) => return RuntimeResult::new().failure(e),
     };
 
     let delimiter = match get_string_arg(&args, 1) {
         Ok(s) => s,
-        Err(e) => return RuntimeResult::new().failure(e.base),
+        Err(e) => return RuntimeResult::new().failure(e),
     };
 
     let parts: Vec<Value> = if delimiter.is_empty() {
@@ -88,7 +88,7 @@ pub fn join(args: Vec<Value>) -> RuntimeResult {
 
     let separator = match get_string_arg(&args, 1) {
         Ok(s) => s,
-        Err(e) => return RuntimeResult::new().failure(e.base),
+        Err(e) => return RuntimeResult::new().failure(e),
     };
 
     let mut result = String::new();
@@ -132,7 +132,7 @@ pub fn trim(args: Vec<Value>) -> RuntimeResult {
 
     let text = match get_string_arg(&args, 0) {
         Ok(s) => s,
-        Err(e) => return RuntimeResult::new().failure(e.base),
+        Err(e) => return RuntimeResult::new().failure(e),
     };
 
     RuntimeResult::new().success(Value::String(XenithString::new(text.trim().to_string())))
@@ -153,7 +153,7 @@ pub fn trim_start(args: Vec<Value>) -> RuntimeResult {
 
     let text = match get_string_arg(&args, 0) {
         Ok(s) => s,
-        Err(e) => return RuntimeResult::new().failure(e.base),
+        Err(e) => return RuntimeResult::new().failure(e),
     };
 
     RuntimeResult::new().success(Value::String(XenithString::new(
@@ -176,7 +176,7 @@ pub fn trim_end(args: Vec<Value>) -> RuntimeResult {
 
     let text = match get_string_arg(&args, 0) {
         Ok(s) => s,
-        Err(e) => return RuntimeResult::new().failure(e.base),
+        Err(e) => return RuntimeResult::new().failure(e),
     };
 
     RuntimeResult::new().success(Value::String(XenithString::new(
@@ -199,17 +199,17 @@ pub fn replace(args: Vec<Value>) -> RuntimeResult {
 
     let text = match get_string_arg(&args, 0) {
         Ok(s) => s,
-        Err(e) => return RuntimeResult::new().failure(e.base),
+        Err(e) => return RuntimeResult::new().failure(e),
     };
 
     let from = match get_string_arg(&args, 1) {
         Ok(s) => s,
-        Err(e) => return RuntimeResult::new().failure(e.base),
+        Err(e) => return RuntimeResult::new().failure(e),
     };
 
     let to = match get_string_arg(&args, 2) {
         Ok(s) => s,
-        Err(e) => return RuntimeResult::new().failure(e.base),
+        Err(e) => return RuntimeResult::new().failure(e),
     };
 
     RuntimeResult::new().success(Value::String(XenithString::new(text.replace(&from, &to))))
@@ -230,12 +230,12 @@ pub fn contains(args: Vec<Value>) -> RuntimeResult {
 
     let text = match get_string_arg(&args, 0) {
         Ok(s) => s,
-        Err(e) => return RuntimeResult::new().failure(e.base),
+        Err(e) => return RuntimeResult::new().failure(e),
     };
 
     let substring = match get_string_arg(&args, 1) {
         Ok(s) => s,
-        Err(e) => return RuntimeResult::new().failure(e.base),
+        Err(e) => return RuntimeResult::new().failure(e),
     };
 
     RuntimeResult::new().success(Value::Bool(text.contains(&substring)))
@@ -256,12 +256,12 @@ pub fn starts_with(args: Vec<Value>) -> RuntimeResult {
 
     let text = match get_string_arg(&args, 0) {
         Ok(s) => s,
-        Err(e) => return RuntimeResult::new().failure(e.base),
+        Err(e) => return RuntimeResult::new().failure(e),
     };
 
     let prefix = match get_string_arg(&args, 1) {
         Ok(s) => s,
-        Err(e) => return RuntimeResult::new().failure(e.base),
+        Err(e) => return RuntimeResult::new().failure(e),
     };
 
     RuntimeResult::new().success(Value::Bool(text.starts_with(&prefix)))
@@ -282,12 +282,12 @@ pub fn ends_with(args: Vec<Value>) -> RuntimeResult {
 
     let text = match get_string_arg(&args, 0) {
         Ok(s) => s,
-        Err(e) => return RuntimeResult::new().failure(e.base),
+        Err(e) => return RuntimeResult::new().failure(e),
     };
 
     let suffix = match get_string_arg(&args, 1) {
         Ok(s) => s,
-        Err(e) => return RuntimeResult::new().failure(e.base),
+        Err(e) => return RuntimeResult::new().failure(e),
     };
 
     RuntimeResult::new().success(Value::Bool(text.ends_with(&suffix)))
@@ -308,7 +308,7 @@ pub fn to_upper(args: Vec<Value>) -> RuntimeResult {
 
     let text = match get_string_arg(&args, 0) {
         Ok(s) => s,
-        Err(e) => return RuntimeResult::new().failure(e.base),
+        Err(e) => return RuntimeResult::new().failure(e),
     };
 
     RuntimeResult::new().success(Value::String(XenithString::new(text.to_uppercase())))
@@ -329,7 +329,7 @@ pub fn to_lower(args: Vec<Value>) -> RuntimeResult {
 
     let text = match get_string_arg(&args, 0) {
         Ok(s) => s,
-        Err(e) => return RuntimeResult::new().failure(e.base),
+        Err(e) => return RuntimeResult::new().failure(e),
     };
 
     RuntimeResult::new().success(Value::String(XenithString::new(text.to_lowercase())))
@@ -350,7 +350,7 @@ pub fn reverse(args: Vec<Value>) -> RuntimeResult {
 
     let text = match get_string_arg(&args, 0) {
         Ok(s) => s,
-        Err(e) => return RuntimeResult::new().failure(e.base),
+        Err(e) => return RuntimeResult::new().failure(e),
     };
 
     let reversed: String = text.chars().rev().collect();

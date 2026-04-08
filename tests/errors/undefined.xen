@@ -1,0 +1,2 @@
+# Test undefined variable
+echo(undefined_var)

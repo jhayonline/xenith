@@ -1,7 +1,7 @@
 //! JSON built-in functions
 //! These are called by the std::json wrapper module
 
-use crate::error::RuntimeError;
+use crate::error::{Error, RuntimeError};
 use crate::position::Position;
 use crate::runtime_result::RuntimeResult;
 use crate::values::{JsonValue, List, Map, Number, Value, XenithString};
@@ -67,46 +67,35 @@ fn xenith_to_json(value: &Value) -> SerdeValue {
 pub fn parse(args: Vec<Value>) -> RuntimeResult {
     if args.len() != 1 {
         return RuntimeResult::new().failure(
-            RuntimeError::new(
+            Error::new(
                 dummy_pos(),
                 dummy_pos(),
+                "Argument Error",
                 "__json_parse expects 1 argument",
-                None,
             )
-            .base,
+            .with_code("XEN100"),
         );
     }
 
-    // Check if argument is a string
     if let Value::String(s) = &args[0] {
-        // Parse JSON string
         match serde_json::from_str(&s.value) {
             Ok(json_val) => RuntimeResult::new().success(Value::Json(JsonValue::new(json_val))),
-            Err(e) => RuntimeResult::new().failure(
-                RuntimeError::new(
-                    dummy_pos(),
-                    dummy_pos(),
-                    &format!("Invalid JSON: {}", e),
-                    None,
-                )
-                .base,
-            ),
+            Err(e) => RuntimeResult::new().failure(Error::invalid_json(
+                &e.to_string(),
+                dummy_pos(),
+                dummy_pos(),
+            )),
         }
-    }
-    // Check if argument is a map - convert directly to JSON
-    else if let Value::Map(m) = &args[0] {
+    } else if let Value::Map(m) = &args[0] {
         let json_val = xenith_to_json(&Value::Map(m.clone()));
         RuntimeResult::new().success(Value::Json(JsonValue::new(json_val)))
     } else {
-        RuntimeResult::new().failure(
-            RuntimeError::new(
-                dummy_pos(),
-                dummy_pos(),
-                "__json_parse: argument must be a string or a map",
-                None,
-            )
-            .base,
-        )
+        RuntimeResult::new().failure(Error::type_mismatch(
+            "string or map",
+            "other",
+            dummy_pos(),
+            dummy_pos(),
+        ))
     }
 }
 

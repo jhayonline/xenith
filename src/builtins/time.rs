@@ -1,7 +1,7 @@
 //! Time built-in functions
 //! These are called by the std::time wrapper module
 
-use crate::error::RuntimeError;
+use crate::error::{Error, RuntimeError};
 use crate::position::Position;
 use crate::runtime_result::RuntimeResult;
 use crate::values::{Number, Value};
@@ -79,28 +79,25 @@ pub fn timestamp_ms(args: Vec<Value>) -> RuntimeResult {
 pub fn sleep(args: Vec<Value>) -> RuntimeResult {
     if args.len() != 1 {
         return RuntimeResult::new().failure(
-            RuntimeError::new(
+            Error::new(
                 dummy_pos(),
                 dummy_pos(),
+                "Argument Error",
                 "__time_sleep expects 1 argument (milliseconds)",
-                None,
             )
-            .base,
+            .with_code("XEN100"),
         );
     }
 
     let ms = match &args[0] {
         Value::Number(n) => n.value as u64,
         _ => {
-            return RuntimeResult::new().failure(
-                RuntimeError::new(
-                    dummy_pos(),
-                    dummy_pos(),
-                    "__time_sleep: argument must be a number",
-                    None,
-                )
-                .base,
-            );
+            return RuntimeResult::new().failure(Error::type_mismatch(
+                "number",
+                "other",
+                dummy_pos(),
+                dummy_pos(),
+            ));
         }
     };
 

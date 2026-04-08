@@ -1,7 +1,7 @@
 //! Path manipulation built-in functions
 //! These are called by the std::path wrapper module
 
-use crate::error::RuntimeError;
+use crate::error::{Error, RuntimeError};
 use crate::position::Position;
 use crate::runtime_result::RuntimeResult;
 use crate::values::{List, Value, XenithString};
@@ -11,19 +11,19 @@ fn dummy_pos() -> Position {
     Position::new(0, 0, 0, "", "")
 }
 
-fn value_to_string(value: &Value) -> Result<String, RuntimeError> {
+fn value_to_string(value: &Value) -> Result<String, Error> {
     match value {
         Value::String(s) => Ok(s.value.clone()),
-        _ => Err(RuntimeError::new(
+        _ => Err(Error::type_mismatch(
+            "string",
+            "other",
             dummy_pos(),
             dummy_pos(),
-            "Expected string argument",
-            None,
         )),
     }
 }
 
-fn value_to_string_list(value: &Value) -> Result<Vec<String>, RuntimeError> {
+fn value_to_string_list(value: &Value) -> Result<Vec<String>, Error> {
     match value {
         Value::List(list) => {
             let mut strings = Vec::new();
@@ -31,22 +31,22 @@ fn value_to_string_list(value: &Value) -> Result<Vec<String>, RuntimeError> {
                 match elem {
                     Value::String(s) => strings.push(s.value.clone()),
                     _ => {
-                        return Err(RuntimeError::new(
+                        return Err(Error::type_mismatch(
+                            "list of strings",
+                            "other",
                             dummy_pos(),
                             dummy_pos(),
-                            "Expected list of strings",
-                            None,
                         ));
                     }
                 }
             }
             Ok(strings)
         }
-        _ => Err(RuntimeError::new(
+        _ => Err(Error::type_mismatch(
+            "list",
+            "other",
             dummy_pos(),
             dummy_pos(),
-            "Expected list argument",
-            None,
         )),
     }
 }
@@ -54,19 +54,19 @@ fn value_to_string_list(value: &Value) -> Result<Vec<String>, RuntimeError> {
 pub fn join(args: Vec<Value>) -> RuntimeResult {
     if args.len() != 1 {
         return RuntimeResult::new().failure(
-            RuntimeError::new(
+            Error::new(
                 dummy_pos(),
                 dummy_pos(),
+                "Argument Error",
                 "__path_join expects 1 argument (list of parts)",
-                None,
             )
-            .base,
+            .with_code("XEN100"),
         );
     }
 
     let parts = match value_to_string_list(&args[0]) {
         Ok(p) => p,
-        Err(e) => return RuntimeResult::new().failure(e.base),
+        Err(e) => return RuntimeResult::new().failure(e),
     };
 
     if parts.is_empty() {
@@ -98,7 +98,7 @@ pub fn basename(args: Vec<Value>) -> RuntimeResult {
 
     let path_str = match value_to_string(&args[0]) {
         Ok(s) => s,
-        Err(e) => return RuntimeResult::new().failure(e.base),
+        Err(e) => return RuntimeResult::new().failure(e),
     };
 
     let path = Path::new(&path_str);
@@ -122,7 +122,7 @@ pub fn dirname(args: Vec<Value>) -> RuntimeResult {
 
     let path_str = match value_to_string(&args[0]) {
         Ok(s) => s,
-        Err(e) => return RuntimeResult::new().failure(e.base),
+        Err(e) => return RuntimeResult::new().failure(e),
     };
 
     let path = Path::new(&path_str);
@@ -146,7 +146,7 @@ pub fn extension(args: Vec<Value>) -> RuntimeResult {
 
     let path_str = match value_to_string(&args[0]) {
         Ok(s) => s,
-        Err(e) => return RuntimeResult::new().failure(e.base),
+        Err(e) => return RuntimeResult::new().failure(e),
     };
 
     let path = Path::new(&path_str);
@@ -170,7 +170,7 @@ pub fn stem(args: Vec<Value>) -> RuntimeResult {
 
     let path_str = match value_to_string(&args[0]) {
         Ok(s) => s,
-        Err(e) => return RuntimeResult::new().failure(e.base),
+        Err(e) => return RuntimeResult::new().failure(e),
     };
 
     let path = Path::new(&path_str);
@@ -194,7 +194,7 @@ pub fn is_absolute(args: Vec<Value>) -> RuntimeResult {
 
     let path_str = match value_to_string(&args[0]) {
         Ok(s) => s,
-        Err(e) => return RuntimeResult::new().failure(e.base),
+        Err(e) => return RuntimeResult::new().failure(e),
     };
 
     let path = Path::new(&path_str);
@@ -216,7 +216,7 @@ pub fn is_relative(args: Vec<Value>) -> RuntimeResult {
 
     let path_str = match value_to_string(&args[0]) {
         Ok(s) => s,
-        Err(e) => return RuntimeResult::new().failure(e.base),
+        Err(e) => return RuntimeResult::new().failure(e),
     };
 
     let path = Path::new(&path_str);
@@ -226,19 +226,19 @@ pub fn is_relative(args: Vec<Value>) -> RuntimeResult {
 pub fn absolute(args: Vec<Value>) -> RuntimeResult {
     if args.len() != 1 {
         return RuntimeResult::new().failure(
-            RuntimeError::new(
+            Error::new(
                 dummy_pos(),
                 dummy_pos(),
+                "Argument Error",
                 "__path_absolute expects 1 argument (path)",
-                None,
             )
-            .base,
+            .with_code("XEN100"),
         );
     }
 
     let path_str = match value_to_string(&args[0]) {
         Ok(s) => s,
-        Err(e) => return RuntimeResult::new().failure(e.base),
+        Err(e) => return RuntimeResult::new().failure(e),
     };
 
     let path = Path::new(&path_str);
@@ -247,13 +247,15 @@ pub fn absolute(args: Vec<Value>) -> RuntimeResult {
             abs_path.to_string_lossy().to_string(),
         ))),
         Err(e) => RuntimeResult::new().failure(
-            RuntimeError::new(
+            Error::new(
                 dummy_pos(),
                 dummy_pos(),
+                "Path Error",
                 &format!("Failed to get absolute path: {}", e),
-                None,
             )
-            .base,
+            .with_code("XEN200")
+            .with_note(&format!("path: {}", path_str))
+            .with_help("check if the path exists and you have permission to access it"),
         ),
     }
 }
@@ -273,7 +275,7 @@ pub fn normalize(args: Vec<Value>) -> RuntimeResult {
 
     let path_str = match value_to_string(&args[0]) {
         Ok(s) => s,
-        Err(e) => return RuntimeResult::new().failure(e.base),
+        Err(e) => return RuntimeResult::new().failure(e),
     };
 
     let path = Path::new(&path_str);
@@ -320,7 +322,7 @@ pub fn components(args: Vec<Value>) -> RuntimeResult {
 
     let path_str = match value_to_string(&args[0]) {
         Ok(s) => s,
-        Err(e) => return RuntimeResult::new().failure(e.base),
+        Err(e) => return RuntimeResult::new().failure(e),
     };
 
     let path = Path::new(&path_str);
@@ -351,7 +353,7 @@ pub fn parent(args: Vec<Value>) -> RuntimeResult {
 
     let path_str = match value_to_string(&args[0]) {
         Ok(s) => s,
-        Err(e) => return RuntimeResult::new().failure(e.base),
+        Err(e) => return RuntimeResult::new().failure(e),
     };
 
     let path = Path::new(&path_str);

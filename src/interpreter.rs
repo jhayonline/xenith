@@ -5,7 +5,7 @@
 //! variable access, control flow, function calls, and built-in operations.
 
 use crate::context::Context;
-use crate::error::RuntimeError;
+use crate::error::{Error, RuntimeError};
 use crate::lexer::Lexer;
 use crate::modules::{Module, ModuleRegistry};
 use crate::nodes::{
@@ -785,15 +785,12 @@ impl Interpreter {
             let key_str = match &key_value {
                 Value::String(s) => s.value.clone(),
                 _ => {
-                    return result.failure(
-                        RuntimeError::new(
-                            pair.position_start.clone(),
-                            pair.position_end.clone(),
-                            "Map keys must be strings",
-                            Some(context.clone()),
-                        )
-                        .base,
-                    );
+                    return result.failure(Error::type_mismatch(
+                        "string",
+                        "non-string",
+                        pair.position_start.clone(),
+                        pair.position_end.clone(),
+                    ));
                 }
             };
 
@@ -841,23 +838,17 @@ impl Interpreter {
     ) -> RuntimeResult {
         let var_name = node.variable_name_token.value.as_ref().unwrap();
 
-        // Use symbol table's get which already traverses parent chain
         if let Some(value) = context.symbol_table.get(var_name) {
             return RuntimeResult::new().success(value.clone());
         }
 
-        // Check global scope
         match self.global_symbol_table.get(var_name) {
             Some(value) => RuntimeResult::new().success(value.clone()),
-            None => RuntimeResult::new().failure(
-                RuntimeError::new(
-                    node.position_start.clone(),
-                    node.position_end.clone(),
-                    &format!("'{}' is not defined", var_name),
-                    Some(context.clone()),
-                )
-                .base,
-            ),
+            None => RuntimeResult::new().failure(Error::undefined_variable(
+                var_name,
+                node.position_start.clone(),
+                node.position_end.clone(),
+            )),
         }
     }
 
@@ -1068,15 +1059,12 @@ impl Interpreter {
                     if let Some(field_value) = s.get_field(&field_name) {
                         return result.success(field_value.clone());
                     } else {
-                        return result.failure(
-                            RuntimeError::new(
-                                node.position_start.clone(),
-                                node.position_end.clone(),
-                                &format!("Struct has no field '{}'", field_name),
-                                Some(context.clone()),
-                            )
-                            .base,
-                        );
+                        return result.failure(Error::field_not_found(
+                            &s.name,
+                            &field_name,
+                            node.position_start.clone(),
+                            node.position_end.clone(),
+                        ));
                     }
                 }
                 Value::Map(m) => {
@@ -1124,7 +1112,17 @@ impl Interpreter {
             crate::tokens::TokenType::Plus => left.add(&right),
             crate::tokens::TokenType::Minus => left.subtract(&right),
             crate::tokens::TokenType::Mul => left.multiply(&right),
-            crate::tokens::TokenType::Div => left.divide(&right),
+            crate::tokens::TokenType::Div => {
+                if let (Value::Number(a), Value::Number(b)) = (&left, &right) {
+                    if b.value == 0.0 {
+                        return RuntimeResult::new().failure(Error::division_by_zero(
+                            node.position_start.clone(),
+                            node.position_end.clone(),
+                        ));
+                    }
+                }
+                left.divide(&right)
+            }
             crate::tokens::TokenType::Pow => left.power(&right),
             crate::tokens::TokenType::Ee => left.equals(&right),
             crate::tokens::TokenType::Ne => left.not_equals(&right),
@@ -1136,15 +1134,12 @@ impl Interpreter {
                 (Value::List(list), Value::Number(idx)) => {
                     let idx_usize = idx.value as usize;
                     if idx_usize >= list.elements.len() {
-                        return RuntimeResult::new().failure(
-                            RuntimeError::new(
-                                node.position_start.clone(),
-                                node.position_end.clone(),
-                                "List index out of bounds",
-                                Some(context.clone()),
-                            )
-                            .base,
-                        );
+                        return RuntimeResult::new().failure(Error::index_out_of_bounds(
+                            idx_usize,
+                            list.elements.len(),
+                            node.position_start.clone(),
+                            node.position_end.clone(),
+                        ));
                     }
                     Ok(list.elements[idx_usize].clone())
                 }
@@ -1824,6 +1819,7 @@ impl Interpreter {
             func_name.clone(),
             *node.body_node.clone(),
             arg_names,
+            node.param_types.clone(),
             node.is_arrow,
         );
 
@@ -1968,18 +1964,12 @@ impl Interpreter {
 
                         return RuntimeResult::new().success(Value::Number(Number::null()));
                     } else {
-                        return result.failure(
-                            RuntimeError::new(
-                                node.position_start.clone(),
-                                node.position_end.clone(),
-                                &format!(
-                                    "Method '{}' not found for struct '{}'",
-                                    method_name, struct_name
-                                ),
-                                Some(context.clone()),
-                            )
-                            .base,
-                        );
+                        return result.failure(Error::method_not_found(
+                            &struct_name,
+                            &method_name,
+                            node.position_start.clone(),
+                            node.position_end.clone(),
+                        ));
                     }
                 }
             }
@@ -2047,7 +2037,9 @@ impl Interpreter {
         }
 
         let call_result = match callee {
-            Value::Function(func) => func.execute(args, context.clone(), self),
+            Value::Function(func) => {
+                func.execute(args, context.clone(), self, node.position_start.clone())
+            }
             Value::BuiltInFunction(builtin) => builtin.execute(args, self),
             _ => {
                 return result.failure(
