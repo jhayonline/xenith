@@ -486,6 +486,36 @@ impl Interpreter {
             Value::BuiltInFunction(BuiltInFunction::new("__dotenv_vars")),
         );
 
+        // std::http  HTTP Client
+        global.set(
+            "__http_get".to_string(),
+            Value::BuiltInFunction(BuiltInFunction::new("__http_get")),
+        );
+        global.set(
+            "__http_post".to_string(),
+            Value::BuiltInFunction(BuiltInFunction::new("__http_post")),
+        );
+        global.set(
+            "__http_put".to_string(),
+            Value::BuiltInFunction(BuiltInFunction::new("__http_put")),
+        );
+        global.set(
+            "__http_delete".to_string(),
+            Value::BuiltInFunction(BuiltInFunction::new("__http_delete")),
+        );
+        global.set(
+            "__http_patch".to_string(),
+            Value::BuiltInFunction(BuiltInFunction::new("__http_patch")),
+        );
+        global.set(
+            "__http_set_timeout".to_string(),
+            Value::BuiltInFunction(BuiltInFunction::new("__http_set_timeout")),
+        );
+        global.set(
+            "__http_set_user_agent".to_string(),
+            Value::BuiltInFunction(BuiltInFunction::new("__http_set_user_agent")),
+        );
+
         Self {
             global_symbol_table: global,
             module_registry: None,

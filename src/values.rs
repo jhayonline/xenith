@@ -765,6 +765,15 @@ impl BuiltInFunction {
             "__dotenv_unset" => crate::builtins::dotenv::unset(args),
             "__dotenv_vars" => crate::builtins::dotenv::vars(args),
 
+            // std::http  HTTP Client
+            "__http_get" => crate::builtins::http::get(args),
+            "__http_post" => crate::builtins::http::post(args),
+            "__http_put" => crate::builtins::http::put(args),
+            "__http_delete" => crate::builtins::http::delete(args),
+            "__http_patch" => crate::builtins::http::patch(args),
+            "__http_set_timeout" => crate::builtins::http::set_timeout(args),
+            "__http_set_user_agent" => crate::builtins::http::set_user_agent(args),
+
             _ => RuntimeResult::new().failure(
                 RuntimeError::new(
                     crate::position::Position::new(0, 0, 0, "", ""),

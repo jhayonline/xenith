@@ -1,0 +1,98 @@
+# Standard Library: HTTP Client
+# Provides HTTP request methods
+
+grab { parse } from "std::json"
+
+# HttpResponse struct
+struct HttpResponse {
+    status: int,
+    body: string,
+    headers: map<string, string>
+}
+
+impl HttpResponse {
+    # Returns true if status code is 2xx
+    method ok(self: Self) -> bool {
+        release self.status >= 200 && self.status < 300
+    }
+
+    # Parses response body as JSON
+    method as_json(self: Self) -> json {
+        release parse(self.body)
+    }
+
+    # Returns response body as string
+    method text(self: Self) -> string {
+        release self.body
+    }
+
+    # Gets a specific header value
+    method header(self: Self, name: string) -> string {
+        when self.headers.has_key(name) {
+            release self.headers[name]
+        }
+        release ""
+    }
+}
+
+# Sends a GET request
+export method get(url: string) -> HttpResponse {
+    release __http_get(url)
+}
+
+# Sends a GET request with headers
+export method get_with_headers(url: string, headers: map<string, string>) -> HttpResponse {
+    release __http_get(url, headers)
+}
+
+# Sends a POST request with body
+export method post(url: string, body: string) -> HttpResponse {
+    release __http_post(url, body)
+}
+
+# Sends a POST request with body and headers
+export method post_with_headers(url: string, body: string, headers: map<string, string>) -> HttpResponse {
+    release __http_post(url, body, headers)
+}
+
+# Sends a PUT request with body
+export method put(url: string, body: string) -> HttpResponse {
+    release __http_put(url, body)
+}
+
+# Sends a PUT request with body and headers
+export method put_with_headers(url: string, body: string, headers: map<string, string>) -> HttpResponse {
+    release __http_put(url, body, headers)
+}
+
+# Sends a DELETE request
+export method delete(url: string) -> HttpResponse {
+    release __http_delete(url)
+}
+
+# Sends a DELETE request with headers
+export method delete_with_headers(url: string, headers: map<string, string>) -> HttpResponse {
+    release __http_delete(url, headers)
+}
+
+# Sends a PATCH request with body
+export method patch(url: string, body: string) -> HttpResponse {
+    release __http_patch(url, body)
+}
+
+# Sends a PATCH request with body and headers
+export method patch_with_headers(url: string, body: string, headers: map<string, string>) -> HttpResponse {
+    release __http_patch(url, body, headers)
+}
+
+# Sets the timeout for all HTTP requests (in seconds)
+export method set_timeout(seconds: int) -> null {
+    __http_set_timeout(seconds)
+    release null
+}
+
+# Sets the User-Agent header for all HTTP requests
+export method set_user_agent(agent: string) -> null {
+    __http_set_user_agent(agent)
+    release null
+}

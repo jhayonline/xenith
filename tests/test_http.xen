@@ -1,0 +1,63 @@
+grab { get, post, set_timeout, set_user_agent } from "std::http"
+grab { parse, stringify } from "std::json"
+
+echo("=== HTTP Module Test ===\n")
+
+# Test GET request
+echo("1. GET request to JSONPlaceholder:")
+try {
+    spawn response: HttpResponse = get("https://jsonplaceholder.typicode.com/posts/1")
+
+    echo("   Status: {response.status}")
+    echo("   Body length: {len(response.body)}")
+
+    when response.status >= 200 && response.status < 300 {
+        spawn data: json = parse(response.body)
+        echo("   Body received successfully")
+    }
+} catch err {
+    echo("   Error: {err}")
+}
+echo("")
+
+# Test POST request
+echo("2. POST request:")
+try {
+    spawn new_post_map: map<string, string> = {
+        "title": "Test Post",
+        "body": "This is a test post",
+        "userId": "1"
+    }
+    spawn new_post_json: json = parse(new_post_map)
+    spawn json_str: string = stringify(new_post_json)
+    spawn response: HttpResponse = post("https://jsonplaceholder.typicode.com/posts", json_str)
+
+    echo("   Status: {response.status}")
+    when response.status >= 200 && response.status < 300 {
+        echo("   POST successful")
+    }
+} catch err {
+    echo("   Error: {err}")
+}
+echo("")
+
+# Test set_timeout
+echo("3. Setting timeout:")
+set_timeout(5)
+echo("   Timeout set to 5 seconds\n")
+
+# Test set_user_agent
+echo("4. Setting User-Agent:")
+set_user_agent("Xenith-Test/1.0")
+echo("   User-Agent set\n")
+
+# Test error handling
+echo("5. Error handling (invalid URL):")
+try {
+    spawn response: HttpResponse = get("https://invalid-domain-that-doesnt-exist.xyz")
+    echo("   This should not print")
+} catch err {
+    echo("   Caught error: {err}")
+}
+
+echo("\n=== All tests completed! ===")
