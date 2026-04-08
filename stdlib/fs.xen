@@ -1,56 +1,68 @@
 # Standard Library: File System
 # Provides file I/O operations
 
+# Reads entire file contents as a string
 export method read(path: string) -> string {
     release __fs_read(path)
 }
 
+# Writes a string to a file (overwrites existing content)
 export method write(path: string, content: string) -> null {
     __fs_write(path, content)
     release null
 }
 
+# Appends a string to the end of a file (creates file if doesn't exist)
 export method append(path: string, content: string) -> null {
     __fs_append(path, content)
     release null
 }
 
+# Checks if a file or directory exists at the given path
 export method exists(path: string) -> bool {
     release __fs_exists(path)
 }
 
+# Checks if the path exists and is a regular file
 export method is_file(path: string) -> bool {
     release __fs_is_file(path)
 }
 
+# Checks if the path exists and is a directory
 export method is_dir(path: string) -> bool {
     release __fs_is_dir(path)
 }
 
+# Creates a new directory (fails if parent directories don't exist)
 export method mkdir(path: string) -> null {
     __fs_mkdir(path)
     release null
 }
 
+# Creates a directory and all parent directories if needed
 export method mkdir_all(path: string) -> null {
     __fs_mkdir_all(path)
     release null
 }
 
+# Deletes a file or empty directory
 export method remove(path: string) -> null {
     __fs_remove(path)
     release null
 }
 
+# Deletes a file or directory recursively (removes all contents)
 export method remove_all(path: string) -> null {
     __fs_remove_all(path)
     release null
 }
 
+# Returns a list of all file and directory names in the given directory
 export method list_dir(path: string) -> list<string> {
     release __fs_list_dir(path)
 }
 
+# Copies a file from source to destination
 export method copy(source: string, dest: string) -> null {
     __fs_copy(source, dest)
     release null
