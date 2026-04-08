@@ -1,28 +1,34 @@
 # Standard Library: Time Operations
 # Provides timestamps, sleep, and duration utilities
 
+# Returns the current Unix timestamp (seconds since January 1, 1970)
 export method timestamp() -> int {
     release __time_timestamp() as int
 }
 
+# Returns the current Unix timestamp in milliseconds
 export method timestamp_ms() -> int {
     release __time_timestamp_ms() as int
 }
 
+# Pauses execution for the specified number of milliseconds
 export method sleep(ms: int) -> null {
     __time_sleep(ms)
     release null
 }
 
+# Pauses execution for the specified number of seconds
 export method sleep_sec(seconds: int) -> null {
     __time_sleep_sec(seconds)
     release null
 }
 
+# Calculates the duration between two timestamps in seconds (as a float)
 export method duration_secs(start_ms: int, end_ms: int) -> float {
     release __time_duration_secs(start_ms, end_ms)
 }
 
+# Calculates the duration between two timestamps in milliseconds
 export method duration_ms(start_ms: int, end_ms: int) -> int {
     release __time_duration_ms(start_ms, end_ms) as int
 }
