@@ -120,7 +120,9 @@ impl Interpreter {
             Value::BuiltInFunction(BuiltInFunction::new("run")),
         );
 
-        // NEW: File system built-ins (prefixed with __ for internal use)
+        // File system built-ins (prefixed with __ for internal use)
+
+        // fs
         global.set(
             "__fs_read".to_string(),
             Value::BuiltInFunction(BuiltInFunction::new("__fs_read")),
@@ -168,6 +170,52 @@ impl Interpreter {
         global.set(
             "__fs_copy".to_string(),
             Value::BuiltInFunction(BuiltInFunction::new("__fs_copy")),
+        );
+
+        // path
+        global.set(
+            "__path_join".to_string(),
+            Value::BuiltInFunction(BuiltInFunction::new("__path_join")),
+        );
+        global.set(
+            "__path_basename".to_string(),
+            Value::BuiltInFunction(BuiltInFunction::new("__path_basename")),
+        );
+        global.set(
+            "__path_dirname".to_string(),
+            Value::BuiltInFunction(BuiltInFunction::new("__path_dirname")),
+        );
+        global.set(
+            "__path_extension".to_string(),
+            Value::BuiltInFunction(BuiltInFunction::new("__path_extension")),
+        );
+        global.set(
+            "__path_stem".to_string(),
+            Value::BuiltInFunction(BuiltInFunction::new("__path_stem")),
+        );
+        global.set(
+            "__path_is_absolute".to_string(),
+            Value::BuiltInFunction(BuiltInFunction::new("__path_is_absolute")),
+        );
+        global.set(
+            "__path_is_relative".to_string(),
+            Value::BuiltInFunction(BuiltInFunction::new("__path_is_relative")),
+        );
+        global.set(
+            "__path_absolute".to_string(),
+            Value::BuiltInFunction(BuiltInFunction::new("__path_absolute")),
+        );
+        global.set(
+            "__path_normalize".to_string(),
+            Value::BuiltInFunction(BuiltInFunction::new("__path_normalize")),
+        );
+        global.set(
+            "__path_components".to_string(),
+            Value::BuiltInFunction(BuiltInFunction::new("__path_components")),
+        );
+        global.set(
+            "__path_parent".to_string(),
+            Value::BuiltInFunction(BuiltInFunction::new("__path_parent")),
         );
 
         Self {

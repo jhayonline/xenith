@@ -1,0 +1,46 @@
+# Standard Library: Path Manipulation
+# Provides platform-safe path operations
+
+export method join(parts: list<string>) -> string {
+    release __path_join(parts)
+}
+
+export method basename(path: string) -> string {
+    release __path_basename(path)
+}
+
+export method dirname(path: string) -> string {
+    release __path_dirname(path)
+}
+
+export method extension(path: string) -> string {
+    release __path_extension(path)
+}
+
+export method stem(path: string) -> string {
+    release __path_stem(path)
+}
+
+export method is_absolute(path: string) -> bool {
+    release __path_is_absolute(path)
+}
+
+export method is_relative(path: string) -> bool {
+    release __path_is_relative(path)
+}
+
+export method absolute(path: string) -> string {
+    release __path_absolute(path)
+}
+
+export method normalize(path: string) -> string {
+    release __path_normalize(path)
+}
+
+export method components(path: string) -> list<string> {
+    release __path_components(path)
+}
+
+export method parent(path: string) -> string {
+    release __path_parent(path)
+}

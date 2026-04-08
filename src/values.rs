@@ -607,7 +607,7 @@ impl BuiltInFunction {
             "len" => self.len(args),
             "run" => self.run(args, interpreter),
 
-            // File system built-ins
+            // fs
             "__fs_read" => crate::builtins::fs::read(args),
             "__fs_write" => crate::builtins::fs::write(args),
             "__fs_append" => crate::builtins::fs::append(args),
@@ -620,6 +620,19 @@ impl BuiltInFunction {
             "__fs_remove_all" => crate::builtins::fs::remove_all(args),
             "__fs_list_dir" => crate::builtins::fs::list_dir(args),
             "__fs_copy" => crate::builtins::fs::copy(args),
+
+            // Path
+            "__path_join" => crate::builtins::path::join(args),
+            "__path_basename" => crate::builtins::path::basename(args),
+            "__path_dirname" => crate::builtins::path::dirname(args),
+            "__path_extension" => crate::builtins::path::extension(args),
+            "__path_stem" => crate::builtins::path::stem(args),
+            "__path_is_absolute" => crate::builtins::path::is_absolute(args),
+            "__path_is_relative" => crate::builtins::path::is_relative(args),
+            "__path_absolute" => crate::builtins::path::absolute(args),
+            "__path_normalize" => crate::builtins::path::normalize(args),
+            "__path_components" => crate::builtins::path::components(args),
+            "__path_parent" => crate::builtins::path::parent(args),
 
             _ => RuntimeResult::new().failure(
                 RuntimeError::new(
