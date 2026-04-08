@@ -1,5 +1,5 @@
 # Test file system operations
-grab { read, write, exists } from "std::fs"
+grab { read, write, exists, append, is_file, is_dir, mkdir, list_dir } from "std::fs"
 
 # Test write
 echo("Writing to test.txt...")
@@ -11,6 +11,27 @@ echo("File exists? {exists("test.txt")}")
 # Test read
 spawn content: string = read("test.txt")
 echo("File content: {content}")
+
+# Test append
+echo("\nAppending to test.txt...")
+append("test.txt", "\nAppended line!")
+spawn new_content: string = read("test.txt")
+echo("New content: {new_content}")
+
+# Test is_file
+echo("\nIs test.txt a file? {is_file("test.txt")}")
+
+# Test mkdir
+echo("\nCreating directory 'test_dir'...")
+mkdir("test_dir")
+echo("Is test_dir a directory? {is_dir("test_dir")}")
+
+# Test list_dir
+echo("\nListing current directory:")
+spawn items: list<string> = list_dir(".")
+for item in items {
+    echo("  {item}")
+}
 
 # Test reading non-existent file (should error)
 echo("\nTrying to read non-existent file...")

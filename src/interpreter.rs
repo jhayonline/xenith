@@ -133,6 +133,42 @@ impl Interpreter {
             "__fs_exists".to_string(),
             Value::BuiltInFunction(BuiltInFunction::new("__fs_exists")),
         );
+        global.set(
+            "__fs_append".to_string(),
+            Value::BuiltInFunction(BuiltInFunction::new("__fs_append")),
+        );
+        global.set(
+            "__fs_is_file".to_string(),
+            Value::BuiltInFunction(BuiltInFunction::new("__fs_is_file")),
+        );
+        global.set(
+            "__fs_is_dir".to_string(),
+            Value::BuiltInFunction(BuiltInFunction::new("__fs_is_dir")),
+        );
+        global.set(
+            "__fs_mkdir".to_string(),
+            Value::BuiltInFunction(BuiltInFunction::new("__fs_mkdir")),
+        );
+        global.set(
+            "__fs_mkdir_all".to_string(),
+            Value::BuiltInFunction(BuiltInFunction::new("__fs_mkdir_all")),
+        );
+        global.set(
+            "__fs_remove".to_string(),
+            Value::BuiltInFunction(BuiltInFunction::new("__fs_remove")),
+        );
+        global.set(
+            "__fs_remove_all".to_string(),
+            Value::BuiltInFunction(BuiltInFunction::new("__fs_remove_all")),
+        );
+        global.set(
+            "__fs_list_dir".to_string(),
+            Value::BuiltInFunction(BuiltInFunction::new("__fs_list_dir")),
+        );
+        global.set(
+            "__fs_copy".to_string(),
+            Value::BuiltInFunction(BuiltInFunction::new("__fs_copy")),
+        );
 
         Self {
             global_symbol_table: global,

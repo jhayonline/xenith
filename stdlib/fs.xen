@@ -10,6 +10,48 @@ export method write(path: string, content: string) -> null {
     release null
 }
 
+export method append(path: string, content: string) -> null {
+    __fs_append(path, content)
+    release null
+}
+
 export method exists(path: string) -> bool {
-    release __fs_exists(path) == 1
+    release __fs_exists(path)
+}
+
+export method is_file(path: string) -> bool {
+    release __fs_is_file(path)
+}
+
+export method is_dir(path: string) -> bool {
+    release __fs_is_dir(path)
+}
+
+export method mkdir(path: string) -> null {
+    __fs_mkdir(path)
+    release null
+}
+
+export method mkdir_all(path: string) -> null {
+    __fs_mkdir_all(path)
+    release null
+}
+
+export method remove(path: string) -> null {
+    __fs_remove(path)
+    release null
+}
+
+export method remove_all(path: string) -> null {
+    __fs_remove_all(path)
+    release null
+}
+
+export method list_dir(path: string) -> list<string> {
+    release __fs_list_dir(path)
+}
+
+export method copy(source: string, dest: string) -> null {
+    __fs_copy(source, dest)
+    release null
 }

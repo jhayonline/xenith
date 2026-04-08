@@ -607,10 +607,20 @@ impl BuiltInFunction {
             "len" => self.len(args),
             "run" => self.run(args, interpreter),
 
-            // NEW: File system built-ins
+            // File system built-ins
             "__fs_read" => crate::builtins::fs::read(args),
             "__fs_write" => crate::builtins::fs::write(args),
+            "__fs_append" => crate::builtins::fs::append(args),
             "__fs_exists" => crate::builtins::fs::exists(args),
+            "__fs_is_file" => crate::builtins::fs::is_file(args),
+            "__fs_is_dir" => crate::builtins::fs::is_dir(args),
+            "__fs_mkdir" => crate::builtins::fs::mkdir(args),
+            "__fs_mkdir_all" => crate::builtins::fs::mkdir_all(args),
+            "__fs_remove" => crate::builtins::fs::remove(args),
+            "__fs_remove_all" => crate::builtins::fs::remove_all(args),
+            "__fs_list_dir" => crate::builtins::fs::list_dir(args),
+            "__fs_copy" => crate::builtins::fs::copy(args),
+
             _ => RuntimeResult::new().failure(
                 RuntimeError::new(
                     crate::position::Position::new(0, 0, 0, "", ""),
