@@ -1,0 +1,71 @@
+grab { split, join, trim, trim_start, trim_end, replace, contains, starts_with, ends_with, to_upper, to_lower, reverse } from "std::string"
+
+echo("=== String Module Test ===\n")
+
+# Test split
+echo("1. Split:")
+spawn parts: list<string> = split("a,b,c", ",")
+for i = 0 to parts.len() {
+    echo("   {parts[i]}")
+}
+echo("")
+
+# Test join
+echo("2. Join:")
+spawn fruits: list<string> = ["apple", "banana", "orange"]
+spawn joined: string = join(fruits, ", ")
+echo("   {joined}\n")
+
+# Test trim
+echo("3. Trim:")
+echo("   '", trim("  hello  "), "'")
+echo("   '", trim_start("  hello  "), "'")
+echo("   '", trim_end("  hello  "), "'\n")
+
+# Test replace
+echo("4. Replace:")
+spawn replaced: string = replace("hello world", "world", "xenith")
+echo("   {replaced}\n")
+
+# Test contains
+echo("5. Contains:")
+echo("   contains('hello world', 'world') = {contains("hello world", "world")}")
+echo("   contains('hello world', 'xyz') = {contains("hello world", "xyz")}\n")
+
+# Test starts_with / ends_with
+echo("6. Starts with / Ends with:")
+echo("   starts_with('hello world', 'hello') = {starts_with("hello world", "hello")}")
+echo("   starts_with('hello world', 'world') = {starts_with("hello world", "world")}")
+echo("   ends_with('hello world', 'world') = {ends_with("hello world", "world")}")
+echo("   ends_with('hello world', 'hello') = {ends_with("hello world", "hello")}\n")
+
+# Test case conversion
+echo("7. Case conversion:")
+echo("   to_upper('Hello World') = {to_upper("Hello World")}")
+echo("   to_lower('Hello World') = {to_lower("Hello World")}\n")
+
+# Test reverse
+echo("8. Reverse:")
+echo("   reverse('hello') = {reverse("hello")}")
+echo("   reverse('racecar') = {reverse("racecar")}\n")
+
+# Test palindrome detection
+echo("9. Palindrome detector:")
+method is_palindrome(text: string) -> bool {
+    release reverse(text) == text
+}
+echo("   'racecar' is palindrome? {is_palindrome("racecar")}")
+echo("   'hello' is palindrome? {is_palindrome("hello")}\n")
+
+# Test CSV parsing
+echo("10. CSV parsing:")
+spawn csv_line: string = "name,age,city"
+spawn columns: list<string> = split(csv_line, ",")
+echo("   Columns: " + join(columns, " | "))
+spawn data_line: string = "Alice,25,New York"
+spawn values: list<string> = split(data_line, ",")
+for i = 0 to values.len() {
+    echo("   " + columns[i] + ": " + values[i])
+}
+
+echo("\n=== All tests completed! ===")

@@ -1,0 +1,98 @@
+# Standard Library: Advanced Mathematics
+# Provides mathematical functions
+
+export method sqrt(x: float) -> float {
+    release __math_sqrt(x)
+}
+
+export method pow(base: float, exponent: float) -> float {
+    release __math_pow(base, exponent)
+}
+
+export method sin(radians: float) -> float {
+    release __math_sin(radians)
+}
+
+export method cos(radians: float) -> float {
+    release __math_cos(radians)
+}
+
+export method tan(radians: float) -> float {
+    release __math_tan(radians)
+}
+
+export method asin(x: float) -> float {
+    release __math_asin(x)
+}
+
+export method acos(x: float) -> float {
+    release __math_acos(x)
+}
+
+export method atan(x: float) -> float {
+    release __math_atan(x)
+}
+
+export method atan2(y: float, x: float) -> float {
+    release __math_atan2(y, x)
+}
+
+export method log(x: float) -> float {
+    release __math_log(x)
+}
+
+export method log10(x: float) -> float {
+    release __math_log10(x)
+}
+
+export method abs(x: float) -> float {
+    release __math_abs(x)
+}
+
+export method min(a: float, b: float) -> float {
+    release __math_min(a, b)
+}
+
+export method max(a: float, b: float) -> float {
+    release __math_max(a, b)
+}
+
+export method clamp(value: float, min_val: float, max_val: float) -> float {
+    release __math_clamp(value, min_val, max_val)
+}
+
+export method round(x: float) -> float {
+    release __math_round(x)
+}
+
+export method floor(x: float) -> float {
+    release __math_floor(x)
+}
+
+export method ceil(x: float) -> float {
+    release __math_ceil(x)
+}
+
+export method trunc(x: float) -> float {
+    release __math_trunc(x)
+}
+
+export method fract(x: float) -> float {
+    release __math_fract(x)
+}
+
+export method radians(degrees: float) -> float {
+    release __math_radians(degrees)
+}
+
+export method degrees(radians: float) -> float {
+    release __math_degrees(radians)
+}
+
+export method sum(numbers: list<float>) -> float {
+    release __math_sum(numbers)
+}
+
+export method average(numbers: list<float>) -> float {
+    release __math_average(numbers)
+}

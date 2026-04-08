@@ -1,0 +1,62 @@
+# Standard Library: String Utilities
+# Provides string manipulation functions for text processing
+
+# Splits a string into a list of substrings using the specified delimiter
+export method split(text: string, delimiter: string) -> list<string> {
+    release __string_split(text, delimiter)
+}
+
+# Joins a list of strings into a single string with the specified separator
+export method join(strings: list<string>, separator: string) -> string {
+    release __string_join(strings, separator)
+}
+
+# Removes leading and trailing whitespace (spaces, tabs, newlines)
+export method trim(text: string) -> string {
+    release __string_trim(text)
+}
+
+# Removes leading whitespace only (left side)
+export method trim_start(text: string) -> string {
+    release __string_trim_start(text)
+}
+
+# Removes trailing whitespace only (right side)
+export method trim_end(text: string) -> string {
+    release __string_trim_end(text)
+}
+
+# Replaces all occurrences of 'old' substring with 'new' substring
+export method replace(text: string, old: string, new: string) -> string {
+    release __string_replace(text, old, new)
+}
+
+# Checks if 'substring' exists anywhere within 'text'
+export method contains(text: string, substring: string) -> bool {
+    release __string_contains(text, substring)
+}
+
+# Checks if 'text' starts with the specified 'prefix'
+export method starts_with(text: string, prefix: string) -> bool {
+    release __string_starts_with(text, prefix)
+}
+
+# Checks if 'text' ends with the specified 'suffix'
+export method ends_with(text: string, suffix: string) -> bool {
+    release __string_ends_with(text, suffix)
+}
+
+# Converts all characters in the string to uppercase
+export method to_upper(text: string) -> string {
+    release __string_to_upper(text)
+}
+
+# Converts all characters in the string to lowercase
+export method to_lower(text: string) -> string {
+    release __string_to_lower(text)
+}
+
+# Reverses the string (e.g., "hello" -> "olleh")
+export method reverse(text: string) -> string {
+    release __string_reverse(text)
+}

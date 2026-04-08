@@ -1,0 +1,77 @@
+grab { sqrt, pow, sin, cos, tan, asin, acos, atan, atan2, log, log10, abs, min, max, clamp, round, floor, ceil, trunc, fract, radians, degrees, sum, average } from "std::math"
+
+echo("=== Math Module Test ===\n")
+
+# Basic operations
+echo("1. Basic operations:")
+echo("   sqrt(16) = {sqrt(16)}")
+echo("   pow(2, 8) = {pow(2, 8)}")
+echo("   abs(-42) = {abs(-42)}")
+echo("   min(10, 20) = {min(10, 20)}")
+echo("   max(10, 20) = {max(10, 20)}")
+echo("   clamp(15, 10, 20) = {clamp(15, 10, 20)}")
+echo("   clamp(5, 10, 20) = {clamp(5, 10, 20)}")
+echo("   clamp(25, 10, 20) = {clamp(25, 10, 20)}\n")
+
+# Rounding
+echo("2. Rounding:")
+echo("   round(3.14) = {round(3.14)}")
+echo("   round(3.5) = {round(3.5)}")
+echo("   floor(3.9) = {floor(3.9)}")
+echo("   ceil(3.1) = {ceil(3.1)}")
+echo("   trunc(3.9) = {trunc(3.9)}")
+echo("   fract(3.14) = {fract(3.14)}\n")
+
+# Trigonometry
+echo("3. Trigonometry (in radians):")
+echo("   sin(0) = {sin(0)}")
+echo("   cos(0) = {cos(0)}")
+echo("   tan(0) = {tan(0)}")
+echo("   asin(1) = {asin(1)}")
+echo("   acos(1) = {acos(1)}")
+echo("   atan(1) = {atan(1)}\n")
+
+# Angle conversion
+echo("4. Angle conversion:")
+spawn deg: float = 90
+spawn rad: float = radians(deg)
+echo("   {deg}° = {rad} rad")
+echo("   {rad} rad = {degrees(rad)}°\n")
+
+# Logarithms
+echo("5. Logarithms:")
+echo("   log(2.71828) = {log(2.71828)}")
+echo("   log10(100) = {log10(100)}\n")
+
+# Statistics
+echo("6. Statistics:")
+spawn numbers: list<float> = [10, 20, 30, 40, 50]
+echo("   Numbers: {ret(numbers)}")
+echo("   Sum: {sum(numbers)}")
+echo("   Average: {average(numbers)}\n")
+
+# Practical example: Distance between two points
+echo("7. Distance between two points:")
+method distance(x1: float, y1: float, x2: float, y2: float) -> float {
+    release sqrt(pow(x2 - x1, 2) + pow(y2 - y1, 2))
+}
+
+spawn dist: float = distance(0, 0, 3, 4)
+echo("   Distance from (0,0) to (3,4) = {dist}\n")
+
+# Practical example: Circle calculations
+echo("8. Circle calculations:")
+method circle_area(radius: float) -> float {
+    release MATH_PI * pow(radius, 2)
+}
+
+method circle_circumference(radius: float) -> float {
+    release 2 * MATH_PI * radius
+}
+
+spawn r: float = 5
+echo("   Radius: {r}")
+echo("   Area: {circle_area(r)}")
+echo("   Circumference: {circle_circumference(r)}")
+
+echo("\n=== All tests completed! ===")
