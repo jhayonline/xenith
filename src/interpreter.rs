@@ -390,6 +390,40 @@ impl Interpreter {
             Value::BuiltInFunction(BuiltInFunction::new("__string_reverse")),
         );
 
+        // src::random  Random
+        global.set(
+            "__rand_int".to_string(),
+            Value::BuiltInFunction(BuiltInFunction::new("__rand_int")),
+        );
+        global.set(
+            "__rand_int_range".to_string(),
+            Value::BuiltInFunction(BuiltInFunction::new("__rand_int_range")),
+        );
+        global.set(
+            "__rand_float".to_string(),
+            Value::BuiltInFunction(BuiltInFunction::new("__rand_float")),
+        );
+        global.set(
+            "__rand_float_range".to_string(),
+            Value::BuiltInFunction(BuiltInFunction::new("__rand_float_range")),
+        );
+        global.set(
+            "__rand_bool".to_string(),
+            Value::BuiltInFunction(BuiltInFunction::new("__rand_bool")),
+        );
+        global.set(
+            "__rand_choice".to_string(),
+            Value::BuiltInFunction(BuiltInFunction::new("__rand_choice")),
+        );
+        global.set(
+            "__rand_shuffle".to_string(),
+            Value::BuiltInFunction(BuiltInFunction::new("__rand_shuffle")),
+        );
+        global.set(
+            "__rand_uuid".to_string(),
+            Value::BuiltInFunction(BuiltInFunction::new("__rand_uuid")),
+        );
+
         Self {
             global_symbol_table: global,
             module_registry: None,

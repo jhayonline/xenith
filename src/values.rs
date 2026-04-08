@@ -682,6 +682,16 @@ impl BuiltInFunction {
             "__string_to_lower" => crate::builtins::string::to_lower(args),
             "__string_reverse" => crate::builtins::string::reverse(args),
 
+            // srd::rand  Random
+            "__rand_int" => crate::builtins::random::rand_int(args),
+            "__rand_int_range" => crate::builtins::random::rand_int_range(args),
+            "__rand_float" => crate::builtins::random::rand_float(args),
+            "__rand_float_range" => crate::builtins::random::rand_float_range(args),
+            "__rand_bool" => crate::builtins::random::rand_bool(args),
+            "__rand_choice" => crate::builtins::random::choice(args),
+            "__rand_shuffle" => crate::builtins::random::shuffle(args),
+            "__rand_uuid" => crate::builtins::random::uuid(args),
+
             _ => RuntimeResult::new().failure(
                 RuntimeError::new(
                     crate::position::Position::new(0, 0, 0, "", ""),

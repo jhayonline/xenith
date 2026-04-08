@@ -1,0 +1,37 @@
+grab { rand_int, rand_int_range, rand_float, rand_float_range, rand_bool, choice, shuffle, uuid } from "std::random"
+
+echo("=== Random Module Test ===\n")
+
+# Test rand_int
+echo("1. Random integer: {rand_int()}")
+echo("   Another: {rand_int()}\n")
+
+# Test rand_int_range
+echo("2. Random integer 1-10: {rand_int_range(1, 11)}")
+echo("   Random integer 0-99: {rand_int_range(0, 100)}\n")
+
+# Test rand_float
+echo("3. Random float 0-1: {rand_float()}\n")
+
+# Test rand_float_range
+echo("4. Random float 0-10: {rand_float_range(0.0, 10.0)}\n")
+
+# Test rand_bool
+echo("5. Random boolean: {rand_bool()}")
+echo("   Another: {rand_bool()}\n")
+
+# Test choice
+spawn fruits: list<string> = ["apple", "banana", "orange", "grape", "mango"]
+echo("6. Random fruit: {choice(fruits)}\n")
+
+# Test shuffle
+spawn numbers: list<int> = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+spawn shuffled: list<int> = shuffle(numbers)
+echo("7. Original: {ret(numbers)}")
+echo("   Shuffled: {ret(shuffled)}\n")
+
+# Test uuid
+echo("8. Random UUID: {uuid()}")
+echo("   Another UUID: {uuid()}\n")
+
+echo("=== All tests completed! ===")

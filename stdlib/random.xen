@@ -1,0 +1,42 @@
+# Standard Library: Random Generation
+# Provides random number generation and utilities
+
+# Returns a random integer (full range)
+export method rand_int() -> int {
+    release __rand_int() as int
+}
+
+# Returns a random integer in range [min, max] (inclusive)
+export method rand_int_range(min: int, max: int) -> int {
+    release __rand_int_range(min, max + 1) as int
+}
+
+# Returns a random float in range [0, 1]
+export method rand_float() -> float {
+    release __rand_float()
+}
+
+# Returns a random float in range [min, max] (inclusive)
+export method rand_float_range(min: float, max: float) -> float {
+    release __rand_float_range(min, max)
+}
+
+# Returns a random boolean (true/false)
+export method rand_bool() -> bool {
+    release __rand_bool()
+}
+
+# Returns a random element from a list
+export method choice(items: list<any>) -> any {
+    release __rand_choice(items)
+}
+
+# Shuffles a list randomly (returns a new shuffled list)
+export method shuffle(items: list<any>) -> list<any> {
+    release __rand_shuffle(items)
+}
+
+# Returns a random UUID (v4)
+export method uuid() -> string {
+    release __rand_uuid()
+}
