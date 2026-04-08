@@ -4325,9 +4325,10 @@ impl Parser {
         };
         self.advance();
 
-        // Register the struct
-        let struct_name_str = struct_name.value.as_ref().unwrap();
-        self.register_struct(struct_name_str);
+        let struct_name_str = struct_name.value.as_ref().unwrap().clone();
+
+        // Register the struct (create empty entry)
+        self.register_struct(&struct_name_str);
 
         // Expect '{'
         match self.current_token() {
@@ -4432,10 +4433,26 @@ impl Parser {
                 return result;
             }
 
+            let field_name_str = field_name.value.as_ref().unwrap().clone();
+
+            // Now borrow mutably to add the field
+            if let Some(struct_info) = self.struct_registry.get_mut(&struct_name_str) {
+                if let Err(err) = struct_info.add_field(field_name_str, field_type.clone()) {
+                    return result.failure(
+                        InvalidSyntaxError::new(
+                            field_name.position_start.clone(),
+                            field_name.position_end.clone(),
+                            &err,
+                        )
+                        .base,
+                    );
+                }
+            }
+
             fields.push(StructFieldNode {
                 name: field_name.clone(),
                 field_type,
-                is_constant: false, // Fields are mutable by default
+                is_constant: false,
                 position_start: field_name.position_start.clone(),
                 position_end: self
                     .current_token()
@@ -4517,10 +4534,10 @@ impl Parser {
             }
         };
 
-        let struct_name_str = struct_name.value.as_ref().unwrap();
+        let struct_name_str = struct_name.value.as_ref().unwrap().to_string();
 
-        // Check if struct exists
-        if !self.struct_exists(struct_name_str) {
+        // Check if struct exists (immutable borrow only)
+        if !self.struct_exists(&struct_name_str) {
             return result.failure(
                 InvalidSyntaxError::new(
                     struct_name.position_start.clone(),
@@ -4582,6 +4599,7 @@ impl Parser {
             }
 
             if let Some(method_node) = method_result.node {
+                // Extract the FuncDefNode from the Node enum
                 if let Node::FuncDef(func_def) = method_node {
                     // Validate that the first parameter is 'self: Self'
                     if func_def.param_names.is_empty() {
@@ -4621,7 +4639,10 @@ impl Parser {
                         );
                     }
 
-                    // Store the method
+                    // Store the method - get mutable borrow just for this operation
+                    if let Some(struct_info) = self.struct_registry.get_mut(&struct_name_str) {
+                        struct_info.add_method((*func_def).clone());
+                    }
                     methods.push(func_def);
                 }
             }
@@ -4645,6 +4666,8 @@ impl Parser {
 #[derive(Debug, Clone)]
 pub struct StructInfo {
     pub name: String,
+    pub fields: HashMap<String, Type>,
+    pub field_order: Vec<String>,
     pub methods: HashMap<String, crate::nodes::FuncDefNode>,
 }
 
@@ -4652,8 +4675,26 @@ impl StructInfo {
     pub fn new(name: String) -> Self {
         Self {
             name,
+            fields: HashMap::new(),
+            field_order: Vec::new(),
             methods: HashMap::new(),
         }
+    }
+
+    pub fn add_field(&mut self, name: String, field_type: Type) -> Result<(), String> {
+        if self.fields.contains_key(&name) {
+            return Err(format!(
+                "Duplicate field '{}' in struct '{}'",
+                name, self.name
+            ));
+        }
+        self.fields.insert(name.clone(), field_type);
+        self.field_order.push(name);
+        Ok(())
+    }
+
+    pub fn get_field_type(&self, name: &str) -> Option<&Type> {
+        self.fields.get(name)
     }
 
     pub fn add_method(&mut self, method: crate::nodes::FuncDefNode) {

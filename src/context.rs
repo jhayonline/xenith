@@ -15,7 +15,7 @@ pub struct Context {
     pub display_name: String,
     pub parent: Option<Box<Context>>,
     pub parent_entry_position: Option<Position>,
-    pub symbol_table: SymbolTable,
+    pub symbol_table: Rc<SymbolTable>,
     pub exports: HashMap<String, Value>,
 }
 
@@ -26,9 +26,9 @@ impl Context {
         parent_entry_position: Option<Position>,
     ) -> Self {
         let symbol_table = if let Some(parent_ctx) = &parent {
-            SymbolTable::with_parent(Rc::new(parent_ctx.symbol_table.clone()))
+            Rc::new(SymbolTable::with_parent(parent_ctx.symbol_table.clone()))
         } else {
-            SymbolTable::new()
+            Rc::new(SymbolTable::new())
         };
 
         Self {
@@ -45,8 +45,8 @@ impl Context {
             display_name: display_name.to_string(),
             parent: Some(Box::new(self.clone())),
             parent_entry_position: Some(entry_pos),
-            symbol_table: SymbolTable::with_parent(Rc::new(self.symbol_table.clone())),
-            exports: HashMap::new(), // Add this line - child starts with empty exports
+            symbol_table: Rc::new(SymbolTable::with_parent(self.symbol_table.clone())),
+            exports: HashMap::new(),
         }
     }
 

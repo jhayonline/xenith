@@ -1,0 +1,44 @@
+# Define a struct
+struct Person {
+    name: string,
+    age: int
+}
+
+# Implement methods for Person
+impl Person {
+    method greet(self: Self) -> string {
+        release "Hello, my name is " + self.name
+    }
+    
+    method birthday(self: Self) -> null {
+        self.age = self.age + 1
+        release null
+    }
+    
+    method isAdult(self: Self) -> bool {
+        release self.age >= 18
+    }
+}
+
+# Create a person
+spawn alice: Person = Person {
+    name: "Alice",
+    age: 25
+}
+
+# Call methods
+echo(Person::greet(alice))
+echo("Is adult? {Person::isAdult(alice)}")
+
+# Update age via method
+Person::birthday(alice)
+echo("After birthday: {alice.age}")
+
+# Test with a minor
+spawn bob: Person = Person {
+    name: "Bob",
+    age: 16
+}
+
+echo(Person::greet(bob))
+echo("Is adult? {Person::isAdult(bob)}")

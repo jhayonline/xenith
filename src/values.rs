@@ -542,7 +542,7 @@ impl Function {
             );
         }
 
-        // Create child context (this properly links the symbol tables!)
+        // Create child context
         let mut func_context = context.create_child(
             self.name.as_deref().unwrap_or("<anonymous>"),
             crate::position::Position::new(0, 0, 0, "", ""),
@@ -552,7 +552,7 @@ impl Function {
         for (i, arg_name) in self.arg_names.iter().enumerate() {
             func_context
                 .symbol_table
-                .set_local(arg_name.clone(), args[i].clone());
+                .set_local(arg_name.clone(), args[i].clone()); // set_local now takes &self
         }
 
         // Execute function body
@@ -563,7 +563,6 @@ impl Function {
             return RuntimeResult::new().failure(err);
         }
 
-        // Handle return value
         if self.should_auto_return {
             if let Some(val) = exec_result.value {
                 return RuntimeResult::new().success(val);

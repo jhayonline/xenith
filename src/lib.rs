@@ -38,6 +38,8 @@ use crate::lexer::Lexer;
 use crate::parser::Parser;
 use crate::values::Value;
 
+use std::rc::Rc;
+
 /// Runs a Xenith program from source code.
 ///
 /// # Arguments
@@ -78,7 +80,7 @@ pub fn run(filename: &str, source: &str) -> Result<Value, Error> {
     // Interpretation
     let mut interpreter = Interpreter::new();
     let mut context = crate::context::Context::new("<program>", None, None);
-    context.symbol_table = interpreter.global_symbol_table.clone();
+    context.symbol_table = Rc::new(interpreter.global_symbol_table.clone());
 
     let result = interpreter.visit(&ast, &mut context);
 

@@ -11,6 +11,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 /// Symbol table for variable storage with parent scoping
+/// Uses RefCell for interior mutability to allow modification through Rc
 #[derive(Debug, Clone)]
 pub struct SymbolTable {
     symbols: Rc<RefCell<HashMap<String, Value>>>,
@@ -48,6 +49,7 @@ impl SymbolTable {
         }
     }
 
+    /// Gets a type from the symbol table (searching parents)
     pub fn get_type(&self, name: &str) -> Option<Type> {
         if let Some(typ) = self.types.borrow().get(name) {
             Some(typ.clone())
@@ -58,46 +60,46 @@ impl SymbolTable {
         }
     }
 
-    pub fn set_type(&mut self, name: String, typ: Type) {
+    /// Sets a type in the current symbol table
+    pub fn set_type(&self, name: String, typ: Type) {
         self.types.borrow_mut().insert(name, typ);
     }
 
     /// Sets a value in the current symbol table
-    pub fn set(&mut self, name: String, value: Value) {
+    pub fn set(&self, name: String, value: Value) {
         self.symbols.borrow_mut().insert(name, value);
     }
 
     /// Removes a value from the current symbol table
-    pub fn remove(&mut self, name: &str) -> Option<Value> {
+    pub fn remove(&self, name: &str) -> Option<Value> {
         self.symbols.borrow_mut().remove(name)
     }
 
     /// Updates a variable in the scope it was originally defined, or sets in current scope if not found
-    pub fn set_existing(&mut self, name: String, value: Value) {
+    pub fn set_existing(&self, name: String, value: Value) {
+        // Check current scope first
         if self.symbols.borrow().contains_key(&name) {
             self.symbols.borrow_mut().insert(name, value);
-        } else if let Some(parent) = &mut self.parent {
-            // We need to get a mutable reference to the parent
-            // Since parent is Rc, we need to use RefCell pattern
-            if let Some(parent_mut) = Rc::get_mut(parent) {
-                parent_mut.set_existing(name, value);
-            } else {
-                // Can't get mutable reference, set in current scope
-                self.symbols.borrow_mut().insert(name, value);
-            }
+        } else if let Some(parent) = &self.parent {
+            // Recursively try to set in parent - no mutation needed here
+            parent.set_existing(name, value);
         } else {
+            // Not found anywhere, set in current scope
             self.symbols.borrow_mut().insert(name, value);
         }
     }
 
-    pub fn set_local(&mut self, name: String, value: Value) {
+    /// Sets a value only in the local scope (does not traverse parents)
+    pub fn set_local(&self, name: String, value: Value) {
         self.symbols.borrow_mut().insert(name, value);
     }
 
+    /// Checks if this table has a parent
     pub fn has_parent(&self) -> bool {
         self.parent.is_some()
     }
 
+    /// Checks if a variable exists in this scope or any parent
     pub fn contains(&self, name: &str) -> bool {
         if self.symbols.borrow().contains_key(name) {
             true

@@ -318,7 +318,6 @@ impl Interpreter {
         if node.is_namespace_import {
             // Import * as namespace
             if let Some(alias) = &node.namespace_alias {
-                // Create a namespace object (a map of exports)
                 let mut namespace_map = Map::new();
                 for (name, value) in &module.exports {
                     namespace_map.set(name.clone(), value.clone());
@@ -513,6 +512,7 @@ impl Interpreter {
 
         // Use set_existing to update the variable in its original scope,
         // or create it in current scope if it doesn't exist
+        // Note: set_existing now takes &self, so we don't need &mut
         context
             .symbol_table
             .set_existing(var_name.clone(), value.clone());
@@ -572,7 +572,7 @@ impl Interpreter {
                             if let Some(name) = var_name {
                                 context
                                     .symbol_table
-                                    .set_existing(name, Value::Struct(s.clone()));
+                                    .set_existing(name, Value::Struct(s.clone())); // &self
                             }
                             return result.success(value);
                         }
@@ -1450,7 +1450,6 @@ impl Interpreter {
             .as_ref()
             .map(|t| t.value.as_ref().unwrap().clone());
 
-        // Convert param names to strings
         let arg_names: Vec<String> = node
             .param_names
             .iter()
@@ -1461,7 +1460,7 @@ impl Interpreter {
             func_name.clone(),
             *node.body_node.clone(),
             arg_names,
-            node.is_arrow, // Arrow functions auto-return
+            node.is_arrow,
         );
 
         let func_value = Value::Function(Box::new(func));
@@ -1590,7 +1589,7 @@ impl Interpreter {
                                 {
                                     context
                                         .symbol_table
-                                        .set_existing(var_name, updated_self.clone());
+                                        .set_existing(var_name, updated_self.clone()); // &self
                                 }
                             }
                         }
