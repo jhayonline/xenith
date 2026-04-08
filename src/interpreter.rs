@@ -120,6 +120,20 @@ impl Interpreter {
             Value::BuiltInFunction(BuiltInFunction::new("run")),
         );
 
+        // NEW: File system built-ins (prefixed with __ for internal use)
+        global.set(
+            "__fs_read".to_string(),
+            Value::BuiltInFunction(BuiltInFunction::new("__fs_read")),
+        );
+        global.set(
+            "__fs_write".to_string(),
+            Value::BuiltInFunction(BuiltInFunction::new("__fs_write")),
+        );
+        global.set(
+            "__fs_exists".to_string(),
+            Value::BuiltInFunction(BuiltInFunction::new("__fs_exists")),
+        );
+
         Self {
             global_symbol_table: global,
             module_registry: None,

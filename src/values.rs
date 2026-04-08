@@ -606,6 +606,11 @@ impl BuiltInFunction {
             "extend" => self.extend(args),
             "len" => self.len(args),
             "run" => self.run(args, interpreter),
+
+            // NEW: File system built-ins
+            "__fs_read" => crate::builtins::fs::read(args),
+            "__fs_write" => crate::builtins::fs::write(args),
+            "__fs_exists" => crate::builtins::fs::exists(args),
             _ => RuntimeResult::new().failure(
                 RuntimeError::new(
                     crate::position::Position::new(0, 0, 0, "", ""),

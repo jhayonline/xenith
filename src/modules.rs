@@ -68,19 +68,30 @@ impl ModuleRegistry {
     fn resolve_stdlib(&self, path: &str) -> Option<PathBuf> {
         // Replace :: with path separator
         let file_path = path.replace("::", "/");
+        let filename = file_path + ".xen";
 
-        // Look in built-in stdlib directory (relative to executable)
-        let exe_path = std::env::current_exe().ok()?;
-        let stdlib_dir = exe_path.parent()?.join("stdlib");
-
-        // Only look for .xen files
-        let candidate = stdlib_dir.join(&file_path).with_extension("xen");
-
-        if candidate.exists() {
-            Some(candidate)
-        } else {
-            None
+        // Try multiple locations:
+        // 1. Relative to current file (project root)
+        let current_dir = self.current_file.parent()?;
+        let project_stdlib = current_dir.join("stdlib").join(&filename);
+        if project_stdlib.exists() {
+            return Some(project_stdlib);
         }
+
+        // 2. Relative to executable (for installed version)
+        let exe_path = std::env::current_exe().ok()?;
+        let exe_stdlib = exe_path.parent()?.join("stdlib").join(&filename);
+        if exe_stdlib.exists() {
+            return Some(exe_stdlib);
+        }
+
+        // 3. Try just the filename in current directory
+        let local = current_dir.join(&filename);
+        if local.exists() {
+            return Some(local);
+        }
+
+        None
     }
 
     /// Load a module (with caching)

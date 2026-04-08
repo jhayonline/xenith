@@ -1,0 +1,24 @@
+# Test file system operations
+grab { read, write, exists } from "std::fs"
+
+# Test write
+echo("Writing to test.txt...")
+write("test.txt", "Hello from Xenith!")
+
+# Test exists
+echo("File exists? {exists("test.txt")}")
+
+# Test read
+spawn content: string = read("test.txt")
+echo("File content: {content}")
+
+# Test reading non-existent file (should error)
+echo("\nTrying to read non-existent file...")
+try {
+    spawn missing: string = read("nonexistent.txt")
+    echo("This won't print")
+} catch err {
+    echo("Caught error: {err}")
+}
+
+echo("\nDone!")

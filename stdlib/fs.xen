@@ -1,0 +1,15 @@
+# Standard Library: File System
+# Provides file I/O operations
+
+export method read(path: string) -> string {
+    release __fs_read(path)
+}
+
+export method write(path: string, content: string) -> null {
+    __fs_write(path, content)
+    release null
+}
+
+export method exists(path: string) -> bool {
+    release __fs_exists(path) == 1
+}
