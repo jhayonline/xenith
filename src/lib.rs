@@ -12,7 +12,7 @@
 //! ```rust
 //! use xenith::run;
 //!
-//! let result = run("test.xen", "spawn x = 5\nPRINT(x)");
+//! let result = run("test.xen", "let x = 5\nPRINT(x)");
 //! assert!(result.is_ok());
 //! ```
 
@@ -35,6 +35,7 @@ pub mod types;
 pub mod utils;
 pub mod values;
 
+use crate::context::Context;
 use crate::error::Error;
 use crate::interpreter::Interpreter;
 use crate::lexer::Lexer;
@@ -90,6 +91,49 @@ pub fn run(filename: &str, source: &str) -> Result<Value, Error> {
     context.symbol_table = Rc::new(interpreter.global_symbol_table.clone());
 
     let result = interpreter.visit(&ast, &mut context);
+
+    if let Some(error) = result.error {
+        Err(error)
+    } else if let Some(value) = result.value {
+        Ok(value)
+    } else {
+        Ok(Value::Number(crate::values::Number::null()))
+    }
+}
+
+pub fn run_with_context(
+    filename: &str,
+    source: &str,
+    context: &mut Context,
+    interpreter: &mut Interpreter,
+) -> Result<Value, Error> {
+    let mut lexer = Lexer::new(filename.to_string(), source.to_string());
+    let tokens = match lexer.make_tokens() {
+        Ok(t) => t,
+        Err(e) => return Err(e.base),
+    };
+
+    let mut parser = Parser::new(tokens);
+    let parse_result = parser.parse();
+
+    if let Some(error) = parse_result.error {
+        return Err(error);
+    }
+
+    let ast = match parse_result.node {
+        Some(node) => node,
+        None => {
+            return Err(Error::new(
+                crate::position::Position::new(0, 0, 0, filename, source),
+                crate::position::Position::new(0, 0, 0, filename, source),
+                "Internal Error",
+                "No AST node produced",
+            ));
+        }
+    };
+
+    interpreter.type_aliases.extend(parser.type_aliases);
+    let result = interpreter.visit(&ast, context);
 
     if let Some(error) = result.error {
         Err(error)

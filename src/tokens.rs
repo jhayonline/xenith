@@ -70,6 +70,7 @@ pub enum TokenType {
     Match,
     Underscore,
     BacktickString,
+    Semicolon,
 }
 
 /// A token representing a lexical unit
@@ -152,4 +153,6 @@ pub const KEYWORDS: &[&str] = &[
     "false",
     "json",
     "any",
+    "echo",
+    "format",
 ];

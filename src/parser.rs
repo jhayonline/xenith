@@ -524,7 +524,7 @@ impl Parser {
 
         // Check for echo statement (without parentheses)
         if let Some(tok) = self.current_token() {
-            if tok.matches(TokenType::Keyword, Some("echo")) {
+            if tok.kind == TokenType::Keyword && tok.value.as_deref() == Some("echo") {
                 return self.echo_statement();
             }
         }
@@ -655,6 +655,14 @@ impl Parser {
             }
         }
 
+        while let Some(tok) = self.current_token() {
+            if tok.kind == TokenType::Newline || tok.kind == TokenType::Semicolon {
+                self.advance();
+            } else {
+                break;
+            }
+        }
+
         // Parse statements
         while let Some(stmt) = result.try_register(&self.statement()) {
             statements.push(Box::new(stmt));
@@ -703,7 +711,7 @@ impl Parser {
             self.advance();
 
             // Parse expression inside parentheses
-            let expr = result.register(&self.expr());
+            let expr = result.register(&self.expression()); // Changed from expr() to expression()
             if result.error.is_some() {
                 return result;
             }
@@ -738,7 +746,7 @@ impl Parser {
             expr.unwrap()
         } else {
             // Parse expression without parentheses
-            let expr = result.register(&self.expr());
+            let expr = result.register(&self.expression()); // Changed from expr() to expression()
             if result.error.is_some() {
                 return result;
             }
@@ -747,7 +755,7 @@ impl Parser {
 
         let pos_end = expr_node.position_end().clone();
 
-        // Create a call to echo function with the expression as argument
+        // Create a proper function call node
         let call_node = Node::Call(Box::new(CallNode {
             node_to_call: Box::new(Node::VarAccess(VarAccessNode {
                 variable_name_token: Token::new(
@@ -765,6 +773,10 @@ impl Parser {
         }));
 
         result.success(call_node)
+    }
+
+    fn expression(&mut self) -> ParseResult {
+        self.ternary_expr()
     }
 
     fn block(&mut self) -> ParseResult {
@@ -1929,14 +1941,9 @@ impl Parser {
                 if result.error.is_some() {
                     return result;
                 }
-                Some(typ) // ← IMPORTANT: Return Some(typ) here
+                Some(typ)
             }
             Some(t) => {
-                // Debug: print what token we actually got
-                eprintln!(
-                    "DEBUG: Expected ':', got {:?} with value {:?}",
-                    t.kind, t.value
-                );
                 return result.failure(Error::unexpected_token(
                     &format!("{:?}", t.kind),
                     "':'",

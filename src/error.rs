@@ -89,7 +89,7 @@ impl Error {
             &format!("`{}` is not defined", name),
         )
         .with_code("XEN002")
-        .with_note("variables must be declared with `spawn` before use")
+        .with_note("variables must be declared with `let` before use")
         .with_help("check spelling or declare the variable first")
     }
 
