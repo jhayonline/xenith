@@ -758,6 +758,7 @@ impl BuiltInFunction {
             "__json_set" => crate::builtins::json::set(args, call_pos),
             "__json_has_key" => crate::builtins::json::has_key(args, call_pos),
             "__json_from_map" => crate::builtins::json::from_map(args, call_pos),
+            "__json_null" => crate::builtins::json::null_value(args, call_pos),
 
             // std::dotenv
             "__dotenv_load" => crate::builtins::dotenv::load(args, call_pos),

@@ -1,6 +1,9 @@
 # Standard Library: JSON Processing
 # Provides JSON parsing and serialization
 
+# JSON null constant
+export let json_null: json = __json_null()
+
 # Parses a JSON string into a json type
 export method parse(json_string: string) -> json {
     release __json_parse(json_string)

@@ -1,59 +1,63 @@
-grab { get, post, set_timeout, set_user_agent } from "std::http"
+grab { post, post_with_headers } from "std::http"
+grab { parse, stringify, from_map, get, json_null } from "std::json"
 
-echo("=== HTTP Module Test ===\n")
+echo("=== Testing HTTP POST ===\n")
 
-# Test GET request
-echo("1. GET request to JSONPlaceholder:")
+# Test 1: POST with JSON map converted to json
+echo("1. POST with JSON map converted to json:")
+let data_map: map<string, json> = {
+    "title": "Test Post",
+    "body": "This is a test post",
+    "userId": 1
+}
+let data: json = from_map(data_map)
+
 try {
-    let response: HttpResponse = get("https://jsonplaceholder.typicode.com/posts/1")
-
+    let response: HttpResponse = post(`https://jsonplaceholder.typicode.com/posts`, data)
     echo("   Status: {response.status}")
-    echo("   Body length: {len(response.body)}")
-
-    when response.status >= 200 && response.status < 300 {
-        echo("   Body received successfully")
-    }
+    # Use HttpResponse::as_json(response) instead of response.as_json()
+    let response_json: json = HttpResponse::as_json(response)
+    echo("   Response: {stringify(response_json)}")
 } catch err {
     echo("   Error: {err}")
 }
 echo("")
 
-# Test POST request with raw JSON string
-echo("2. POST request:")
-try {
-    let json_str: map<string, any> = "{
-      "title": "Test Post",
-      "body": "This is a test post",
-      "userId": 1
-    }
-    let response: HttpResponse = post("https://jsonplaceholder.typicode.com/posts", json_str)
+# Test 2: POST with JSON string
+echo("2. POST with JSON string:")
+let json_str: string = `{"title":"Test 2","body":"Another test","userId":2}`
+let data2: json = parse(json_str)
 
+try {
+    let response: HttpResponse = post(`https://jsonplaceholder.typicode.com/posts`, data2)
     echo("   Status: {response.status}")
-    when response.status >= 200 && response.status < 300 {
-        echo("   POST successful")
-    }
+    echo("   Raw body:\n {response.body}")
+    let created: json = HttpResponse::as_json(response)
+    echo("   Full created: {stringify(created)}")
+    # Use json::null instead of parse("null")
+    let id_json: json = get(created, "id", json_null)
+    let id_str: string = stringify(id_json)
+    echo("   Created ID: {id_str}")
 } catch err {
     echo("   Error: {err}")
 }
 echo("")
 
-# Test set_timeout
-echo("3. Setting timeout:")
-set_timeout(5)
-echo("   Timeout set to 5 seconds\n")
-
-# Test set_user_agent
-echo("4. Setting User-Agent:")
-set_user_agent("Xenith-Test/1.0")
-echo("   User-Agent set\n")
-
-# Test error handling
-echo("5. Error handling (invalid URL):")
-try {
-    let response: HttpResponse = get("https://invalid-domain-that-doesnt-exist.xyz")
-    echo("   This should not print")
-} catch err {
-    echo("   Caught error: {err}")
+# Test 3: POST with custom headers
+echo("3. POST with custom headers:")
+let headers: map<string, string> = {
+    "X-Custom-Header": "test-value"
 }
 
-echo("\n=== All tests completed! ===")
+try {
+    let response: HttpResponse = post_with_headers(`https://jsonplaceholder.typicode.com/posts`, data, headers)
+    echo("   Status: {response.status}")
+
+    # Use HttpResponse::header(response, "x-custom-header")
+    echo("   Custom header echoed back? {HttpResponse::header(response, "x-custom-header")}")
+} catch err {
+    echo("   Error: {err}")
+}
+echo("")
+
+echo("=== All HTTP POST tests completed! ===")

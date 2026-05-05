@@ -228,9 +228,12 @@ pub fn get(args: Vec<Value>, call_pos: Position) -> RuntimeResult {
     match json_val {
         Json::Object(obj) => {
             if let Some(value) = obj.get(key) {
-                RuntimeResult::new().success(json_to_value(value))
+                RuntimeResult::new().success(Value::Json(value.clone()))
             } else {
-                RuntimeResult::new().success(args[2].clone())
+                match value_to_json(&args[2], call_pos.clone()) {
+                    Ok(default_json) => RuntimeResult::new().success(Value::Json(default_json)),
+                    Err(e) => RuntimeResult::new().failure(e),
+                }
             }
         }
         _ => RuntimeResult::new().failure(
@@ -357,4 +360,8 @@ pub fn has_key(args: Vec<Value>, call_pos: Position) -> RuntimeResult {
         Json::Object(obj) => RuntimeResult::new().success(Value::Bool(obj.contains_key(key))),
         _ => RuntimeResult::new().success(Value::Bool(false)),
     }
+}
+
+pub fn null_value(_args: Vec<Value>, _call_pos: Position) -> RuntimeResult {
+    RuntimeResult::new().success(Value::Json(Json::Null))
 }

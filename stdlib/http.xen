@@ -45,23 +45,23 @@ export method get_with_headers(url: string, headers: map<string, string>) -> Htt
     release __http_get(url, headers)
 }
 
-# Sends a POST request with body
-export method post(url: string, body: string) -> HttpResponse {
+# Sends a POST request (body can be string, json)
+export method post(url: string, body: json) -> HttpResponse {
     release __http_post(url, body)
 }
 
-# Sends a POST request with body and headers
-export method post_with_headers(url: string, body: string, headers: map<string, string>) -> HttpResponse {
+# Sends a POST request with headers
+export method post_with_headers(url: string, body: json, headers: map<string, string>) -> HttpResponse {
     release __http_post(url, body, headers)
 }
 
-# Sends a PUT request with body
-export method put(url: string, body: string) -> HttpResponse {
+# Sends a PUT request
+export method put(url: string, body: json) -> HttpResponse {
     release __http_put(url, body)
 }
 
-# Sends a PUT request with body and headers
-export method put_with_headers(url: string, body: string, headers: map<string, string>) -> HttpResponse {
+# Sends a PUT request with headers
+export method put_with_headers(url: string, body: json, headers: map<string, string>) -> HttpResponse {
     release __http_put(url, body, headers)
 }
 
@@ -75,13 +75,13 @@ export method delete_with_headers(url: string, headers: map<string, string>) -> 
     release __http_delete(url, headers)
 }
 
-# Sends a PATCH request with body
-export method patch(url: string, body: string) -> HttpResponse {
+# Sends a PATCH request
+export method patch(url: string, body: json) -> HttpResponse {
     release __http_patch(url, body)
 }
 
-# Sends a PATCH request with body and headers
-export method patch_with_headers(url: string, body: string, headers: map<string, string>) -> HttpResponse {
+# Sends a PATCH request with headers
+export method patch_with_headers(url: string, body: json, headers: map<string, string>) -> HttpResponse {
     release __http_patch(url, body, headers)
 }
 

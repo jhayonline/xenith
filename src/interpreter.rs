@@ -461,6 +461,10 @@ impl Interpreter {
             "__json_from_map".to_string(),
             Value::BuiltInFunction(BuiltInFunction::new("__json_from_map")),
         );
+        global.set(
+            "__json_null".to_string(),
+            Value::BuiltInFunction(BuiltInFunction::new("__json_null")),
+        );
 
         // std::dotenv  Dot Env
         global.set(

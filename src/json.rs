@@ -2,10 +2,11 @@
 //!
 //! Defines the dedicated JSON type for handling JSON data with mixed types.
 
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// Dedicated JSON type that can represent any valid JSON value
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Json {
     Null,
     Bool(bool),
