@@ -1,0 +1,67 @@
+grab { run, exec, output, current_dir, set_current_dir, env_var, env_vars } from "std::process"
+
+echo("=== Testing std::process ===\n")
+
+# Test 1: Run command
+echo("1. Run command:")
+try {
+    run("echo Hello from process!")
+    echo("   Command executed successfully")
+} catch err {
+    echo("   Error: {err}")
+}
+echo("")
+
+# Test 2: Exec command (capture output)
+echo("2. Exec command:")
+try {
+    let result: string = exec("echo Captured output")
+    echo("   Output: {result}")
+} catch err {
+    echo("   Error: {err}")
+}
+echo("")
+
+# Test 3: Output command (full result)
+echo("3. Output command (full result):")
+try {
+    let proc: ProcessResult = output("ls -la 2>/dev/null || dir 2>nul")
+    echo("   Exit code: {proc.exit_code}")
+    # Fix: Use ProcessResult::success(proc) instead of proc.success()
+    echo("   Success: {ProcessResult::success(proc)}")
+    echo("   First line of output: {proc.stdout}")
+} catch err {
+    echo("   Error: {err}")
+}
+echo("")
+
+# Test 4: Current directory
+echo("4. Current directory:")
+let cwd: string = current_dir()
+echo("   Current: {cwd}")
+echo("")
+
+# Test 5: Change directory and back
+echo("5. Change directory:")
+let original: string = current_dir()
+try {
+    set_current_dir("..")
+    let new_cwd: string = current_dir()
+    echo("   Changed to: {new_cwd}")
+    set_current_dir(original)
+    echo("   Changed back to: {current_dir()}")
+} catch err {
+    echo("   Error: {err}")
+}
+echo("")
+
+# Test 6: Environment variables
+echo("6. Environment variables:")
+let path: string = env_var("PATH")
+echo("   PATH length: {len(path)}")
+
+let all_vars: map<string, string> = env_vars()
+echo("   Total environment variables: {all_vars.len()}")
+echo("")
+
+echo("=== All process tests completed! ===")

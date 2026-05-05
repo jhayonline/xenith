@@ -1,0 +1,88 @@
+# Standard Library: Process Management
+# Provides functions for running external commands and managing processes
+
+# ProcessResult struct for command output
+struct ProcessResult {
+    exit_code: int,
+    stdout: string,
+    stderr: string
+}
+
+impl ProcessResult {
+    # Returns true if the command succeeded (exit code 0)
+    method success(self: Self) -> bool {
+        release self.exit_code == 0
+    }
+    
+    # Returns stdout trimmed (without trailing newline)
+    method output(self: Self) -> string {
+        when self.stdout.ends_with("\n") {
+            release self.stdout[0..self.stdout.len() - 1]
+        }
+        release self.stdout
+    }
+    
+    # Returns stderr trimmed
+    method error(self: Self) -> string {
+        when self.stderr.ends_with("\n") {
+            release self.stderr[0..self.stderr.len() - 1]
+        }
+        release self.stderr
+    }
+}
+
+# Runs a command and displays output in real-time
+# Returns null on success, panics on failure
+export method run(command: string) -> null {
+    __process_run(command)
+    release null
+}
+
+# Runs a command and returns stdout as a string
+export method exec(command: string) -> string {
+    release __process_exec(command)
+}
+
+# Runs a command and returns a ProcessResult struct with full details
+export method output(command: string) -> ProcessResult {
+    release __process_output(command)
+}
+
+# Returns the current working directory
+export method current_dir() -> string {
+    release __process_current_dir()
+}
+
+# Changes the current working directory
+export method set_current_dir(path: string) -> null {
+    __process_set_current_dir(path)
+    release null
+}
+
+# Gets an environment variable
+export method env_var(key: string) -> string {
+    release __process_env_var(key)
+}
+
+# Gets all environment variables as a map
+export method env_vars() -> map<string, string> {
+    release __process_env_vars()
+}
+
+# Sets an environment variable
+export method set_env_var(key: string, value: string) -> null {
+    __process_set_env_var(key, value)
+    release null
+}
+
+# Removes an environment variable
+export method remove_env_var(key: string) -> null {
+    __process_remove_env_var(key)
+    release null
+}
+
+# Exits the program with the given exit code (defaults to 0)
+export method exit(code: int) -> null {
+    __process_exit(code)
+    release null
+}

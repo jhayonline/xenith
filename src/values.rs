@@ -779,6 +779,20 @@ impl BuiltInFunction {
             "__http_set_timeout" => crate::builtins::http::set_timeout(args, call_pos),
             "__http_set_user_agent" => crate::builtins::http::set_user_agent(args, call_pos),
 
+            // std::process
+            "__process_run" => crate::builtins::process::run_command(args, call_pos),
+            "__process_exec" => crate::builtins::process::exec_command(args, call_pos),
+            "__process_output" => crate::builtins::process::output_command(args, call_pos),
+            "__process_current_dir" => crate::builtins::process::current_dir(args, call_pos),
+            "__process_set_current_dir" => {
+                crate::builtins::process::set_current_dir(args, call_pos)
+            }
+            "__process_env_var" => crate::builtins::process::env_var(args, call_pos),
+            "__process_env_vars" => crate::builtins::process::env_vars(args, call_pos),
+            "__process_set_env_var" => crate::builtins::process::set_env_var(args, call_pos),
+            "__process_remove_env_var" => crate::builtins::process::remove_env_var(args, call_pos),
+            "__process_exit" => crate::builtins::process::exit_program(args, call_pos),
+
             _ => RuntimeResult::new().failure(
                 RuntimeError::new(
                     call_pos.clone(),

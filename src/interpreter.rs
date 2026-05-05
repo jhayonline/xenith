@@ -530,6 +530,48 @@ impl Interpreter {
             Value::BuiltInFunction(BuiltInFunction::new("__http_set_user_agent")),
         );
 
+        // std::process
+        global.set(
+            "__process_run".to_string(),
+            Value::BuiltInFunction(BuiltInFunction::new("__process_run")),
+        );
+        global.set(
+            "__process_exec".to_string(),
+            Value::BuiltInFunction(BuiltInFunction::new("__process_exec")),
+        );
+        global.set(
+            "__process_output".to_string(),
+            Value::BuiltInFunction(BuiltInFunction::new("__process_output")),
+        );
+        global.set(
+            "__process_current_dir".to_string(),
+            Value::BuiltInFunction(BuiltInFunction::new("__process_current_dir")),
+        );
+        global.set(
+            "__process_set_current_dir".to_string(),
+            Value::BuiltInFunction(BuiltInFunction::new("__process_set_current_dir")),
+        );
+        global.set(
+            "__process_env_var".to_string(),
+            Value::BuiltInFunction(BuiltInFunction::new("__process_env_var")),
+        );
+        global.set(
+            "__process_env_vars".to_string(),
+            Value::BuiltInFunction(BuiltInFunction::new("__process_env_vars")),
+        );
+        global.set(
+            "__process_set_env_var".to_string(),
+            Value::BuiltInFunction(BuiltInFunction::new("__process_set_env_var")),
+        );
+        global.set(
+            "__process_remove_env_var".to_string(),
+            Value::BuiltInFunction(BuiltInFunction::new("__process_remove_env_var")),
+        );
+        global.set(
+            "__process_exit".to_string(),
+            Value::BuiltInFunction(BuiltInFunction::new("__process_exit")),
+        );
+
         Self {
             global_symbol_table: global,
             module_registry: None,
