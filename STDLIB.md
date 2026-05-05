@@ -10,7 +10,7 @@ Xenith's standard library is written in **Rust** for performance and stability, 
 ┌─────────────────────────────────────────────────────────────┐
 │                     User Xenith Code                         │
 │  grab { read, write } from "std::fs"                        │
-│  spawn content: string = read("file.txt")                   │
+│  let content: string = read("file.txt")                   │
 └─────────────────────────────────────────────────────────────┘
                               │
                               ▼
@@ -40,32 +40,38 @@ Xenith's standard library is written in **Rust** for performance and stability, 
 
 ## Why This Approach?
 
-| Reason | Explanation |
-|--------|-------------|
-| **Performance** | Rust's file I/O, JSON parsing, and HTTP clients are blazing fast |
-| **Stability** | Battle-tested crates vs. reinventing the wheel |
-| **Ecosystem** | Access to `serde_json`, `reqwest`, `rand`, etc. |
-| **No Bootstrap Problem** | Works immediately without Xenith being self-hosting |
-| **Consistent** | Same pattern as built-ins like `echo()`, `input()` |
+| Reason                   | Explanation                                                      |
+| ------------------------ | ---------------------------------------------------------------- |
+| **Performance**          | Rust's file I/O, JSON parsing, and HTTP clients are blazing fast |
+| **Stability**            | Battle-tested crates vs. reinventing the wheel                   |
+| **Ecosystem**            | Access to `serde_json`, `reqwest`, `rand`, etc.                  |
+| **No Bootstrap Problem** | Works immediately without Xenith being self-hosting              |
+| **Consistent**           | Same pattern as built-ins like `echo()`, `input()`               |
 
 ## How It Works
 
 ### 1. Rust Built-in (src/builtins/fs.rs)
+
 Each operation is a Rust function that:
+
 - Takes `Vec<Value>` arguments
 - Returns `RuntimeResult`
 - Uses standard Rust crates for actual work
 - Converts errors to Xenith `RuntimeError`
 
 ### 2. Registration (src/interpreter.rs)
+
 Built-ins are added to the global symbol table with `__` prefix:
+
 ```rust
-global.set("__fs_read".to_string(), 
+global.set("__fs_read".to_string(),
     Value::BuiltInFunction(BuiltInFunction::new("__fs_read")));
 ```
 
 ### 3. Dispatch (src/values.rs)
+
 The `BuiltInFunction::execute` method routes calls:
+
 ```rust
 match self.name.as_str() {
     "__fs_read" => crate::builtins::fs::read(args),
@@ -74,7 +80,9 @@ match self.name.as_str() {
 ```
 
 ### 4. Xenith Wrapper (stdlib/fs.xen)
+
 Clean user-facing API that calls the prefixed built-in:
+
 ```xenith
 export method read(path: string) -> string {
     release __fs_read(path)
@@ -114,4 +122,7 @@ stdlib/
 ## Key Principle
 
 > **Rust does the heavy lifting. Xenith provides the beautiful syntax.**
+
+```
+
 ```

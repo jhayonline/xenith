@@ -59,8 +59,8 @@ load_file("../.env")
 Returns the value of an environment variable. Throws an error if not found.
 
 ```xenith
-spawn db_host: string = get("DB_HOST")
-spawn db_port: int = get("DB_PORT") as int
+let db_host: string = get("DB_HOST")
+let db_port: int = get("DB_PORT") as int
 ```
 
 ### `get_or_default(key: string, default: string) -> string`
@@ -68,8 +68,8 @@ spawn db_port: int = get("DB_PORT") as int
 Returns the value of an environment variable, or a default value if not found.
 
 ```xenith
-spawn api_key: string = get_or_default("API_KEY", "default_key")
-spawn debug: bool = get_or_default("DEBUG", "false") == "true"
+let api_key: string = get_or_default("API_KEY", "default_key")
+let debug: bool = get_or_default("DEBUG", "false") == "true"
 ```
 
 ### `has(key: string) -> bool`
@@ -78,7 +78,7 @@ Checks if an environment variable exists.
 
 ```xenith
 when has("API_KEY") {
-    spawn key: string = get("API_KEY")
+    let key: string = get("API_KEY")
     echo("API key configured")
 } otherwise {
     echo("Warning: API_KEY not set")
@@ -107,7 +107,7 @@ unset("TEMP_VAR")
 Returns all loaded environment variables as a map.
 
 ```xenith
-spawn all_vars: map<string, string> = vars()
+let all_vars: map<string, string> = vars()
 for key, value in all_vars.items() {
     echo("{key} = {value}")
 }
@@ -124,10 +124,10 @@ grab { load, get, get_or_default } from "std::dotenv"
 load()
 
 # Get database settings
-spawn db_host: string = get("DB_HOST")
-spawn db_port: int = get("DB_PORT") as int
-spawn db_user: string = get("DB_USER")
-spawn db_password: string = get("DB_PASSWORD")
+let db_host: string = get("DB_HOST")
+let db_port: int = get("DB_PORT") as int
+let db_user: string = get("DB_USER")
+let db_password: string = get("DB_PASSWORD")
 
 # Connect to database (example)
 echo("Connecting to {db_host}:{db_port} as {db_user}")
@@ -141,10 +141,10 @@ grab { load, get_or_default } from "std::dotenv"
 load()
 
 # Application configuration with defaults
-spawn app_name: string = get_or_default("APP_NAME", "XenithApp")
-spawn app_port: int = get_or_default("PORT", "3000") as int
-spawn debug_mode: bool = get_or_default("DEBUG", "false") == "true"
-spawn log_level: string = get_or_default("LOG_LEVEL", "info")
+let app_name: string = get_or_default("APP_NAME", "XenithApp")
+let app_port: int = get_or_default("PORT", "3000") as int
+let debug_mode: bool = get_or_default("DEBUG", "false") == "true"
+let log_level: string = get_or_default("LOG_LEVEL", "info")
 
 when debug_mode {
     echo("Running in debug mode")
@@ -161,8 +161,8 @@ grab { load, get, has } from "std::dotenv"
 load()
 
 # Check required variables
-spawn required_vars: list<string> = ["API_KEY", "API_URL", "API_TIMEOUT"]
-spawn missing: list<string> = []
+let required_vars: list<string> = ["API_KEY", "API_URL", "API_TIMEOUT"]
+let missing: list<string> = []
 
 for var in required_vars {
     when !has(var) {
@@ -179,9 +179,9 @@ when missing.len() > 0 {
 }
 
 # All required variables present
-spawn api_key: string = get("API_KEY")
-spawn api_url: string = get("API_URL")
-spawn api_timeout: int = get("API_TIMEOUT") as int
+let api_key: string = get("API_KEY")
+let api_url: string = get("API_URL")
+let api_timeout: int = get("API_TIMEOUT") as int
 
 echo("API client configured for {api_url}")
 ```
@@ -192,8 +192,8 @@ echo("API client configured for {api_url}")
 grab { load_file, get_or_default } from "std::dotenv"
 
 method load_config(env: string) -> null {
-    spawn config_file: string = ".env." + env
-    
+    let config_file: string = ".env." + env
+
     try {
         load_file(config_file)
         echo("Loaded {config_file}")
@@ -204,11 +204,11 @@ method load_config(env: string) -> null {
 }
 
 # Load environment-specific config
-spawn environment: string = get_or_default("ENV", "development")
+let environment: string = get_or_default("ENV", "development")
 load_config(environment)
 
-spawn debug: bool = get_or_default("DEBUG", "false") == "true"
-spawn log_level: string = get_or_default("LOG_LEVEL", "info")
+let debug: bool = get_or_default("DEBUG", "false") == "true"
+let log_level: string = get_or_default("LOG_LEVEL", "info")
 
 echo("Environment: {environment}")
 echo("Debug: {debug}")
@@ -223,12 +223,12 @@ grab { load, get, set, unset } from "std::dotenv"
 load()
 
 # Original value
-spawn original: string = get("LOG_LEVEL")
+let original: string = get("LOG_LEVEL")
 echo("Original LOG_LEVEL: {original}")
 
 # Override for this session
 set("LOG_LEVEL", "debug")
-spawn overridden: string = get("LOG_LEVEL")
+let overridden: string = get("LOG_LEVEL")
 echo("Overridden LOG_LEVEL: {overridden}")
 
 # Restore (unset reverts to .env value? No, unset removes it)
@@ -246,9 +246,9 @@ grab { load, has } from "std::dotenv"
 load()
 
 # Feature flags from .env
-spawn enable_feature_x: bool = has("FEATURE_X_ENABLED")
-spawn enable_feature_y: bool = has("FEATURE_Y_ENABLED")
-spawn beta_features: bool = has("BETA_FEATURES")
+let enable_feature_x: bool = has("FEATURE_X_ENABLED")
+let enable_feature_y: bool = has("FEATURE_Y_ENABLED")
+let beta_features: bool = has("BETA_FEATURES")
 
 when beta_features {
     echo("Beta features enabled")
@@ -274,10 +274,10 @@ try {
 }
 
 try {
-    spawn value: string = get("MISSING_KEY")
+    let value: string = get("MISSING_KEY")
 } catch err {
     echo("Key not found, using default")
-    spawn value: string = "default"
+    let value: string = "default"
 }
 ```
 
@@ -292,4 +292,7 @@ try {
 
 - `std::fs` - For reading configuration files
 - `std::process` - For accessing process environment
+
+```
+
 ```
