@@ -6,7 +6,6 @@ use crate::context::Context;
 use crate::interpreter::Interpreter;
 use crate::run_with_context;
 use crate::utils::value_to_string;
-use crate::values::Value;
 use colored::*;
 use rustyline::completion::{Completer, Pair};
 use rustyline::config::Configurer;
@@ -353,32 +352,14 @@ pub fn run_repl() -> Result<(), Box<dyn std::error::Error>> {
                 match run_with_context("<repl>", &full_line, &mut context, &mut interpreter) {
                     Ok(value) => {
                         let trimmed = full_line.trim();
+                        let is_assignment =
+                            trimmed.starts_with("let ") || trimmed.starts_with("const ");
                         let is_echo = trimmed.starts_with("echo ") || trimmed.starts_with("echo(");
 
-                        if is_echo {
-                            // Echo already printed its output, skip printing return value
-                        } else {
-                            match &value {
-                                Value::Number(n) if n.value == 0.0 => {
-                                    if !full_line.contains('=') {
-                                        let output = value_to_string(&value);
-                                        if output != "0" && output != "null" {
-                                            println!("{}", output.bright_green());
-                                        }
-                                    }
-                                }
-                                Value::String(s) => {
-                                    let output = s.value.trim();
-                                    if !output.is_empty() {
-                                        println!("{}", output.bright_green());
-                                    }
-                                }
-                                _ => {
-                                    let output = value_to_string(&value);
-                                    if !output.is_empty() && output != "null" && output != "0" {
-                                        println!("{}", output.bright_green());
-                                    }
-                                }
+                        if !is_echo && !is_assignment {
+                            let output = value_to_string(&value);
+                            if !output.is_empty() {
+                                println!("{}", output.bright_green());
                             }
                         }
                     }

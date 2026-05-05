@@ -11,6 +11,7 @@ use std::collections::HashMap;
 // Convert Xenith Value to Json
 fn value_to_json(value: &Value, call_pos: Position) -> Result<Json, Error> {
     match value {
+        Value::Null => Ok(Json::Null),
         Value::Number(n) => {
             if n.value == 0.0 {
                 Ok(Json::Null)
@@ -47,7 +48,7 @@ fn value_to_json(value: &Value, call_pos: Position) -> Result<Json, Error> {
 // Convert Json to Xenith Value
 fn json_to_value(json: &Json) -> Value {
     match json {
-        Json::Null => Value::Number(Number::null()),
+        Json::Null => Value::Null,
         Json::Bool(b) => Value::Bool(*b),
         Json::Number(n) => Value::Number(Number::new(*n)),
         Json::String(s) => Value::String(XenithString::new(s.clone())),

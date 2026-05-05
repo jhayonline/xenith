@@ -31,6 +31,7 @@ pub enum Value {
     Struct(Struct),
     Bool(bool),
     Json(Json),
+    Null,
 }
 
 impl Value {
@@ -60,6 +61,7 @@ impl Value {
             Value::Function(_) => true,
             Value::BuiltInFunction(_) => true,
             Value::Bool(b) => *b,
+            Value::Null => false,
             Value::Json(j) => !j.is_null(),
         }
     }
@@ -250,25 +252,23 @@ impl Value {
                         .zip(b.elements.iter())
                         .all(|(x, y)| match x.equals(y) {
                             Ok(Value::Number(n)) => n.value != 0.0,
+                            Ok(Value::Bool(b)) => b,
                             _ => false,
                         })
                 }
             }
             (Value::Bool(a), Value::Bool(b)) => a == b,
+            (Value::Null, Value::Null) => true, // Two nulls are equal
             _ => false,
         };
-        Ok(Value::Number(Number::new(if result { 1.0 } else { 0.0 })))
+        Ok(Value::Bool(result)) // Return Bool, not Number
     }
 
     /// Not equals comparison
     pub fn not_equals(&self, other: &Value) -> Result<Value, Error> {
         let eq = self.equals(other)?;
         match eq {
-            Value::Number(n) => Ok(Value::Number(Number::new(if n.value == 0.0 {
-                1.0
-            } else {
-                0.0
-            }))),
+            Value::Bool(b) => Ok(Value::Bool(!b)),
             _ => Ok(Value::Number(Number::new(1.0))),
         }
     }
@@ -426,18 +426,6 @@ impl Number {
         Self { value }
     }
 
-    pub fn null() -> Self {
-        Self { value: 0.0 }
-    }
-
-    pub fn false_val() -> Self {
-        Self { value: 0.0 }
-    }
-
-    pub fn true_val() -> Self {
-        Self { value: 1.0 }
-    }
-
     pub fn math_pi() -> Self {
         Self {
             value: std::f64::consts::PI,
@@ -588,7 +576,7 @@ impl Function {
             return RuntimeResult::new().success(ret_val);
         }
 
-        RuntimeResult::new().success(Value::Number(Number::null()))
+        RuntimeResult::new().success(Value::Null)
     }
 
     pub fn value_matches_type(value: &Value, expected_type: &Type) -> bool {
@@ -624,6 +612,7 @@ impl Function {
             Value::Struct(s) => format!("struct {}", s.name),
             Value::Function(_) => "function".to_string(),
             Value::BuiltInFunction(_) => "builtin".to_string(),
+            Value::Null => "null".to_string(),
             Value::Json(_) => "json".to_string(),
         }
     }
@@ -833,6 +822,8 @@ impl BuiltInFunction {
             match arg {
                 Value::Number(n) => print!("{}", n.value),
                 Value::String(s) => print!("{}", s.value),
+                Value::Bool(b) => print!("{}", b), // Add this
+                Value::Null => print!("null"),     // Add this
                 Value::List(l) => {
                     print!("[");
                     for (i, elem) in l.elements.iter().enumerate() {
@@ -842,17 +833,49 @@ impl BuiltInFunction {
                         match elem {
                             Value::Number(n) => print!("{}", n.value),
                             Value::String(s) => print!("\"{}\"", s.value),
+                            Value::Bool(b) => print!("{}", b),
+                            Value::Null => print!("null"),
                             _ => print!("?"),
                         }
                     }
                     print!("]");
                 }
-                _ => print!("?"),
+                Value::Map(m) => {
+                    print!("{{");
+                    for (i, (k, v)) in m.pairs.iter().enumerate() {
+                        if i > 0 {
+                            print!(", ");
+                        }
+                        print!("\"{}\": ", k);
+                        match v {
+                            Value::Number(n) => print!("{}", n.value),
+                            Value::String(s) => print!("\"{}\"", s.value),
+                            Value::Bool(b) => print!("{}", b),
+                            Value::Null => print!("null"),
+                            _ => print!("?"),
+                        }
+                    }
+                    print!("}}");
+                }
+                Value::Struct(s) => {
+                    print!("<struct {}>", s.name);
+                }
+                Value::Function(f) => {
+                    if let Some(name) = &f.name {
+                        print!("<function {}>", name);
+                    } else {
+                        print!("<anonymous function>");
+                    }
+                }
+                Value::BuiltInFunction(b) => {
+                    print!("<built-in function {}>", b.name);
+                }
+                Value::Json(j) => print!("{}", j.to_string()),
             }
         }
         println!();
         io::stdout().flush().unwrap();
-        RuntimeResult::new().success(Value::Number(Number::null()))
+        RuntimeResult::new().success(Value::Null)
     }
 
     fn ret(&self, args: Vec<Value>, _call_pos: Position) -> RuntimeResult {
@@ -883,7 +906,7 @@ impl BuiltInFunction {
     fn clear(&self, _call_pos: Position) -> RuntimeResult {
         print!("\x1B[2J\x1B[1;1H");
         io::stdout().flush().unwrap();
-        RuntimeResult::new().success(Value::Number(Number::null()))
+        RuntimeResult::new().success(Value::Null)
     }
 
     fn is_num(&self, args: Vec<Value>, _call_pos: Position) -> RuntimeResult {
@@ -1058,7 +1081,7 @@ impl BuiltInFunction {
 
         match std::fs::read_to_string(filename) {
             Ok(source) => match crate::run(filename, &source) {
-                Ok(_) => RuntimeResult::new().success(Value::Number(Number::null())),
+                Ok(_) => RuntimeResult::new().success(Value::Null),
                 Err(e) => RuntimeResult::new().failure(e),
             },
             Err(e) => RuntimeResult::new().failure(

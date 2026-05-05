@@ -98,7 +98,7 @@ pub fn sleep(args: Vec<Value>, call_pos: Position) -> RuntimeResult {
     };
 
     thread::sleep(Duration::from_millis(ms));
-    RuntimeResult::new().success(Value::Number(Number::null()))
+    RuntimeResult::new().success(Value::Null)
 }
 
 pub fn sleep_sec(args: Vec<Value>, call_pos: Position) -> RuntimeResult {
@@ -130,7 +130,7 @@ pub fn sleep_sec(args: Vec<Value>, call_pos: Position) -> RuntimeResult {
     };
 
     thread::sleep(Duration::from_secs(secs));
-    RuntimeResult::new().success(Value::Number(Number::null()))
+    RuntimeResult::new().success(Value::Null)
 }
 
 pub fn duration_secs(args: Vec<Value>, call_pos: Position) -> RuntimeResult {

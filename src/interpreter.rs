@@ -61,9 +61,9 @@ impl Interpreter {
         let mut global = SymbolTable::new();
 
         // Built-in constants
-        global.set("NULL".to_string(), Value::Number(Number::null()));
-        global.set("FALSE".to_string(), Value::Number(Number::false_val()));
-        global.set("TRUE".to_string(), Value::Number(Number::true_val()));
+        global.set("NULL".to_string(), Value::Null);
+        global.set("FALSE".to_string(), Value::Bool(false));
+        global.set("TRUE".to_string(), Value::Bool(true));
         global.set("MATH_PI".to_string(), Value::Number(Number::math_pi()));
 
         // Built-in functions
@@ -728,7 +728,7 @@ impl Interpreter {
             Value::String(XenithString::new(format!("__struct__{}", struct_name))),
         );
 
-        RuntimeResult::new().success(Value::Number(Number::null()))
+        RuntimeResult::new().success(Value::Null)
     }
 
     fn visit_struct_instantiation(
@@ -770,7 +770,7 @@ impl Interpreter {
             }
         }
 
-        RuntimeResult::new().success(Value::Number(Number::null()))
+        RuntimeResult::new().success(Value::Null)
     }
 
     fn visit_type_alias(&mut self, node: &TypeAliasNode, context: &mut Context) -> RuntimeResult {
@@ -779,7 +779,7 @@ impl Interpreter {
 
         self.type_aliases.insert(alias_name, alias_type);
 
-        RuntimeResult::new().success(Value::Number(Number::null()))
+        RuntimeResult::new().success(Value::Null)
     }
 
     fn visit_null_literal(
@@ -787,7 +787,7 @@ impl Interpreter {
         node: &NullLiteralNode,
         _context: &mut Context,
     ) -> RuntimeResult {
-        RuntimeResult::new().success(Value::Number(Number::null()))
+        RuntimeResult::new().success(Value::Null)
     }
 
     fn visit_bool_literal(
@@ -885,7 +885,7 @@ impl Interpreter {
             }
         }
 
-        result.success(Value::Number(Number::null()))
+        result.success(Value::Null)
     }
 
     fn visit_number(
@@ -1070,6 +1070,7 @@ impl Interpreter {
         let resolved = Self::resolve_type(expected_type, aliases);
 
         match (value, &resolved) {
+            (Value::Null, Type::Null) => true,
             (Value::Number(n), Type::Int) => n.value.fract() == 0.0,
             (Value::Number(_), Type::Float) => true,
             (Value::String(_), Type::String) => true,
@@ -1134,6 +1135,7 @@ impl Interpreter {
             Value::Function(_) => "function".to_string(),
             Value::BuiltInFunction(_) => "builtin".to_string(),
             Value::Json(_) => "json".to_string(),
+            Value::Null => "null".to_string(),
         }
     }
 
@@ -1626,7 +1628,7 @@ impl Interpreter {
                             final_string.push_str(&value_to_interpolated_string(&value));
                         } else {
                             // For multiple statements, evaluate each and use the last value
-                            let mut last_value = Value::Number(Number::null());
+                            let mut last_value = Value::Null;
                             for stmt_node in list_node.element_nodes {
                                 let value = result.register(self.visit(&stmt_node, context));
                                 if result.should_return() {
@@ -1721,7 +1723,7 @@ impl Interpreter {
         }
 
         // No match found - return null
-        result.success(Value::Number(Number::null()))
+        result.success(Value::Null)
     }
 
     fn visit_unary_op(
@@ -1786,7 +1788,7 @@ impl Interpreter {
             return result.success(value);
         }
 
-        result.success(Value::Number(Number::null()))
+        result.success(Value::Null)
     }
 
     fn visit_for(&mut self, node: &crate::nodes::ForNode, context: &mut Context) -> RuntimeResult {
@@ -2001,7 +2003,7 @@ impl Interpreter {
         }
 
         if node.should_return_null {
-            result.success(Value::Number(Number::null()))
+            result.success(Value::Null)
         } else {
             result.success(Value::List(List::new(elements)))
         }
@@ -2044,7 +2046,7 @@ impl Interpreter {
         }
 
         if node.should_return_null {
-            result.success(Value::Number(Number::null()))
+            result.success(Value::Null)
         } else {
             result.success(Value::List(List::new(elements)))
         }
@@ -2225,7 +2227,7 @@ impl Interpreter {
                             return RuntimeResult::new().success(val);
                         }
 
-                        return RuntimeResult::new().success(Value::Number(Number::null()));
+                        return RuntimeResult::new().success(Value::Null);
                     } else {
                         return result.failure(Error::method_not_found(
                             &struct_name,
@@ -2472,7 +2474,7 @@ impl Interpreter {
                         if let Some(val) = exec_result.value {
                             return RuntimeResult::new().success(val);
                         }
-                        RuntimeResult::new().success(Value::Number(Number::null()))
+                        RuntimeResult::new().success(Value::Null)
                     }
                     None => RuntimeResult::new().failure(
                         RuntimeError::new(
@@ -2511,7 +2513,7 @@ impl Interpreter {
         let value = if let Some(expr) = &node.node_to_return {
             result.register(self.visit(expr, context))
         } else {
-            Value::Number(Number::null())
+            Value::Null
         };
 
         if result.should_return() {
@@ -2541,5 +2543,12 @@ impl Interpreter {
 impl Default for Interpreter {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+fn convert_legacy_null(value: &Value) -> Value {
+    match value {
+        Value::Number(n) if n.value == 0.0 => Value::Null,
+        _ => value.clone(),
     }
 }

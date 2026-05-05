@@ -97,7 +97,7 @@ pub fn run(filename: &str, source: &str) -> Result<Value, Error> {
     } else if let Some(value) = result.value {
         Ok(value)
     } else {
-        Ok(Value::Number(crate::values::Number::null()))
+        Ok(Value::Null)
     }
 }
 
@@ -140,7 +140,7 @@ pub fn run_with_context(
     } else if let Some(value) = result.value {
         Ok(value)
     } else {
-        Ok(Value::Number(crate::values::Number::null()))
+        Ok(Value::Null)
     }
 }
 

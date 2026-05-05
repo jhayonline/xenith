@@ -4,7 +4,7 @@
 use crate::error::Error;
 use crate::position::Position;
 use crate::runtime_result::RuntimeResult;
-use crate::values::{List, Number, Value, XenithString};
+use crate::values::{List, Value, XenithString};
 use std::fs;
 use std::path::Path;
 
@@ -79,7 +79,7 @@ pub fn write(args: Vec<Value>, call_pos: Position) -> RuntimeResult {
     };
 
     match fs::write(path, content) {
-        Ok(_) => RuntimeResult::new().success(Value::Number(Number::null())),
+        Ok(_) => RuntimeResult::new().success(Value::Null),
         Err(e) => RuntimeResult::new().failure(
             Error::permission_denied(path, call_pos.clone(), call_pos).with_note(&e.to_string()),
         ),
@@ -127,7 +127,7 @@ pub fn append(args: Vec<Value>, call_pos: Position) -> RuntimeResult {
         Ok(mut file) => {
             use std::io::Write;
             match file.write_all(content.as_bytes()) {
-                Ok(_) => RuntimeResult::new().success(Value::Number(Number::null())),
+                Ok(_) => RuntimeResult::new().success(Value::Null),
                 Err(e) => RuntimeResult::new().failure(
                     Error::permission_denied(path, call_pos.clone(), call_pos)
                         .with_note(&e.to_string()),
@@ -253,7 +253,7 @@ pub fn mkdir(args: Vec<Value>, call_pos: Position) -> RuntimeResult {
     };
 
     match fs::create_dir(path) {
-        Ok(_) => RuntimeResult::new().success(Value::Number(Number::null())),
+        Ok(_) => RuntimeResult::new().success(Value::Null),
         Err(e) => RuntimeResult::new().failure(
             Error::permission_denied(path, call_pos.clone(), call_pos).with_note(&e.to_string()),
         ),
@@ -286,7 +286,7 @@ pub fn mkdir_all(args: Vec<Value>, call_pos: Position) -> RuntimeResult {
     };
 
     match fs::create_dir_all(path) {
-        Ok(_) => RuntimeResult::new().success(Value::Number(Number::null())),
+        Ok(_) => RuntimeResult::new().success(Value::Null),
         Err(e) => RuntimeResult::new().failure(
             Error::permission_denied(path, call_pos.clone(), call_pos).with_note(&e.to_string()),
         ),
@@ -334,7 +334,7 @@ pub fn remove(args: Vec<Value>, call_pos: Position) -> RuntimeResult {
     };
 
     match result {
-        Ok(_) => RuntimeResult::new().success(Value::Number(Number::null())),
+        Ok(_) => RuntimeResult::new().success(Value::Null),
         Err(e) => RuntimeResult::new().failure(
             Error::permission_denied(path, call_pos.clone(), call_pos).with_note(&e.to_string()),
         ),
@@ -367,7 +367,7 @@ pub fn remove_all(args: Vec<Value>, call_pos: Position) -> RuntimeResult {
     };
 
     match fs::remove_dir_all(path) {
-        Ok(_) => RuntimeResult::new().success(Value::Number(Number::null())),
+        Ok(_) => RuntimeResult::new().success(Value::Null),
         Err(e) => RuntimeResult::new().failure(
             Error::permission_denied(path, call_pos.clone(), call_pos).with_note(&e.to_string()),
         ),
@@ -463,7 +463,7 @@ pub fn copy(args: Vec<Value>, call_pos: Position) -> RuntimeResult {
     };
 
     match fs::copy(from, to) {
-        Ok(_) => RuntimeResult::new().success(Value::Number(Number::null())),
+        Ok(_) => RuntimeResult::new().success(Value::Null),
         Err(e) => RuntimeResult::new().failure(
             Error::file_not_found(from, call_pos.clone(), call_pos).with_note(&e.to_string()),
         ),

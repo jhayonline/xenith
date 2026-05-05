@@ -627,7 +627,7 @@ pub fn set_timeout(args: Vec<Value>, call_pos: Position) -> RuntimeResult {
     let mut client = HTTP_CLIENT.lock().unwrap();
     *client = new_client;
 
-    RuntimeResult::new().success(Value::Number(Number::null()))
+    RuntimeResult::new().success(Value::Null)
 }
 
 pub fn set_user_agent(args: Vec<Value>, call_pos: Position) -> RuntimeResult {
@@ -658,13 +658,13 @@ pub fn set_user_agent(args: Vec<Value>, call_pos: Position) -> RuntimeResult {
     let mut user_agent = USER_AGENT.lock().unwrap();
     *user_agent = agent;
 
-    RuntimeResult::new().success(Value::Number(Number::null()))
+    RuntimeResult::new().success(Value::Null)
 }
 
 // Helper to convert Json to Value (needed for xenith_to_serde_json)
 fn json_to_value(json: &Json) -> Value {
     match json {
-        Json::Null => Value::Number(Number::null()),
+        Json::Null => Value::Null,
         Json::Bool(b) => Value::Bool(*b),
         Json::Number(n) => Value::Number(Number::new(*n)),
         Json::String(s) => Value::String(XenithString::new(s.clone())),

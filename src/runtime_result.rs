@@ -41,11 +41,10 @@ impl RuntimeResult {
 
         // If there's an error, return value, or panic, we shouldn't try to get the value
         if self.error.is_some() || self.func_return_value.is_some() || self.caught_error.is_some() {
-            return Value::Number(crate::values::Number::null());
+            return Value::Null;
         }
 
-        res.value
-            .unwrap_or_else(|| Value::Number(crate::values::Number::null()))
+        res.value.unwrap_or_else(|| Value::Null)
     }
 
     /// Creates a successful result

@@ -82,7 +82,7 @@ pub fn run_command(args: Vec<Value>, call_pos: Position) -> RuntimeResult {
     {
         Ok(status) => {
             if status.success() {
-                RuntimeResult::new().success(Value::Number(Number::null()))
+                RuntimeResult::new().success(Value::Null)
             } else {
                 RuntimeResult::new().failure(
                     RuntimeError::new(
@@ -284,7 +284,7 @@ pub fn set_current_dir(args: Vec<Value>, call_pos: Position) -> RuntimeResult {
     };
 
     match env::set_current_dir(&path) {
-        Ok(_) => RuntimeResult::new().success(Value::Number(Number::null())),
+        Ok(_) => RuntimeResult::new().success(Value::Null),
         Err(e) => RuntimeResult::new().failure(
             RuntimeError::new(
                 call_pos.clone(),
@@ -378,7 +378,7 @@ pub fn set_env_var(args: Vec<Value>, call_pos: Position) -> RuntimeResult {
     unsafe {
         env::set_var(key, value);
     }
-    RuntimeResult::new().success(Value::Number(Number::null()))
+    RuntimeResult::new().success(Value::Null)
 }
 
 /// Remove environment variable
@@ -403,7 +403,7 @@ pub fn remove_env_var(args: Vec<Value>, call_pos: Position) -> RuntimeResult {
     unsafe {
         env::remove_var(key);
     }
-    RuntimeResult::new().success(Value::Number(Number::null()))
+    RuntimeResult::new().success(Value::Null)
 }
 
 /// Exit the program with a code

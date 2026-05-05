@@ -96,10 +96,7 @@ pub fn string_with_arrows(
 pub fn value_to_string(value: &Value) -> String {
     match value {
         Value::Number(n) => {
-            if n.value == 0.0 || n.value == 1.0 {
-                // Could be bool - but we can't distinguish from int 0/1 without a Bool variant
-                n.value.to_string()
-            } else if n.value.fract() == 0.0 {
+            if n.value.fract() == 0.0 {
                 format!("{}", n.value as i64)
             } else {
                 n.value.to_string()
@@ -160,6 +157,7 @@ pub fn value_to_string(value: &Value) -> String {
                 "false".to_string()
             }
         }
+        Value::Null => "null".to_string(), // NEW
         Value::Json(j) => j.to_string(),
     }
 }
@@ -226,6 +224,7 @@ pub fn value_to_interpolated_string(value: &Value) -> String {
                 "false".to_string()
             }
         }
+        Value::Null => "null".to_string(), // Add this line
         Value::Json(j) => j.to_string(),
     }
 }

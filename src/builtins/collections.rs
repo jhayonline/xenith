@@ -107,7 +107,7 @@ pub fn set_add(args: Vec<Value>, call_pos: Position) -> RuntimeResult {
         if !value_contains(set, &value) {
             set.push(value);
         }
-        RuntimeResult::new().success(Value::Number(Number::null()))
+        RuntimeResult::new().success(Value::Null)
     } else {
         RuntimeResult::new()
             .failure(RuntimeError::new(call_pos.clone(), call_pos, "Set not found", None).base)
@@ -199,7 +199,7 @@ pub fn set_remove(args: Vec<Value>, call_pos: Position) -> RuntimeResult {
         if let Some(pos) = set.iter().position(|existing| value_eq(existing, value)) {
             set.remove(pos);
         }
-        RuntimeResult::new().success(Value::Number(Number::null()))
+        RuntimeResult::new().success(Value::Null)
     } else {
         RuntimeResult::new()
             .failure(RuntimeError::new(call_pos.clone(), call_pos, "Set not found", None).base)
@@ -364,7 +364,7 @@ pub fn stack_push(args: Vec<Value>, call_pos: Position) -> RuntimeResult {
     let mut stacks = STACKS.lock().unwrap();
     if let Some(stack) = stacks.get_mut(&stack_id) {
         stack.push(value);
-        RuntimeResult::new().success(Value::Number(Number::null()))
+        RuntimeResult::new().success(Value::Null)
     } else {
         RuntimeResult::new()
             .failure(RuntimeError::new(call_pos.clone(), call_pos, "Stack not found", None).base)
@@ -598,7 +598,7 @@ pub fn queue_enqueue(args: Vec<Value>, call_pos: Position) -> RuntimeResult {
     let mut queues = QUEUES.lock().unwrap();
     if let Some(queue) = queues.get_mut(&queue_id) {
         queue.push_back(value);
-        RuntimeResult::new().success(Value::Number(Number::null()))
+        RuntimeResult::new().success(Value::Null)
     } else {
         RuntimeResult::new()
             .failure(RuntimeError::new(call_pos.clone(), call_pos, "Queue not found", None).base)

@@ -4,7 +4,7 @@
 use crate::error::{Error, RuntimeError};
 use crate::position::Position;
 use crate::runtime_result::RuntimeResult;
-use crate::values::{Map, Number, Value, XenithString};
+use crate::values::{Map, Value, XenithString};
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -29,7 +29,7 @@ pub fn load(args: Vec<Value>, call_pos: Position) -> RuntimeResult {
             let vars = std::env::vars().collect();
             let mut cache = ENV_VARS.lock().unwrap();
             *cache = vars;
-            RuntimeResult::new().success(Value::Number(Number::null()))
+            RuntimeResult::new().success(Value::Null)
         }
         Err(e) => RuntimeResult::new().failure(
             RuntimeError::new(
@@ -76,7 +76,7 @@ pub fn load_file(args: Vec<Value>, call_pos: Position) -> RuntimeResult {
             let vars = std::env::vars().collect();
             let mut cache = ENV_VARS.lock().unwrap();
             *cache = vars;
-            RuntimeResult::new().success(Value::Number(Number::null()))
+            RuntimeResult::new().success(Value::Null)
         }
         Err(e) => RuntimeResult::new().failure(
             RuntimeError::new(
@@ -256,7 +256,7 @@ pub fn set(args: Vec<Value>, call_pos: Position) -> RuntimeResult {
     }
     let mut cache = ENV_VARS.lock().unwrap();
     cache.insert(key, value);
-    RuntimeResult::new().success(Value::Number(Number::null()))
+    RuntimeResult::new().success(Value::Null)
 }
 
 pub fn unset(args: Vec<Value>, call_pos: Position) -> RuntimeResult {
@@ -292,7 +292,7 @@ pub fn unset(args: Vec<Value>, call_pos: Position) -> RuntimeResult {
     }
     let mut cache = ENV_VARS.lock().unwrap();
     cache.remove(key);
-    RuntimeResult::new().success(Value::Number(Number::null()))
+    RuntimeResult::new().success(Value::Null)
 }
 
 pub fn vars(args: Vec<Value>, call_pos: Position) -> RuntimeResult {
