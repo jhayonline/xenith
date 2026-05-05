@@ -75,7 +75,7 @@ impl Diagnostics {
 
         output.push_str(&format!(
             "\n  {} Cannot assign `{}` to variable of type `{}`\n",
-            "📝".bright_cyan(),
+            "note".bright_cyan(),
             found_str,
             expected_str
         ));
@@ -153,7 +153,7 @@ impl Diagnostics {
 
         output.push_str(&format!(
             "\n  {} Variable `{}` is not defined in this scope\n",
-            "📝".bright_cyan(),
+            "note".bright_cyan(),
             name
         ));
         output.push_str(&format!(
