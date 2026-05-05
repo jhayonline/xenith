@@ -162,7 +162,6 @@ impl ModuleRegistry {
         if let Some(error) = exec_result.error {
             return Err(error.as_string());
         }
-
         // Collect exports from the module's symbol table
         let exports = module_context.get_exports().clone();
 

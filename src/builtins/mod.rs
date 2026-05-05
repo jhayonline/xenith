@@ -1,3 +1,4 @@
+pub mod collections;
 pub mod dotenv;
 pub mod format;
 pub mod fs;

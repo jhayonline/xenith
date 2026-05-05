@@ -572,6 +572,76 @@ impl Interpreter {
             Value::BuiltInFunction(BuiltInFunction::new("__process_exit")),
         );
 
+        // std::collections - Set
+        global.set(
+            "__set_new".to_string(),
+            Value::BuiltInFunction(BuiltInFunction::new("__set_new")),
+        );
+        global.set(
+            "__set_add".to_string(),
+            Value::BuiltInFunction(BuiltInFunction::new("__set_add")),
+        );
+        global.set(
+            "__set_contains".to_string(),
+            Value::BuiltInFunction(BuiltInFunction::new("__set_contains")),
+        );
+        global.set(
+            "__set_remove".to_string(),
+            Value::BuiltInFunction(BuiltInFunction::new("__set_remove")),
+        );
+        global.set(
+            "__set_len".to_string(),
+            Value::BuiltInFunction(BuiltInFunction::new("__set_len")),
+        );
+        global.set(
+            "__set_to_list".to_string(),
+            Value::BuiltInFunction(BuiltInFunction::new("__set_to_list")),
+        );
+
+        // std::collections - Stack
+        global.set(
+            "__stack_new".to_string(),
+            Value::BuiltInFunction(BuiltInFunction::new("__stack_new")),
+        );
+        global.set(
+            "__stack_push".to_string(),
+            Value::BuiltInFunction(BuiltInFunction::new("__stack_push")),
+        );
+        global.set(
+            "__stack_pop".to_string(),
+            Value::BuiltInFunction(BuiltInFunction::new("__stack_pop")),
+        );
+        global.set(
+            "__stack_peek".to_string(),
+            Value::BuiltInFunction(BuiltInFunction::new("__stack_peek")),
+        );
+        global.set(
+            "__stack_len".to_string(),
+            Value::BuiltInFunction(BuiltInFunction::new("__stack_len")),
+        );
+
+        // std::collections - Queue
+        global.set(
+            "__queue_new".to_string(),
+            Value::BuiltInFunction(BuiltInFunction::new("__queue_new")),
+        );
+        global.set(
+            "__queue_enqueue".to_string(),
+            Value::BuiltInFunction(BuiltInFunction::new("__queue_enqueue")),
+        );
+        global.set(
+            "__queue_dequeue".to_string(),
+            Value::BuiltInFunction(BuiltInFunction::new("__queue_dequeue")),
+        );
+        global.set(
+            "__queue_peek".to_string(),
+            Value::BuiltInFunction(BuiltInFunction::new("__queue_peek")),
+        );
+        global.set(
+            "__queue_len".to_string(),
+            Value::BuiltInFunction(BuiltInFunction::new("__queue_len")),
+        );
+
         Self {
             global_symbol_table: global,
             module_registry: None,
@@ -792,6 +862,12 @@ impl Interpreter {
 
                 if let Some(value) = module.exports.get(original_name) {
                     context.symbol_table.set(target_name.clone(), value.clone());
+                } else if self.struct_registry.contains_key(original_name.as_str()) {
+                    // It's a struct — just register the marker in the symbol table
+                    context.symbol_table.set(
+                        target_name.clone(),
+                        Value::String(XenithString::new(format!("__struct__{}", original_name))),
+                    );
                 } else {
                     return result.failure(
                         RuntimeError::new(
@@ -2071,40 +2147,52 @@ impl Interpreter {
                             args.push(arg);
                         }
 
-                        // The first argument should be the instance (self)
-                        if args.is_empty() {
-                            return result.failure(
-                                RuntimeError::new(
-                                    node.position_start.clone(),
-                                    node.position_end.clone(),
-                                    &format!("Method '{}' requires self argument", method_name),
-                                    Some(context.clone()),
-                                )
-                                .base,
-                            );
-                        }
+                        let has_self = method.param_names.first().and_then(|t| t.value.as_deref())
+                            == Some("self");
 
-                        let instance = args[0].clone();
                         let mut method_context = context.create_child(
                             &format!("{}::{}", struct_name, method_name),
                             node.position_start.clone(),
                         );
 
-                        // Bind 'self' parameter
-                        method_context
-                            .symbol_table
-                            .set_local("self".to_string(), instance);
-
-                        // Bind remaining parameters (skip self)
-                        for (i, param_name) in method.param_names.iter().enumerate() {
-                            if i == 0 {
-                                continue; // Skip self, already bound
+                        if has_self {
+                            if args.is_empty() {
+                                return result.failure(
+                                    RuntimeError::new(
+                                        node.position_start.clone(),
+                                        node.position_end.clone(),
+                                        &format!("Method '{}' requires self argument", method_name),
+                                        Some(context.clone()),
+                                    )
+                                    .base,
+                                );
                             }
-                            let param_name_str = param_name.value.as_ref().unwrap();
-                            if i - 1 < args.len() - 1 {
-                                method_context
-                                    .symbol_table
-                                    .set_local(param_name_str.clone(), args[i].clone());
+                            let instance = args[0].clone();
+                            method_context
+                                .symbol_table
+                                .set_local("self".to_string(), instance);
+
+                            // Bind remaining parameters (skip self)
+                            for (i, param_name) in method.param_names.iter().enumerate() {
+                                if i == 0 {
+                                    continue;
+                                }
+                                let param_name_str = param_name.value.as_ref().unwrap();
+                                if i - 1 < args.len() - 1 {
+                                    method_context
+                                        .symbol_table
+                                        .set_local(param_name_str.clone(), args[i].clone());
+                                }
+                            }
+                        } else {
+                            // Static method - bind all params directly
+                            for (i, param_name) in method.param_names.iter().enumerate() {
+                                let param_name_str = param_name.value.as_ref().unwrap();
+                                if i < args.len() {
+                                    method_context
+                                        .symbol_table
+                                        .set_local(param_name_str.clone(), args[i].clone());
+                                }
                             }
                         }
 
@@ -2326,6 +2414,76 @@ impl Interpreter {
                 } else {
                     0.0
                 })))
+            }
+            (Value::Struct(instance), method) => {
+                let struct_name = instance.name.clone();
+                let method_clone = self
+                    .struct_registry
+                    .get(&struct_name)
+                    .and_then(|info| info.get_method(method))
+                    .cloned();
+
+                match method_clone {
+                    Some(func_def) => {
+                        let has_self = func_def
+                            .param_names
+                            .first()
+                            .and_then(|t| t.value.as_deref())
+                            == Some("self");
+
+                        let mut method_context = context.create_child(
+                            &format!("{}::{}", struct_name, method),
+                            Self::dummy_pos(),
+                        );
+
+                        if has_self {
+                            method_context
+                                .symbol_table
+                                .set_local("self".to_string(), Value::Struct(instance));
+                            for (i, param_name) in func_def.param_names.iter().enumerate() {
+                                if i == 0 {
+                                    continue;
+                                }
+                                let param_name_str = param_name.value.as_ref().unwrap();
+                                if i - 1 < args.len() {
+                                    method_context
+                                        .symbol_table
+                                        .set_local(param_name_str.clone(), args[i - 1].clone());
+                                }
+                            }
+                        } else {
+                            for (i, param_name) in func_def.param_names.iter().enumerate() {
+                                let param_name_str = param_name.value.as_ref().unwrap();
+                                if i < args.len() {
+                                    method_context
+                                        .symbol_table
+                                        .set_local(param_name_str.clone(), args[i].clone());
+                                }
+                            }
+                        }
+
+                        let exec_result = self.visit(&func_def.body_node, &mut method_context);
+                        if let Some(err) = exec_result.error {
+                            return RuntimeResult::new().failure(err);
+                        }
+                        if let Some(ret_val) = exec_result.func_return_value {
+                            return RuntimeResult::new().success(ret_val);
+                        }
+                        if let Some(val) = exec_result.value {
+                            return RuntimeResult::new().success(val);
+                        }
+                        RuntimeResult::new().success(Value::Number(Number::null()))
+                    }
+                    None => RuntimeResult::new().failure(
+                        RuntimeError::new(
+                            Self::dummy_pos(),
+                            Self::dummy_pos(),
+                            &format!("Method '{}' not found on struct '{}'", method, struct_name),
+                            Some(context.clone()),
+                        )
+                        .base,
+                    ),
+                }
             }
             _ => RuntimeResult::new().failure(
                 RuntimeError::new(

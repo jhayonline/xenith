@@ -1,0 +1,99 @@
+# Standard Library: Collections
+# Provides Set, Stack, and Queue data structures
+
+# ==================== HashSet ====================
+struct Set {
+    _id: int
+}
+
+impl Set {
+    export method new() -> Set {
+        release __set_new()
+    }
+    
+    export method add(self: Self, value: json) -> null {
+        __set_add(self, value)
+        release null
+    }
+    
+    export method contains(self: Self, value: json) -> bool {
+        release __set_contains(self, value)
+    }
+    
+    export method remove(self: Self, value: json) -> null {
+        __set_remove(self, value)
+        release null
+    }
+    
+    export method len(self: Self) -> int {
+        release __set_len(self) as int
+    }
+    
+    export method to_list(self: Self) -> list<json> {
+        release __set_to_list(self)
+    }
+}
+
+# ==================== Stack ====================
+struct Stack {
+    _id: int
+}
+
+impl Stack {
+    export method new() -> Stack {
+        release __stack_new()
+    }
+    
+    export method push(self: Self, value: json) -> null {
+        __stack_push(self, value)
+        release null
+    }
+    
+    export method pop(self: Self) -> json {
+        release __stack_pop(self)
+    }
+    
+    export method peek(self: Self) -> json {
+        release __stack_peek(self)
+    }
+    
+    export method len(self: Self) -> int {
+        release __stack_len(self) as int
+    }
+    
+    export method is_empty(self: Self) -> bool {
+        release self.len() == 0
+    }
+}
+
+# ==================== Queue ====================
+struct Queue {
+    _id: int
+}
+
+impl Queue {
+    export method new() -> Queue {
+        release __queue_new()
+    }
+    
+    export method enqueue(self: Self, value: json) -> null {
+        __queue_enqueue(self, value)
+        release null
+    }
+    
+    export method dequeue(self: Self) -> json {
+        release __queue_dequeue(self)
+    }
+    
+    export method peek(self: Self) -> json {
+        release __queue_peek(self)
+    }
+    
+    export method len(self: Self) -> int {
+        release __queue_len(self) as int
+    }
+    
+    export method is_empty(self: Self) -> bool {
+        release self.len() == 0
+    }
+}

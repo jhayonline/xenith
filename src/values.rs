@@ -793,6 +793,29 @@ impl BuiltInFunction {
             "__process_remove_env_var" => crate::builtins::process::remove_env_var(args, call_pos),
             "__process_exit" => crate::builtins::process::exit_program(args, call_pos),
 
+            // std::collections ==============================================================
+            // Sets
+            "__set_new" => crate::builtins::collections::set_new(args, call_pos),
+            "__set_add" => crate::builtins::collections::set_add(args, call_pos),
+            "__set_contains" => crate::builtins::collections::set_contains(args, call_pos),
+            "__set_remove" => crate::builtins::collections::set_remove(args, call_pos),
+            "__set_len" => crate::builtins::collections::set_len(args, call_pos),
+            "__set_to_list" => crate::builtins::collections::set_to_list(args, call_pos),
+
+            // Stack
+            "__stack_new" => crate::builtins::collections::stack_new(args, call_pos),
+            "__stack_push" => crate::builtins::collections::stack_push(args, call_pos),
+            "__stack_pop" => crate::builtins::collections::stack_pop(args, call_pos),
+            "__stack_peek" => crate::builtins::collections::stack_peek(args, call_pos),
+            "__stack_len" => crate::builtins::collections::stack_len(args, call_pos),
+
+            // Queue
+            "__queue_new" => crate::builtins::collections::queue_new(args, call_pos),
+            "__queue_enqueue" => crate::builtins::collections::queue_enqueue(args, call_pos),
+            "__queue_dequeue" => crate::builtins::collections::queue_dequeue(args, call_pos),
+            "__queue_peek" => crate::builtins::collections::queue_peek(args, call_pos),
+            "__queue_len" => crate::builtins::collections::queue_len(args, call_pos),
+            // =================================================================================
             _ => RuntimeResult::new().failure(
                 RuntimeError::new(
                     call_pos.clone(),

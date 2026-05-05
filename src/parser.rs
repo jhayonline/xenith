@@ -1,4 +1,3 @@
-// parser.rs
 //! # Syntax Parser Module
 //!
 //! Implements recursive descent parsing to transform token streams
@@ -522,6 +521,19 @@ impl Parser {
             .map(|t| t.position_start.clone())
             .unwrap_or_else(Self::dummy_pos);
 
+        // Check for export method (top-level exported function)
+        if let Some(tok) = self.current_token() {
+            if tok.matches(TokenType::Keyword, Some("export")) {
+                // Peek ahead to see if next token is 'method'
+                if let Some(next) = self.peek_token() {
+                    if next.matches(TokenType::Keyword, Some("method")) {
+                        return self.exported_func_def();
+                    }
+                }
+                return self.export_statement();
+            }
+        }
+
         // Check for echo statement (without parentheses)
         if let Some(tok) = self.current_token() {
             if tok.kind == TokenType::Keyword && tok.value.as_deref() == Some("echo") {
@@ -567,13 +579,6 @@ impl Parser {
         if let Some(tok) = self.current_token() {
             if tok.matches(TokenType::Keyword, Some("grab")) {
                 return self.grab_statement();
-            }
-        }
-
-        // Check for export statement
-        if let Some(tok) = self.current_token() {
-            if tok.matches(TokenType::Keyword, Some("export")) {
-                return self.export_statement();
             }
         }
 
@@ -1700,6 +1705,55 @@ impl Parser {
             position_start: pos_start,
             position_end: pos_end,
         })))
+    }
+
+    fn exported_func_def(&mut self) -> ParseResult {
+        let mut result = ParseResult::new();
+
+        // Consume 'export'
+        self.advance();
+
+        // Now parse the function definition (which will handle 'method')
+        let func_result = self.func_def();
+        if func_result.error.is_some() {
+            return func_result;
+        }
+
+        if let Some(node) = func_result.node {
+            if let Node::FuncDef(func_def) = node {
+                let exported_name = if let Some(name) = &func_def.variable_name_token {
+                    name.value.as_ref().unwrap().clone()
+                } else {
+                    return result.failure(
+                        InvalidSyntaxError::new(
+                            func_def.position_start.clone(),
+                            func_def.position_end.clone(),
+                            "Cannot export anonymous function",
+                        )
+                        .base,
+                    );
+                };
+
+                let pos_start = func_def.position_start.clone();
+                let pos_end = func_def.position_end.clone();
+
+                return result.success(Node::Export(Box::new(ExportNode {
+                    exported_name,
+                    node: Box::new(Node::FuncDef(func_def)), // Fixed: removed extra Box::new
+                    position_start: pos_start,
+                    position_end: pos_end,
+                })));
+            }
+        }
+
+        result.failure(
+            InvalidSyntaxError::new(
+                Self::dummy_pos(),
+                Self::dummy_pos(),
+                "Expected function after export",
+            )
+            .base,
+        )
     }
 
     // Compound assignment (+=, -=)
@@ -4746,6 +4800,7 @@ impl Parser {
         self.struct_registry.contains_key(name)
     }
 
+    // In parser.rs, update the impl_block() method
     fn impl_block(&mut self) -> ParseResult {
         let mut result = ParseResult::new();
         let pos_start = self.current_token().unwrap().position_start.clone();
@@ -4840,6 +4895,17 @@ impl Parser {
                 }
             }
 
+            // Check for 'export' keyword before method
+            let is_export = if let Some(tok) = self.current_token() {
+                tok.matches(TokenType::Keyword, Some("export"))
+            } else {
+                false
+            };
+
+            if is_export {
+                self.advance(); // consume 'export'
+            }
+
             // Parse method definition (reuse func_def)
             let method_result = self.func_def();
             if method_result.error.is_some() {
@@ -4849,42 +4915,31 @@ impl Parser {
             if let Some(method_node) = method_result.node {
                 // Extract the FuncDefNode from the Node enum
                 if let Node::FuncDef(func_def) = method_node {
-                    // Validate that the first parameter is 'self: Self'
-                    if func_def.param_names.is_empty() {
-                        return result.failure(
-                            InvalidSyntaxError::new(
-                                pos_start.clone(),
-                                pos_start.clone(),
-                                "Impl methods must have 'self: Self' as first parameter",
-                            )
-                            .base,
-                        );
-                    }
+                    if !func_def.param_names.is_empty() {
+                        let first_param = &func_def.param_names[0];
+                        let first_param_name = first_param.value.as_ref().unwrap();
 
-                    let first_param = &func_def.param_names[0];
-                    let first_param_name = first_param.value.as_ref().unwrap();
+                        if first_param_name != "self" {
+                            return result.failure(
+                                InvalidSyntaxError::new(
+                                    first_param.position_start.clone(),
+                                    first_param.position_end.clone(),
+                                    "First parameter of impl method must be 'self'",
+                                )
+                                .base,
+                            );
+                        }
 
-                    if first_param_name != "self" {
-                        return result.failure(
-                            InvalidSyntaxError::new(
-                                first_param.position_start.clone(),
-                                first_param.position_end.clone(),
-                                "First parameter of impl method must be 'self'",
-                            )
-                            .base,
-                        );
-                    }
-
-                    // Check that the type is Self (or the struct name)
-                    if func_def.param_types.is_empty() {
-                        return result.failure(
-                            InvalidSyntaxError::new(
-                                first_param.position_start.clone(),
-                                first_param.position_end.clone(),
-                                "Parameter 'self' must have type annotation",
-                            )
-                            .base,
-                        );
+                        if func_def.param_types.is_empty() {
+                            return result.failure(
+                                InvalidSyntaxError::new(
+                                    first_param.position_start.clone(),
+                                    first_param.position_end.clone(),
+                                    "Parameter 'self' must have type annotation",
+                                )
+                                .base,
+                            );
+                        }
                     }
 
                     // Store the method - get mutable borrow just for this operation
@@ -4892,6 +4947,15 @@ impl Parser {
                         struct_info.add_method((*func_def).clone());
                     }
                     methods.push(func_def);
+                }
+            }
+
+            // After parsing the method, check if we need to skip a semicolon or newline
+            while let Some(t) = self.current_token() {
+                if t.kind == TokenType::Newline || t.kind == TokenType::Semicolon {
+                    self.advance();
+                } else {
+                    break;
                 }
             }
         }

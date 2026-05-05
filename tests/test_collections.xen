@@ -1,0 +1,105 @@
+grab { Set, Stack, Queue } from "std::collections"
+
+echo("=== Testing Collections ===\n")
+
+# ==================== Test Set ====================
+echo("1. Testing Set:")
+let set: Set = Set::new()
+echo("   Created new set")
+echo("   Set length: {set.len()}")
+
+set.add(1)
+set.add(2)
+set.add(3)
+set.add(2)  # Duplicate - should be ignored
+echo("   After adding 1,2,3,2: length = {set.len()}")
+
+echo("   Contains 2? {set.contains(2)}")
+echo("   Contains 5? {set.contains(5)}")
+
+set.remove(2)
+echo("   After removing 2: length = {set.len()}")
+echo("   Contains 2? {set.contains(2)}")
+
+let a_list: list<json> = set.to_list()
+echo("   Set as list: {ret(a_list)}")
+echo("")
+
+# ==================== Test Stack ====================
+echo("2. Testing Stack:")
+let stack: Stack = Stack::new()
+echo("   Created new stack")
+echo("   Is empty? {stack.is_empty()}")
+
+stack.push(10)
+stack.push(20)
+stack.push(30)
+echo("   After pushing 10,20,30: length = {stack.len()}")
+echo("   Is empty? {stack.is_empty()}")
+
+echo("   Peek: {stack.peek()}")
+echo("   After peek, length = {stack.len()}")
+
+echo("   Pop: {stack.pop()}")
+echo("   After pop, length = {stack.len()}")
+echo("   Pop: {stack.pop()}")
+echo("   Pop: {stack.pop()}")
+echo("   After all pops, length = {stack.len()}")
+echo("")
+
+# ==================== Test Queue ====================
+echo("3. Testing Queue:")
+let queue: Queue = Queue::new()
+echo("   Created new queue")
+echo("   Is empty? {queue.is_empty()}")
+
+queue.enqueue("first")
+queue.enqueue("second")
+queue.enqueue("third")
+echo("   After enqueuing first,second,third: length = {queue.len()}")
+echo("   Is empty? {queue.is_empty()}")
+
+echo("   Peek: {queue.peek()}")
+echo("   After peek, length = {queue.len()}")
+
+echo("   Dequeue: {queue.dequeue()}")
+echo("   After dequeue, length = {queue.len()}")
+echo("   Dequeue: {queue.dequeue()}")
+echo("   Dequeue: {queue.dequeue()}")
+echo("   After all dequeues, length = {queue.len()}")
+echo("")
+
+# ==================== Test with Mixed Types ====================
+echo("4. Testing with mixed types:")
+let mixed: Set = Set::new()
+mixed.add(42)
+mixed.add("hello")
+mixed.add(true)
+mixed.add(3.14)
+echo("   Mixed set size: {mixed.len()}")
+echo("   Contains 42? {mixed.contains(42)}")
+echo("   Contains 'hello'? {mixed.contains("hello")}")
+echo("   Contains true? {mixed.contains(true)}")
+echo("   Contains false? {mixed.contains(false)}")
+echo("")
+
+# ==================== Test Error Handling ====================
+echo("5. Testing error handling:")
+let empty_stack: Stack = Stack::new()
+try {
+    empty_stack.pop()
+    echo("   This should not print")
+} catch err {
+    echo("   Caught error: Cannot pop from empty stack")
+}
+
+let empty_queue: Queue = Queue::new()
+try {
+    empty_queue.dequeue()
+    echo("   This should not print")
+} catch err {
+    echo("   Caught error: Cannot dequeue from empty queue")
+}
+echo("")
+
+echo("=== All collections tests completed! ===")
