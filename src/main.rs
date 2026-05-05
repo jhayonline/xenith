@@ -5,10 +5,10 @@
 
 use std::env;
 use std::fs;
-use std::io::{self, Write};
 use std::path::Path;
 
 use xenith::run;
+use xenith::run_repl;
 
 /// Runs a Xenith file
 fn run_file(filename: &str) {
@@ -28,44 +28,15 @@ fn run_file(filename: &str) {
     }
 }
 
-/// Runs the interactive REPL shell
-fn run_repl() {
-    println!("Xenith Interactive Shell");
-    println!("Type 'exit()' to quit");
-    println!("{}", "=".repeat(40));
-
-    loop {
-        print!("xenith > ");
-        io::stdout().flush().unwrap();
-
-        let mut input = String::new();
-        if io::stdin().read_line(&mut input).is_err() {
-            break;
-        }
-
-        let input = input.trim();
-        if input.is_empty() {
-            continue;
-        }
-
-        if input == "exit()" {
-            println!("Goodbye!");
-            break;
-        }
-
-        match run("<stdin>", input) {
-            Ok(_) => {}
-            Err(e) => eprintln!("{}", e.as_string()),
-        }
-    }
-}
-
 fn main() {
     let args: Vec<String> = env::args().collect();
 
     if args.len() > 1 {
         run_file(&args[1]);
     } else {
-        run_repl();
+        if let Err(e) = run_repl() {
+            eprintln!("REPL error: {}", e);
+            std::process::exit(1);
+        }
     }
 }

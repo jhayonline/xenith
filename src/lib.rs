@@ -27,6 +27,7 @@ pub mod nodes;
 pub mod parse_result;
 pub mod parser;
 pub mod position;
+pub mod repl;
 pub mod runtime_result;
 pub mod symbol_table;
 pub mod tokens;
@@ -98,3 +99,5 @@ pub fn run(filename: &str, source: &str) -> Result<Value, Error> {
         Ok(Value::Number(crate::values::Number::null()))
     }
 }
+
+pub use repl::run_repl;

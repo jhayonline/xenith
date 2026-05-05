@@ -1,0 +1,15 @@
+# Test echo with and without parentheses
+
+echo("Hello World with parentheses!")
+
+echo "Hello World without parentheses!"
+
+let name: string = "Alice"
+echo("Hello, {name}!")
+
+echo "Hello, {name}! (no parentheses)"
+
+# Multiple arguments? (maybe future enhancement)
+# echo "Hello", "World"  # Not yet implemented
+
+echo("Done!")

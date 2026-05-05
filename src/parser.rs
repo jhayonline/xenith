@@ -522,6 +522,13 @@ impl Parser {
             .map(|t| t.position_start.clone())
             .unwrap_or_else(Self::dummy_pos);
 
+        // Check for echo statement (without parentheses)
+        if let Some(tok) = self.current_token() {
+            if tok.matches(TokenType::Keyword, Some("echo")) {
+                return self.echo_statement();
+            }
+        }
+
         // Check for impl block FIRST
         if let Some(tok) = self.current_token() {
             if tok.kind == TokenType::TypeImpl {
@@ -672,6 +679,92 @@ impl Parser {
             position_start: pos_start,
             position_end: pos_end,
         }))
+    }
+
+    /// Parse echo statement (with or without parentheses)
+    /// Syntax: echo expression
+    /// Or: echo(expression)
+    fn echo_statement(&mut self) -> ParseResult {
+        let mut result = ParseResult::new();
+        let pos_start = self.current_token().unwrap().position_start.clone();
+
+        // Consume 'echo'
+        self.advance();
+
+        // Check if it's echo(expression) or echo expression
+        let has_parens = if let Some(tok) = self.current_token() {
+            tok.kind == TokenType::LParen
+        } else {
+            false
+        };
+
+        let expr_node = if has_parens {
+            // Consume '('
+            self.advance();
+
+            // Parse expression inside parentheses
+            let expr = result.register(&self.expr());
+            if result.error.is_some() {
+                return result;
+            }
+
+            // Expect ')'
+            match self.current_token() {
+                Some(t) if t.kind == TokenType::RParen => {
+                    self.advance();
+                }
+                Some(t) => {
+                    return result.failure(
+                        InvalidSyntaxError::new(
+                            t.position_start.clone(),
+                            t.position_end.clone(),
+                            "Expected ')'",
+                        )
+                        .base,
+                    );
+                }
+                None => {
+                    return result.failure(
+                        InvalidSyntaxError::new(
+                            Self::dummy_pos(),
+                            Self::dummy_pos(),
+                            "Expected ')'",
+                        )
+                        .base,
+                    );
+                }
+            }
+
+            expr.unwrap()
+        } else {
+            // Parse expression without parentheses
+            let expr = result.register(&self.expr());
+            if result.error.is_some() {
+                return result;
+            }
+            expr.unwrap()
+        };
+
+        let pos_end = expr_node.position_end().clone();
+
+        // Create a call to echo function with the expression as argument
+        let call_node = Node::Call(Box::new(CallNode {
+            node_to_call: Box::new(Node::VarAccess(VarAccessNode {
+                variable_name_token: Token::new(
+                    TokenType::Identifier,
+                    Some("echo".to_string()),
+                    pos_start.clone(),
+                    Some(pos_start.clone()),
+                ),
+                position_start: pos_start.clone(),
+                position_end: pos_start.clone(),
+            })),
+            argument_nodes: vec![Box::new(expr_node)],
+            position_start: pos_start,
+            position_end: pos_end,
+        }));
+
+        result.success(call_node)
     }
 
     fn block(&mut self) -> ParseResult {
@@ -3321,6 +3414,28 @@ impl Parser {
                 }
                 _ if tok.matches(TokenType::Keyword, Some("panic")) => {
                     return self.panic_expr();
+                }
+                _ if tok.matches(TokenType::Keyword, Some("echo")) => {
+                    // Treat echo as an identifier when it's used as a function call
+                    // The actual function call will be handled by call()
+                    let node = Node::VarAccess(VarAccessNode {
+                        variable_name_token: Token::new(
+                            TokenType::Identifier,
+                            Some("echo".to_string()),
+                            tok.position_start.clone(),
+                            Some(tok.position_end.clone()),
+                        ),
+                        position_start: tok.position_start.clone(),
+                        position_end: tok.position_end.clone(),
+                    });
+                    self.advance();
+                    // Check if it's followed by '(' - if so, return the identifier so call() can handle it
+                    if let Some(next) = self.current_token() {
+                        if next.kind == TokenType::LParen {
+                            return self.parse_indexing(node, result);
+                        }
+                    }
+                    return result.success(node);
                 }
                 _ => {}
             },
