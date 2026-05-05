@@ -9,6 +9,7 @@ use std::path::Path;
 
 use xenith::run;
 use xenith::run_repl;
+use xenith::utils::value_to_string;
 
 /// Runs a Xenith file
 fn run_file(filename: &str) {
@@ -21,8 +22,18 @@ fn run_file(filename: &str) {
 
     match fs::read_to_string(filename) {
         Ok(source) => match run(filename, &source) {
-            Ok(_) => {}
-            Err(e) => eprintln!("{}", e.as_string()),
+            Ok(result) => {
+                // Show result only if not null
+                let output = value_to_string(&result);
+                if !output.is_empty() && output != "null" {
+                    println!("{}", output);
+                }
+            }
+            Err(e) => {
+                // Use colored error output
+                eprintln!("{}", e.as_string_colored());
+                std::process::exit(1);
+            }
         },
         Err(e) => eprintln!("Error: Could not read file '{}': {}", filename, e),
     }

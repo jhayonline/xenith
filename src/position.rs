@@ -41,4 +41,19 @@ impl Position {
     pub fn copy(&self) -> Self {
         self.clone()
     }
+
+    /// Generate a LSP-compatible location
+    pub fn to_lsp_range(&self) -> (usize, usize, usize, usize) {
+        (self.line, self.column, self.line, self.column + 1)
+    }
+
+    /// Generate a quickfix location
+    pub fn to_quickfix_range(&self) -> (usize, usize, usize, usize) {
+        (
+            self.line,
+            self.column,
+            self.line,
+            self.column.saturating_add(1),
+        )
+    }
 }

@@ -245,8 +245,8 @@ impl Parser {
                 self.advance(); // consume 'list'
 
                 // Check for '<'
-                match self.current_token() {
-                    Some(tok) if tok.kind == TokenType::Lt => {
+                if let Some(tok) = self.current_token() {
+                    if tok.kind == TokenType::Lt {
                         self.advance(); // consume '<'
                         let inner_type = result.register_type(&self.parse_type());
                         if result.error.is_some() {
@@ -269,17 +269,12 @@ impl Parser {
                         }
 
                         Type::List(Box::new(inner_type))
+                    } else {
+                        // No generic parameter, default to list<any>
+                        Type::List(Box::new(Type::Unknown))
                     }
-                    _ => {
-                        return result.failure(
-                            InvalidSyntaxError::new(
-                                type_token.position_start.clone(),
-                                type_token.position_end.clone(),
-                                "Expected '<' for list type",
-                            )
-                            .base,
-                        );
-                    }
+                } else {
+                    Type::List(Box::new(Type::Unknown))
                 }
             }
             TokenType::TypeJson => Type::Json,
@@ -1987,7 +1982,7 @@ impl Parser {
         };
         self.advance();
 
-        // Parse type annotation (required)
+        // Parse type annotation (optional)
         let var_type = match self.current_token() {
             Some(t) if t.kind == TokenType::Colon => {
                 self.advance(); // consume ':'
@@ -1997,22 +1992,8 @@ impl Parser {
                 }
                 Some(typ)
             }
-            Some(t) => {
-                return result.failure(Error::unexpected_token(
-                    &format!("{:?}", t.kind),
-                    "':'",
-                    t.position_start.clone(),
-                    t.position_end.clone(),
-                ));
-            }
-            None => {
-                return result.failure(Error::unexpected_token(
-                    "end of input",
-                    "':'",
-                    var_name.position_start.clone(),
-                    var_name.position_end.clone(),
-                ));
-            }
+            Some(_) => None,
+            None => None,
         };
 
         // Parse '='

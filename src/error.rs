@@ -4,6 +4,9 @@
 //! syntax errors, and runtime errors with traceback support.
 //! Provides formatted error messages with arrow pointers to source code.
 
+use colored::*;
+use strsim::levenshtein;
+
 use crate::context::Context;
 use crate::position::Position;
 
@@ -91,6 +94,29 @@ impl Error {
         .with_code("XEN002")
         .with_note("variables must be declared with `let` before use")
         .with_help("check spelling or declare the variable first")
+    }
+
+    // Enhanced undefined variable with suggestions
+    pub fn undefined_variable_with_context(
+        name: &str,
+        pos_start: Position,
+        pos_end: Position,
+        context_vars: &[String],
+    ) -> Self {
+        let mut error = Self::undefined_variable(name, pos_start.clone(), pos_end.clone());
+
+        // Find similar variable names for suggestion
+        let similar: Vec<&String> = context_vars
+            .iter()
+            .filter(|v| levenshtein(name, v) <= 3)
+            .collect();
+
+        if !similar.is_empty() {
+            let suggestion = format!("did you mean `{}`?", similar[0]);
+            error = error.with_help(&suggestion);
+        }
+
+        error
     }
 
     /// Division by zero error (XEN003)
@@ -382,6 +408,70 @@ impl Error {
             result.push_str("\nCaused by:\n");
             result.push_str(&cause.as_string());
         }
+
+        result
+    }
+
+    pub fn as_string_colored(&self) -> String {
+        let mut result = String::new();
+
+        // Error header with emoji and colors
+        result.push_str(&format!(
+            "{}\n",
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━".bright_red()
+        ));
+        result.push_str(&format!(
+            "{} {}: {}\n",
+            "error".bright_red().bold(),
+            self.code.bright_yellow(),
+            self.error_name.bright_red()
+        ));
+
+        result.push_str(&format!(
+            "  {} {}:{}:{}\n",
+            "→".bright_cyan(),
+            self.position_start.file_name.bright_cyan(),
+            (self.position_start.line + 1).to_string().bright_yellow(),
+            (self.position_start.column + 1).to_string().bright_yellow()
+        ));
+
+        // Get the line content with context
+        let line_content = self.get_line_content();
+        if !line_content.is_empty() {
+            let line_num = self.position_start.line + 1;
+            result.push_str(&format!(
+                "\n  {} │ {}\n",
+                format!("{:>4}", line_num).dimmed(),
+                line_content
+            ));
+
+            // Create arrow pointing to the error
+            let arrow = self.get_arrow();
+            if !arrow.is_empty() {
+                result.push_str(&format!(
+                    "      {} {}\n",
+                    " ".repeat(self.position_start.column),
+                    arrow.bright_red()
+                ));
+            }
+        }
+
+        // Help with emoji
+        if let Some(help) = &self.help {
+            result.push_str(&format!("  {} {}\n", "💡".bright_green(), help));
+        }
+
+        // Cause chain
+        if let Some(cause) = &self.cause {
+            result.push_str("\n");
+            result.push_str(&"caused by:\n".dimmed());
+            result.push_str(&cause.as_string_colored());
+        }
+
+        result.push_str(&format!(
+            "{}\n",
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━".bright_red()
+        ));
 
         result
     }

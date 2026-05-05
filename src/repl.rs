@@ -365,6 +365,21 @@ pub fn run_repl() -> Result<(), Box<dyn std::error::Error>> {
                     }
                     Err(e) => {
                         eprintln!("{}", e.as_string().bright_red());
+                        // Additional helpful hints based on error type
+                        if e.error_name == "Undefined Variable" {
+                            eprintln!(
+                                "\n{}",
+                                "💡 Quick tip: Use `let` to declare variables before using them"
+                                    .dimmed()
+                            );
+                            eprintln!("{}", "   Example: `let x = 42`".dimmed());
+                        } else if e.error_name == "Type Mismatch" {
+                            eprintln!("\n{}", "💡 Quick tip: Use `as` to convert types".dimmed());
+                            eprintln!("{}", "   Example: `my_number as string`".dimmed());
+                        } else if e.code == "XEN013" {
+                            // Syntax error
+                            eprintln!("\n{}", "💡 Quick tip: Check for missing parentheses, braces, or semicolons".dimmed());
+                        }
                     }
                 }
 

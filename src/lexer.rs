@@ -478,6 +478,7 @@ impl Lexer {
         // Special handling for "or when"
         if id_str == "or" {
             let mut temp_index = self.position.index;
+            let original_index = self.position.index;
 
             // Skip spaces
             while let Some(c) = self.text.chars().nth(temp_index) {
@@ -491,6 +492,7 @@ impl Lexer {
             // Peek at the next word
             let next_word: String = self.text.chars().skip(temp_index).take(4).collect();
             if next_word == "when" {
+                // Advance to after "when"
                 while self.position.index < temp_index + 4 {
                     self.advance();
                 }
@@ -500,6 +502,10 @@ impl Lexer {
                     pos_start,
                     Some(self.position.clone()),
                 );
+            } else {
+                // It's just the keyword "or"
+                self.position.index = original_index;
+                self.current_character = self.text.chars().nth(self.position.index);
             }
         }
 

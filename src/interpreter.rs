@@ -782,6 +782,76 @@ impl Interpreter {
         RuntimeResult::new().success(Value::Null)
     }
 
+    /// Perform type checking without executing
+    pub fn type_check(&mut self, node: &Node, context: &mut Context) -> Result<Type, Error> {
+        match node {
+            Node::Number(_) => Ok(Type::Int),
+            Node::String(_) => Ok(Type::String),
+            Node::BoolLiteral(n) => Ok(Type::Bool),
+            Node::NullLiteral(_) => Ok(Type::Null),
+            Node::List(list_node) => {
+                let mut elem_types = Vec::new();
+                for elem in &list_node.element_nodes {
+                    let typ = self.type_check(elem, context)?;
+                    elem_types.push(typ);
+                }
+                // Check if all elements have the same type
+                if let Some(first) = elem_types.first() {
+                    if elem_types.iter().all(|t| t == first) {
+                        Ok(Type::List(Box::new(first.clone())))
+                    } else {
+                        // Mixed types - use any or report warning
+                        Ok(Type::List(Box::new(Type::Unknown)))
+                    }
+                } else {
+                    Ok(Type::List(Box::new(Type::Unknown)))
+                }
+            }
+            Node::VarAccess(node) => {
+                let var_name = node.variable_name_token.value.as_ref().unwrap();
+                if let Some(typ) = context.symbol_table.get_declared_type(var_name) {
+                    Ok(typ)
+                } else if let Some(typ) = self.global_symbol_table.get_declared_type(var_name) {
+                    Ok(typ)
+                } else {
+                    Err(Error::undefined_variable(
+                        var_name,
+                        node.position_start.clone(),
+                        node.position_end.clone(),
+                    ))
+                }
+            }
+            Node::BinaryOperator(node) => {
+                let left_type = self.type_check(&node.left_node, context)?;
+                let right_type = self.type_check(&node.right_node, context)?;
+
+                match node.operator_token.kind {
+                    crate::tokens::TokenType::Plus => {
+                        if matches!(left_type, Type::Int | Type::Float)
+                            && matches!(right_type, Type::Int | Type::Float)
+                        {
+                            Ok(Type::Float)
+                        } else if matches!(left_type, Type::String)
+                            || matches!(right_type, Type::String)
+                        {
+                            Ok(Type::String)
+                        } else {
+                            Err(Error::type_mismatch(
+                                &left_type.to_string(),
+                                &right_type.to_string(),
+                                node.position_start.clone(),
+                                node.position_end.clone(),
+                            ))
+                        }
+                    }
+                    _ => Ok(Type::Unknown),
+                }
+            }
+            // Add more type checking for other nodes...
+            _ => Ok(Type::Unknown),
+        }
+    }
+
     fn visit_null_literal(
         &mut self,
         node: &NullLiteralNode,
@@ -1051,13 +1121,58 @@ impl Interpreter {
                 .symbol_table
                 .set_with_type(var_name.clone(), value.clone(), var_type.clone());
         } else {
-            // Reassignment - use existing type or create without type (legacy)
+            // Type inference - store without explicit type
+            // Infer type from value
+            let inferred_type = Self::infer_type(&value);
             context
                 .symbol_table
-                .set_existing(var_name.clone(), value.clone());
+                .set_with_type(var_name.clone(), value.clone(), inferred_type);
         }
 
         result.success(value)
+    }
+
+    // Helper to infer type from value
+    fn infer_type(value: &Value) -> Type {
+        match value {
+            Value::Number(n) => {
+                if n.value.fract() == 0.0 {
+                    Type::Int
+                } else {
+                    Type::Float
+                }
+            }
+            Value::String(_) => Type::String,
+            Value::Bool(_) => Type::Bool,
+            Value::Null => Type::Null,
+            Value::List(l) => {
+                if let Some(first) = l.elements.first() {
+                    Type::List(Box::new(Self::infer_type(first)))
+                } else {
+                    Type::List(Box::new(Type::Unknown))
+                }
+            }
+            Value::Map(m) => {
+                if let Some((_, first_val)) = m.pairs.iter().next() {
+                    Type::Map(
+                        Box::new(Type::String),
+                        Box::new(Self::infer_type(first_val)),
+                    )
+                } else {
+                    Type::Map(Box::new(Type::String), Box::new(Type::Unknown))
+                }
+            }
+            Value::Json(_) => Type::Json,
+            Value::Function(f) => {
+                // Create function type from parameters
+                let param_types = f.param_types.clone();
+                Type::Function(crate::types::FunctionType {
+                    param_types,
+                    return_type: Box::new(Type::Unknown),
+                })
+            }
+            _ => Type::Unknown,
+        }
     }
 
     /// Check if a value matches an expected type
@@ -2537,6 +2652,39 @@ impl Interpreter {
         _context: &mut Context,
     ) -> RuntimeResult {
         RuntimeResult::new().success_break()
+    }
+
+    /// Emit warnings for potential issues
+    pub fn emit_warnings(&self, node: &Node, _context: &Context) -> Vec<String> {
+        let mut warnings = Vec::new();
+
+        match node {
+            Node::If(node) if node.cases.len() > 5 => {
+                warnings.push(format!(
+                "⚠️  Too many `when` branches ({}). Consider using `match` for better readability",
+                node.cases.len()
+            ));
+            }
+            Node::BinaryOperator(node) => {
+                // Check for division by zero constant
+                if let (_, Node::Number(num)) = (&*node.left_node, &*node.right_node) {
+                    if node.operator_token.kind == crate::tokens::TokenType::Div {
+                        if let Ok(val) = num.token.value.as_ref().unwrap().parse::<f64>() {
+                            if val == 0.0 {
+                                warnings.push(format!(
+                                    "⚠️  Division by zero constant at {}:{}",
+                                    node.position_start.line + 1,
+                                    node.position_start.column + 1
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+
+        warnings
     }
 }
 
