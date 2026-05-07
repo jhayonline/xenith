@@ -847,6 +847,42 @@ impl Interpreter {
                     _ => Ok(Type::Unknown),
                 }
             }
+            Node::FuncDef(node) => {
+                // Check parameter types (unions should be allowed)
+                for param_type in &node.param_types {
+                    // Union types are fine - no additional validation needed
+                    // Just accept any type that parses correctly
+                    match param_type {
+                        Type::Union(types) => {
+                            // Ensure each union member is a valid type (basic check)
+                            for t in types {
+                                // Simple validation - just ensure it's not Unknown
+                                if let Type::Unknown = t {
+                                    return Err(Error::type_mismatch(
+                                        "valid type",
+                                        "unknown",
+                                        node.position_start.clone(),
+                                        node.position_end.clone(),
+                                    ));
+                                }
+                            }
+                        }
+                        Type::Unknown => {
+                            return Err(Error::type_mismatch(
+                                "valid type",
+                                "unknown",
+                                node.position_start.clone(),
+                                node.position_end.clone(),
+                            ));
+                        }
+                        _ => {}
+                    }
+                }
+                Ok(Type::Function(FunctionType {
+                    param_types: node.param_types.clone(),
+                    return_type: Box::new(node.return_type.clone()),
+                }))
+            }
             // Add more type checking for other nodes...
             _ => Ok(Type::Unknown),
         }
@@ -1184,23 +1220,24 @@ impl Interpreter {
         // Resolve type aliases first
         let resolved = Self::resolve_type(expected_type, aliases);
 
-        match (value, &resolved) {
-            (Value::Null, Type::Null) => true,
-            (Value::Number(n), Type::Int) => n.value.fract() == 0.0,
-            (Value::Number(_), Type::Float) => true,
-            (Value::String(_), Type::String) => true,
-            (Value::Bool(_), Type::Bool) => true,
-            (Value::List(_), Type::List(_)) => true,
-            (Value::List(_), Type::Struct(name, _)) if name == "list" => true,
-            (Value::Map(_), Type::Map(_, _)) => true,
-            (Value::Map(_), Type::Struct(name, _)) if name == "map" => true,
-            (Value::Struct(s), Type::Struct(name, _)) => &s.name == name,
-            (Value::Json(_), Type::Json) => true,
-            (Value::Function(f), Type::Function(func_type)) => {
-                if f.arg_names.len() != func_type.param_types.len() {
-                    return false;
-                }
-                true
+        match (&resolved, value) {
+            // NEW: Handle union types
+            (Type::Union(types), _) => types
+                .iter()
+                .any(|t| Self::value_matches_type(value, t, aliases)),
+            (Type::Null, Value::Null) => true,
+            (Type::Int, Value::Number(n)) => n.value.fract() == 0.0,
+            (Type::Float, Value::Number(_)) => true,
+            (Type::String, Value::String(_)) => true,
+            (Type::Bool, Value::Bool(_)) => true,
+            (Type::List(_), Value::List(_)) => true,
+            (Type::Struct(name, _), Value::List(_)) if name == "list" => true,
+            (Type::Map(_, _), Value::Map(_)) => true,
+            (Type::Struct(name, _), Value::Map(_)) if name == "map" => true,
+            (Type::Struct(name, _), Value::Struct(s)) => &s.name == name,
+            (Type::Json, Value::Json(_)) => true,
+            (Type::Function(func_type), Value::Function(f)) => {
+                f.arg_names.len() == func_type.param_types.len()
             }
             _ => false,
         }
@@ -1209,6 +1246,13 @@ impl Interpreter {
     // Helper to resolve type aliases - updated to accept aliases parameter
     fn resolve_type(typ: &Type, aliases: &HashMap<String, Type>) -> Type {
         match typ {
+            Type::Union(types) => {
+                let resolved_types = types
+                    .iter()
+                    .map(|t| Self::resolve_type(t, aliases))
+                    .collect();
+                Type::Union(resolved_types)
+            }
             Type::Alias(name, _) => {
                 if let Some(resolved) = aliases.get(name) {
                     resolved.clone()
@@ -1232,6 +1276,7 @@ impl Interpreter {
             _ => typ.clone(),
         }
     }
+
     /// Get a string name for a value's type
     fn get_type_name(value: &Value) -> String {
         match value {
@@ -1805,24 +1850,19 @@ impl Interpreter {
 
             // Check if pattern matches
             let is_match = match (&match_value, &pattern_value) {
-                // Underscore pattern (_) matches anything - check if it's the underscore identifier
+                // Wildcard
                 (_, Value::String(s)) if s.value == "_" => true,
-                // Literal comparison
+                // Type-name patterns: "string", "int", "float", "bool", "null"
+                (Value::String(_), Value::String(s)) if s.value == "string" => true,
+                (Value::Number(n), Value::String(s)) if s.value == "int" => {
+                    n.value.fract() == 0.0 && s.value == "int"
+                }
+                (Value::Number(n), Value::String(s)) if s.value == "float" => true,
+                (Value::Bool(_), Value::String(s)) if s.value == "bool" => true,
+                (Value::Null, Value::String(s)) if s.value == "null" => true,
+                // Literal comparison (existing)
                 (Value::Number(a), Value::Number(b)) => (a.value - b.value).abs() < 1e-10,
                 (Value::String(a), Value::String(b)) => a.value == b.value,
-                (Value::List(a), Value::List(b)) => {
-                    if a.elements.len() != b.elements.len() {
-                        false
-                    } else {
-                        a.elements
-                            .iter()
-                            .zip(b.elements.iter())
-                            .all(|(x, y)| match x.equals(y) {
-                                Ok(Value::Number(n)) => n.value != 0.0,
-                                _ => false,
-                            })
-                    }
-                }
                 (Value::Bool(a), Value::Bool(b)) => a == b,
                 _ => false,
             };
@@ -2418,6 +2458,17 @@ impl Interpreter {
 
         let call_result = match callee {
             Value::Function(func) => {
+                // Before calling, verify argument types
+                for (i, (arg, param_type)) in args.iter().zip(func.param_types.iter()).enumerate() {
+                    if !Self::value_matches_type(arg, param_type, &self.type_aliases) {
+                        return result.failure(Error::type_mismatch(
+                            &param_type.to_string(),
+                            &Self::get_type_name(arg),
+                            node.position_start.clone(),
+                            node.position_end.clone(),
+                        ));
+                    }
+                }
                 func.execute(args, context.clone(), self, node.position_start.clone())
             }
             Value::BuiltInFunction(builtin) => {

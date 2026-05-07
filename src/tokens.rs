@@ -71,6 +71,7 @@ pub enum TokenType {
     Underscore,
     BacktickString,
     Semicolon,
+    Pipe,
 }
 
 /// A token representing a lexical unit

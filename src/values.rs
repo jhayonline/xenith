@@ -519,7 +519,7 @@ impl Function {
         args: Vec<Value>,
         context: Context,
         interpreter: &mut Interpreter,
-        call_position: Position, // NEW
+        call_position: Position,
     ) -> RuntimeResult {
         let mut result = RuntimeResult::new();
 
@@ -536,12 +536,20 @@ impl Function {
         // Check argument types
         for (i, (arg, expected_type)) in args.iter().zip(self.param_types.iter()).enumerate() {
             if !Self::value_matches_type(arg, expected_type) {
-                return RuntimeResult::new().failure(Error::type_mismatch(
-                    &expected_type.to_string(),
-                    &Self::get_type_name(arg),
-                    call_position.clone(),
-                    call_position.clone(),
-                ));
+                // Also check if this is a union type that the value matches
+                let matches_union = match expected_type {
+                    Type::Union(types) => types.iter().any(|t| Self::value_matches_type(arg, t)),
+                    _ => false,
+                };
+
+                if !matches_union {
+                    return RuntimeResult::new().failure(Error::type_mismatch(
+                        &expected_type.to_string(),
+                        &Self::get_type_name(arg),
+                        call_position.clone(),
+                        call_position.clone(),
+                    ));
+                }
             }
         }
 

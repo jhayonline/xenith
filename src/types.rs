@@ -30,8 +30,9 @@ pub enum Type {
     Alias(String, Box<Type>),
     /// Unknown/not yet resolved (for parsing)
     Unknown,
-    /// JSON type - can hold mixed types (null, bool, number, string, array, object)
+    /// JSON type, can hold mixed types (null, bool, number, string, array, object)
     Json,
+    Union(Vec<Type>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -112,6 +113,22 @@ impl Type {
             Type::Alias(name, _) => name.clone(),
             Type::Unknown => "unknown".to_string(),
             Type::Json => "json".to_string(),
+            Type::Union(types) => types
+                .iter()
+                .map(|t| t.to_string())
+                .collect::<Vec<_>>()
+                .join(" | "),
+        }
+    }
+
+    pub fn is_union(&self) -> bool {
+        matches!(self, Type::Union(_))
+    }
+
+    pub fn get_union_types(&self) -> Vec<Type> {
+        match self {
+            Type::Union(types) => types.clone(),
+            _ => vec![self.clone()],
         }
     }
 

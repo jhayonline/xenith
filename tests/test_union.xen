@@ -1,0 +1,35 @@
+# Simple union
+let id: string | int = "hello"
+echo(id)
+id = 42
+echo(id)
+
+# Union with null
+let optional: string | null = "test"
+echo(optional)
+optional = null
+echo(optional)
+
+# List with union
+let mixed: list<string | int> = ["a", 1, "b", 2]
+echo(ret(mixed))
+
+# Function with union parameter
+method process(value: string | int) -> string {
+    match value {
+        string => {
+          release "String: " + value
+        }
+        int => {
+          release "Number: " + (value as string)
+        }
+    }
+}
+
+echo(process("hello"))
+echo(process(42))
+
+# This should FAIL (float not in union)
+# let bad: string | int = 3.14
+
+echo("All union tests passed!")

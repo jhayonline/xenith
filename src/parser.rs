@@ -90,9 +90,196 @@ impl Parser {
         result
     }
 
-    /// Parse a type annotation
-    /// Syntax: int | float | string | bool | null | list<T> | map<K, V> | identifier | method(...) -> ...
+    /// Parse a type annotation with union support
     fn parse_type(&mut self) -> ParseResult {
+        let mut result = ParseResult::new();
+
+        // Try to parse union types first
+        let start_index = self.token_index;
+
+        // Parse the first type
+        let first_type = match self.parse_single_type() {
+            Ok(t) => t,
+            Err(e) => {
+                self.token_index = start_index;
+                return self.parse_type_original();
+            }
+        };
+
+        let mut types = vec![first_type];
+
+        // Check for more types separated by |
+        while let Some(tok) = self.current_token() {
+            if tok.kind == TokenType::Pipe {
+                self.advance(); // consume '|'
+                match self.parse_single_type() {
+                    Ok(next_type) => types.push(next_type),
+                    Err(e) => {
+                        self.token_index = start_index;
+                        return self.parse_type_original();
+                    }
+                }
+            } else {
+                break;
+            }
+        }
+
+        // If we found a union (multiple types), return it
+        if types.len() > 1 {
+            return result.success_type(Type::Union(types));
+        }
+
+        // Otherwise, fall back to original parsing
+        self.token_index = start_index;
+        self.parse_type_original()
+    }
+
+    /// Parse a single type without union (used for union components and for fallback)
+    fn parse_single_type(&mut self) -> Result<Type, Error> {
+        let type_token = match self.current_token() {
+            Some(tok) => tok.clone(),
+            None => {
+                return Err(Error::unexpected_token(
+                    "nothing",
+                    "type",
+                    Self::dummy_pos(),
+                    Self::dummy_pos(),
+                ));
+            }
+        };
+
+        // Handle function type
+        if type_token.matches(TokenType::Keyword, Some("method")) {
+            return self.parse_function_type();
+        }
+
+        let parsed_type = match type_token.kind {
+            TokenType::TypeInt => Type::Int,
+            TokenType::TypeFloat => Type::Float,
+            TokenType::TypeString => Type::String,
+            TokenType::TypeBool => Type::Bool,
+            TokenType::TypeNull => Type::Null,
+            TokenType::TypeJson => Type::Json,
+            TokenType::TypeList => {
+                self.advance(); // consume 'list'
+
+                if let Some(tok) = self.current_token() {
+                    if tok.kind == TokenType::Lt {
+                        self.advance(); // consume '<'
+                        let inner_type = self.parse_single_type_or_union()?;
+
+                        match self.current_token() {
+                            Some(tok) if tok.kind == TokenType::Gt => {
+                                self.advance();
+                            }
+                            _ => {
+                                return Err(Error::unexpected_token(
+                                    &format!("{:?}", self.current_token().unwrap().kind),
+                                    "'>'",
+                                    self.current_token().unwrap().position_start.clone(),
+                                    self.current_token().unwrap().position_end.clone(),
+                                ));
+                            }
+                        }
+
+                        Type::List(Box::new(inner_type))
+                    } else {
+                        Type::List(Box::new(Type::Unknown))
+                    }
+                } else {
+                    Type::List(Box::new(Type::Unknown))
+                }
+            }
+            TokenType::TypeMap => {
+                self.advance(); // consume 'map'
+
+                match self.current_token() {
+                    Some(tok) if tok.kind == TokenType::Lt => {
+                        self.advance(); // consume '<'
+                        let key_type = self.parse_single_type_or_union()?;
+
+                        match self.current_token() {
+                            Some(tok) if tok.kind == TokenType::Comma => {
+                                self.advance();
+                            }
+                            _ => {
+                                return Err(InvalidSyntaxError::new(
+                                    Self::dummy_pos(),
+                                    Self::dummy_pos(),
+                                    "Expected ','",
+                                )
+                                .base);
+                            }
+                        }
+
+                        let value_type = self.parse_single_type_or_union()?;
+
+                        match self.current_token() {
+                            Some(tok) if tok.kind == TokenType::Gt => {
+                                self.advance();
+                            }
+                            _ => {
+                                return Err(InvalidSyntaxError::new(
+                                    Self::dummy_pos(),
+                                    Self::dummy_pos(),
+                                    "Expected '>'",
+                                )
+                                .base);
+                            }
+                        }
+
+                        Type::Map(Box::new(key_type), Box::new(value_type))
+                    }
+                    _ => {
+                        return Err(InvalidSyntaxError::new(
+                            type_token.position_start.clone(),
+                            type_token.position_end.clone(),
+                            "Expected '<' for map type",
+                        )
+                        .base);
+                    }
+                }
+            }
+            TokenType::Identifier => {
+                let name = type_token.value.clone().unwrap();
+                self.advance();
+
+                if let Some(tok) = self.current_token() {
+                    if tok.kind == TokenType::Lt {
+                        return self.parse_generic_type(name);
+                    }
+                }
+
+                // Check if this is a registered type alias
+                if let Some(alias_type) = self.type_aliases.get(&name) {
+                    return Ok(alias_type.clone());
+                }
+
+                Type::Struct(name, Vec::new())
+            }
+            _ => {
+                return Err(InvalidSyntaxError::new(
+                    type_token.position_start.clone(),
+                    type_token.position_end.clone(),
+                    &format!("Expected type, got {:?}", type_token.kind),
+                )
+                .base);
+            }
+        };
+
+        // Only advance if we didn't already advance inside the match
+        if !matches!(
+            type_token.kind,
+            TokenType::TypeList | TokenType::TypeMap | TokenType::Identifier
+        ) {
+            self.advance();
+        }
+
+        Ok(parsed_type)
+    }
+
+    /// Original parse_type function renamed (keep your existing code exactly as is)
+    fn parse_type_original(&mut self) -> ParseResult {
         let mut result = ParseResult::new();
         let type_token = match self.current_token() {
             Some(tok) => tok.clone(),
@@ -106,11 +293,10 @@ impl Parser {
             }
         };
 
-        // Handle function type separately (returns ParseResult directly)
+        // Handle function type separately
         if type_token.matches(TokenType::Keyword, Some("method")) {
             self.advance(); // consume 'method'
 
-            // Expect '('
             match self.current_token() {
                 Some(t) if t.kind == TokenType::LParen => {
                     self.advance();
@@ -139,23 +325,18 @@ impl Parser {
 
             let mut param_types = Vec::new();
 
-            // Parse parameter types (no names, just types)
-            // Check if empty parameter list
             if let Some(t) = self.current_token() {
                 if t.kind != TokenType::RParen {
-                    // Parse first parameter type
-                    let param_type = result.register_type(&self.parse_type());
+                    let param_type = result.register_type(&self.parse_type_original());
                     if result.error.is_some() {
                         return result;
                     }
                     param_types.push(param_type);
 
-                    // Parse additional parameters separated by commas
                     while let Some(comma) = self.current_token() {
                         if comma.kind == TokenType::Comma {
-                            self.advance(); // consume ','
-
-                            let next_param = result.register_type(&self.parse_type());
+                            self.advance();
+                            let next_param = result.register_type(&self.parse_type_original());
                             if result.error.is_some() {
                                 return result;
                             }
@@ -167,7 +348,6 @@ impl Parser {
                 }
             }
 
-            // Expect ')'
             match self.current_token() {
                 Some(t) if t.kind == TokenType::RParen => {
                     self.advance();
@@ -194,7 +374,6 @@ impl Parser {
                 }
             }
 
-            // Expect '->'
             match self.current_token() {
                 Some(t) if t.kind == TokenType::Arrow => {
                     self.advance();
@@ -221,8 +400,7 @@ impl Parser {
                 }
             }
 
-            // Parse return type
-            let return_type = result.register_type(&self.parse_type());
+            let return_type = result.register_type(&self.parse_type_original());
             if result.error.is_some() {
                 return result;
             }
@@ -233,7 +411,6 @@ impl Parser {
             }));
         }
 
-        // Handle all other types (same as before)
         let parsed_type = match type_token.kind {
             TokenType::TypeInt => Type::Int,
             TokenType::TypeFloat => Type::Float,
@@ -241,19 +418,16 @@ impl Parser {
             TokenType::TypeBool => Type::Bool,
             TokenType::TypeNull => Type::Null,
             TokenType::TypeList => {
-                // Handle list<T>
-                self.advance(); // consume 'list'
+                self.advance();
 
-                // Check for '<'
                 if let Some(tok) = self.current_token() {
                     if tok.kind == TokenType::Lt {
-                        self.advance(); // consume '<'
+                        self.advance();
                         let inner_type = result.register_type(&self.parse_type());
                         if result.error.is_some() {
                             return result;
                         }
 
-                        // Expect '>'
                         match self.current_token() {
                             Some(tok) if tok.kind == TokenType::Gt => {
                                 self.advance();
@@ -270,7 +444,6 @@ impl Parser {
 
                         Type::List(Box::new(inner_type))
                     } else {
-                        // No generic parameter, default to list<any>
                         Type::List(Box::new(Type::Unknown))
                     }
                 } else {
@@ -279,18 +452,16 @@ impl Parser {
             }
             TokenType::TypeJson => Type::Json,
             TokenType::TypeMap => {
-                // Handle map<K, V>
-                self.advance(); // consume 'map'
+                self.advance();
 
                 match self.current_token() {
                     Some(tok) if tok.kind == TokenType::Lt => {
-                        self.advance(); // consume '<'
+                        self.advance();
                         let key_type = result.register_type(&self.parse_type());
                         if result.error.is_some() {
                             return result;
                         }
 
-                        // Expect ','
                         match self.current_token() {
                             Some(tok) if tok.kind == TokenType::Comma => {
                                 self.advance();
@@ -312,7 +483,6 @@ impl Parser {
                             return result;
                         }
 
-                        // Expect '>'
                         match self.current_token() {
                             Some(tok) if tok.kind == TokenType::Gt => {
                                 self.advance();
@@ -344,23 +514,23 @@ impl Parser {
                 }
             }
             TokenType::Identifier => {
-                // Could be a struct name or type alias
                 let name = type_token.value.clone().unwrap();
                 self.advance();
 
-                // Check for generic parameters
                 if let Some(tok) = self.current_token() {
                     if tok.kind == TokenType::Lt {
-                        return self.parse_generic_type(name);
+                        match self.parse_generic_type(name) {
+                            Ok(t) => return result.success_type(t),
+                            Err(e) => return result.failure(e),
+                        }
                     }
                 }
 
-                // First, check if this is a registered type alias
                 if let Some(alias_type) = self.type_aliases.get(&name) {
                     return result.success_type(alias_type.clone());
                 }
 
-                Type::Struct(name, Vec::new()) // Placeholder, will resolve later
+                Type::Struct(name, Vec::new())
             }
             _ => {
                 return result.failure(
@@ -374,7 +544,6 @@ impl Parser {
             }
         };
 
-        // Only advance if we didn't already advance inside the match
         if !matches!(
             type_token.kind,
             TokenType::TypeList
@@ -389,124 +558,214 @@ impl Parser {
     }
 
     /// Parse generic type: list<T>, map<K, V>
-    fn parse_generic_type(&mut self, base_name: String) -> ParseResult {
-        let mut result = ParseResult::new();
-
+    fn parse_generic_type(&mut self, base_name: String) -> Result<Type, Error> {
         // Consume '<'
         self.advance();
 
         match base_name.as_str() {
             "list" => {
-                let inner_type = result.register_type(&self.parse_type());
-                if result.error.is_some() {
-                    return result;
-                }
+                let inner_type = self.parse_single_type_or_union()?;
 
-                // Expect '>'
                 match self.current_token() {
                     Some(tok) if tok.kind == TokenType::Gt => {
                         self.advance();
                     }
                     Some(tok) => {
-                        return result.failure(
-                            InvalidSyntaxError::new(
-                                tok.position_start.clone(),
-                                tok.position_end.clone(),
-                                "Expected '>'",
-                            )
-                            .base,
-                        );
+                        return Err(InvalidSyntaxError::new(
+                            tok.position_start.clone(),
+                            tok.position_end.clone(),
+                            "Expected '>'",
+                        )
+                        .base);
                     }
                     None => {
-                        return result.failure(
-                            InvalidSyntaxError::new(
-                                Self::dummy_pos(),
-                                Self::dummy_pos(),
-                                "Expected '>'",
-                            )
-                            .base,
-                        );
+                        return Err(InvalidSyntaxError::new(
+                            Self::dummy_pos(),
+                            Self::dummy_pos(),
+                            "Expected '>'",
+                        )
+                        .base);
                     }
                 }
 
-                result.success_type(Type::List(Box::new(inner_type)))
+                Ok(Type::List(Box::new(inner_type)))
             }
             "map" => {
-                let key_type = result.register_type(&self.parse_type());
-                if result.error.is_some() {
-                    return result;
-                }
+                let key_type = self.parse_single_type_or_union()?;
 
-                // Expect ','
                 match self.current_token() {
                     Some(tok) if tok.kind == TokenType::Comma => {
                         self.advance();
                     }
                     Some(tok) => {
-                        return result.failure(
-                            InvalidSyntaxError::new(
-                                tok.position_start.clone(),
-                                tok.position_end.clone(),
-                                "Expected ','",
-                            )
-                            .base,
-                        );
+                        return Err(InvalidSyntaxError::new(
+                            tok.position_start.clone(),
+                            tok.position_end.clone(),
+                            "Expected ','",
+                        )
+                        .base);
                     }
                     None => {
-                        return result.failure(
-                            InvalidSyntaxError::new(
-                                Self::dummy_pos(),
-                                Self::dummy_pos(),
-                                "Expected ','",
-                            )
-                            .base,
-                        );
+                        return Err(InvalidSyntaxError::new(
+                            Self::dummy_pos(),
+                            Self::dummy_pos(),
+                            "Expected ','",
+                        )
+                        .base);
                     }
                 }
 
-                let value_type = result.register_type(&self.parse_type());
-                if result.error.is_some() {
-                    return result;
-                }
+                let value_type = self.parse_single_type_or_union()?;
 
-                // Expect '>'
                 match self.current_token() {
                     Some(tok) if tok.kind == TokenType::Gt => {
                         self.advance();
                     }
                     Some(tok) => {
-                        return result.failure(
-                            InvalidSyntaxError::new(
-                                tok.position_start.clone(),
-                                tok.position_end.clone(),
-                                "Expected '>'",
-                            )
-                            .base,
-                        );
+                        return Err(InvalidSyntaxError::new(
+                            tok.position_start.clone(),
+                            tok.position_end.clone(),
+                            "Expected '>'",
+                        )
+                        .base);
                     }
                     None => {
-                        return result.failure(
-                            InvalidSyntaxError::new(
-                                Self::dummy_pos(),
-                                Self::dummy_pos(),
-                                "Expected '>'",
-                            )
-                            .base,
-                        );
+                        return Err(InvalidSyntaxError::new(
+                            Self::dummy_pos(),
+                            Self::dummy_pos(),
+                            "Expected '>'",
+                        )
+                        .base);
                     }
                 }
 
-                result.success_type(Type::Map(Box::new(key_type), Box::new(value_type)))
+                Ok(Type::Map(Box::new(key_type), Box::new(value_type)))
             }
-            _ => result.failure(
-                InvalidSyntaxError::new(
-                    Self::dummy_pos(),
-                    Self::dummy_pos(),
-                    &format!("Unknown generic type: {}", base_name),
-                )
-                .base,
-            ),
+            _ => Err(InvalidSyntaxError::new(
+                Self::dummy_pos(),
+                Self::dummy_pos(),
+                &format!("Unknown generic type: {}", base_name),
+            )
+            .base),
         }
+    }
+
+    /// Parse a single type or a union type (type | type | ...)
+    fn parse_single_type_or_union(&mut self) -> Result<Type, Error> {
+        let first = self.parse_single_type()?;
+        let mut types = vec![first];
+
+        while let Some(tok) = self.current_token() {
+            if tok.kind == TokenType::Pipe {
+                self.advance(); // consume '|'
+                types.push(self.parse_single_type()?);
+            } else {
+                break;
+            }
+        }
+
+        if types.len() == 1 {
+            Ok(types.remove(0))
+        } else {
+            Ok(Type::Union(types))
+        }
+    }
+
+    /// Parse function type
+    fn parse_function_type(&mut self) -> Result<Type, Error> {
+        self.advance(); // consume 'method'
+
+        match self.current_token() {
+            Some(t) if t.kind == TokenType::LParen => {
+                self.advance();
+            }
+            Some(t) => {
+                return Err(InvalidSyntaxError::new(
+                    t.position_start.clone(),
+                    t.position_end.clone(),
+                    "Expected '(' after 'method'",
+                )
+                .base);
+            }
+            None => {
+                return Err(InvalidSyntaxError::new(
+                    Self::dummy_pos(),
+                    Self::dummy_pos(),
+                    "Expected '(' after 'method'",
+                )
+                .base);
+            }
+        }
+
+        let mut param_types = Vec::new();
+
+        if let Some(t) = self.current_token() {
+            if t.kind != TokenType::RParen {
+                let param_type = self.parse_single_type()?;
+                param_types.push(param_type);
+
+                while let Some(comma) = self.current_token() {
+                    if comma.kind == TokenType::Comma {
+                        self.advance();
+                        let next_param = self.parse_single_type()?;
+                        param_types.push(next_param);
+                    } else {
+                        break;
+                    }
+                }
+            }
+        }
+
+        match self.current_token() {
+            Some(t) if t.kind == TokenType::RParen => {
+                self.advance();
+            }
+            Some(t) => {
+                return Err(InvalidSyntaxError::new(
+                    t.position_start.clone(),
+                    t.position_end.clone(),
+                    "Expected ')'",
+                )
+                .base);
+            }
+            None => {
+                return Err(InvalidSyntaxError::new(
+                    Self::dummy_pos(),
+                    Self::dummy_pos(),
+                    "Expected ')'",
+                )
+                .base);
+            }
+        }
+
+        match self.current_token() {
+            Some(t) if t.kind == TokenType::Arrow => {
+                self.advance();
+            }
+            Some(t) => {
+                return Err(InvalidSyntaxError::new(
+                    t.position_start.clone(),
+                    t.position_end.clone(),
+                    "Expected '->'",
+                )
+                .base);
+            }
+            None => {
+                return Err(InvalidSyntaxError::new(
+                    Self::dummy_pos(),
+                    Self::dummy_pos(),
+                    "Expected '->'",
+                )
+                .base);
+            }
+        }
+
+        let return_type = self.parse_single_type()?;
+
+        Ok(Type::Function(FunctionType {
+            param_types,
+            return_type: Box::new(return_type),
+        }))
     }
 
     fn statement(&mut self) -> ParseResult {
@@ -2243,6 +2502,39 @@ impl Parser {
                         position_start: t.position_start.clone(),
                         position_end: t.position_end.clone(),
                     });
+                    self.advance();
+                    node
+                }
+                // type keywords used as match patterns (e.g. string => ..., int => ...)
+                Some(t)
+                    if matches!(
+                        t.kind,
+                        TokenType::TypeString
+                            | TokenType::TypeInt
+                            | TokenType::TypeFloat
+                            | TokenType::TypeBool
+                            | TokenType::TypeNull
+                            | TokenType::TypeList
+                            | TokenType::TypeMap
+                            | TokenType::TypeJson
+                    ) =>
+                {
+                    let type_name = t
+                        .value
+                        .clone()
+                        .unwrap_or_else(|| format!("{:?}", t.kind).to_lowercase());
+                    let synthetic_token = Token::new(
+                        TokenType::String,
+                        Some(type_name),
+                        t.position_start.clone(),
+                        Some(t.position_end.clone()),
+                    );
+                    let node = Node::String(StringNode::new(synthetic_token));
+                    self.advance();
+                    node
+                }
+                Some(t) if t.kind == TokenType::Int || t.kind == TokenType::Float => {
+                    let node = Node::Number(NumberNode::new(t.clone()));
                     self.advance();
                     node
                 }

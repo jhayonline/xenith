@@ -299,16 +299,28 @@ impl Lexer {
                             Some(self.position.clone()),
                         ));
                     }
-                    '|' if self.peek() == Some('|') => {
-                        let pos_start = self.position.copy();
-                        self.advance();
-                        self.advance();
-                        tokens.push(Token::new(
-                            TokenType::Keyword,
-                            Some("||".to_string()),
-                            pos_start,
-                            Some(self.position.clone()),
-                        ));
+                    '|' => {
+                        if self.peek() == Some('|') {
+                            // Double pipe for logical OR
+                            let pos_start = self.position.copy();
+                            self.advance();
+                            self.advance();
+                            tokens.push(Token::new(
+                                TokenType::Keyword,
+                                Some("||".to_string()),
+                                pos_start,
+                                Some(self.position.clone()),
+                            ));
+                        } else {
+                            // Single pipe for union types
+                            tokens.push(Token::new(
+                                TokenType::Pipe,
+                                None,
+                                self.position.clone(),
+                                None,
+                            ));
+                            self.advance();
+                        }
                     }
                     '=' => {
                         if self.peek() == Some('>') {
