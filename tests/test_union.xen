@@ -17,12 +17,8 @@ echo(ret(mixed))
 # Function with union parameter
 method process(value: string | int) -> string {
     match value {
-        string => {
-          release "String: " + value
-        }
-        int => {
-          release "Number: " + (value as string)
-        }
+        string => release "String: " + value
+        int => release "Number: " + (value as string)
     }
 }
 

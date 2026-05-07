@@ -2603,7 +2603,7 @@ impl Parser {
                 }
             }
 
-            // Parse body (block)
+            // Parse body, supports both block and single expression
             let body_node = match self.current_token() {
                 Some(t) if t.kind == TokenType::LBrace => match result.register(&self.block()) {
                     Some(node) => node,
@@ -2618,12 +2618,40 @@ impl Parser {
                         );
                     }
                 },
-                _ => {
+                // NEW: Handle release statement as a single expression body
+                Some(t) if t.matches(TokenType::Keyword, Some("release")) => {
+                    // Clone the position before advancing
+                    let pos_start = t.position_start.clone();
+                    // Consume 'release'
+                    self.advance();
+                    // Parse the expression after release
+                    let expr = result.register(&self.expr());
+                    if result.error.is_some() {
+                        return result;
+                    }
+                    // Create a return node
+                    Node::Return(Box::new(ReturnNode {
+                        node_to_return: expr.map(|e| Box::new(e)),
+                        position_start: pos_start.clone(),
+                        position_end: self
+                            .current_token()
+                            .map(|t| t.position_end.clone())
+                            .unwrap_or(pos_start),
+                    }))
+                }
+                Some(_) => {
+                    let expr = result.register(&self.expr());
+                    if result.error.is_some() {
+                        return result;
+                    }
+                    expr.unwrap()
+                }
+                None => {
                     return result.failure(
                         InvalidSyntaxError::new(
                             Self::dummy_pos(),
                             Self::dummy_pos(),
-                            "Expected '{' for match arm body",
+                            "Expected body expression or block",
                         )
                         .base,
                     );
