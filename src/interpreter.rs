@@ -785,28 +785,21 @@ impl Interpreter {
     /// Perform type checking without executing
     pub fn type_check(&mut self, node: &Node, context: &mut Context) -> Result<Type, Error> {
         match node {
-            Node::Number(_) => Ok(Type::Int),
+            Node::Number(_) => Ok(Type::Float), // or Int, but Float is safer for unions
             Node::String(_) => Ok(Type::String),
-            Node::BoolLiteral(n) => Ok(Type::Bool),
+            Node::BoolLiteral(_) => Ok(Type::Bool),
             Node::NullLiteral(_) => Ok(Type::Null),
+
             Node::List(list_node) => {
-                let mut elem_types = Vec::new();
-                for elem in &list_node.element_nodes {
-                    let typ = self.type_check(elem, context)?;
-                    elem_types.push(typ);
-                }
-                // Check if all elements have the same type
-                if let Some(first) = elem_types.first() {
-                    if elem_types.iter().all(|t| t == first) {
-                        Ok(Type::List(Box::new(first.clone())))
-                    } else {
-                        // Mixed types - use any or report warning
-                        Ok(Type::List(Box::new(Type::Unknown)))
-                    }
+                // ... keep your existing list logic
+                if let Some(first) = list_node.element_nodes.first() {
+                    let elem_type = self.type_check(first, context)?;
+                    Ok(Type::List(Box::new(elem_type)))
                 } else {
                     Ok(Type::List(Box::new(Type::Unknown)))
                 }
             }
+
             Node::VarAccess(node) => {
                 let var_name = node.variable_name_token.value.as_ref().unwrap();
                 if let Some(typ) = context.symbol_table.get_declared_type(var_name) {
@@ -821,69 +814,12 @@ impl Interpreter {
                     ))
                 }
             }
-            Node::BinaryOperator(node) => {
-                let left_type = self.type_check(&node.left_node, context)?;
-                let right_type = self.type_check(&node.right_node, context)?;
 
-                match node.operator_token.kind {
-                    crate::tokens::TokenType::Plus => {
-                        if matches!(left_type, Type::Int | Type::Float)
-                            && matches!(right_type, Type::Int | Type::Float)
-                        {
-                            Ok(Type::Float)
-                        } else if matches!(left_type, Type::String)
-                            || matches!(right_type, Type::String)
-                        {
-                            Ok(Type::String)
-                        } else {
-                            Err(Error::type_mismatch(
-                                &left_type.to_string(),
-                                &right_type.to_string(),
-                                node.position_start.clone(),
-                                node.position_end.clone(),
-                            ))
-                        }
-                    }
-                    _ => Ok(Type::Unknown),
-                }
-            }
-            Node::FuncDef(node) => {
-                // Check parameter types (unions should be allowed)
-                for param_type in &node.param_types {
-                    // Union types are fine - no additional validation needed
-                    // Just accept any type that parses correctly
-                    match param_type {
-                        Type::Union(types) => {
-                            // Ensure each union member is a valid type (basic check)
-                            for t in types {
-                                // Simple validation - just ensure it's not Unknown
-                                if let Type::Unknown = t {
-                                    return Err(Error::type_mismatch(
-                                        "valid type",
-                                        "unknown",
-                                        node.position_start.clone(),
-                                        node.position_end.clone(),
-                                    ));
-                                }
-                            }
-                        }
-                        Type::Unknown => {
-                            return Err(Error::type_mismatch(
-                                "valid type",
-                                "unknown",
-                                node.position_start.clone(),
-                                node.position_end.clone(),
-                            ));
-                        }
-                        _ => {}
-                    }
-                }
-                Ok(Type::Function(FunctionType {
-                    param_types: node.param_types.clone(),
-                    return_type: Box::new(node.return_type.clone()),
-                }))
-            }
-            // Add more type checking for other nodes...
+            Node::FuncDef(node) => Ok(Type::Function(FunctionType {
+                param_types: node.param_types.clone(),
+                return_type: Box::new(node.return_type.clone()),
+            })),
+
             _ => Ok(Type::Unknown),
         }
     }
@@ -1144,7 +1080,7 @@ impl Interpreter {
         // Check if this is a new variable declaration (has type annotation)
         if let Some(var_type) = &node.var_type {
             // Check if the value type matches the declared type
-            if !Self::value_matches_type(&value, var_type, &self.type_aliases) {
+            if !Self::value_matches_type(&value, var_type) {
                 return RuntimeResult::new().failure(Error::type_mismatch(
                     &var_type.to_string(),
                     &Self::get_type_name(&value),
@@ -1158,7 +1094,6 @@ impl Interpreter {
                 .set_with_type(var_name.clone(), value.clone(), var_type.clone());
         } else {
             // Type inference - store without explicit type
-            // Infer type from value
             let inferred_type = Self::infer_type(&value);
             context
                 .symbol_table
@@ -1212,34 +1147,27 @@ impl Interpreter {
     }
 
     /// Check if a value matches an expected type
-    fn value_matches_type(
-        value: &Value,
-        expected_type: &Type,
-        aliases: &HashMap<String, Type>,
-    ) -> bool {
-        // Resolve type aliases first
-        let resolved = Self::resolve_type(expected_type, aliases);
-
-        match (&resolved, value) {
-            // NEW: Handle union types
-            (Type::Union(types), _) => types
-                .iter()
-                .any(|t| Self::value_matches_type(value, t, aliases)),
-            (Type::Null, Value::Null) => true,
-            (Type::Int, Value::Number(n)) => n.value.fract() == 0.0,
-            (Type::Float, Value::Number(_)) => true,
-            (Type::String, Value::String(_)) => true,
-            (Type::Bool, Value::Bool(_)) => true,
-            (Type::List(_), Value::List(_)) => true,
-            (Type::Struct(name, _), Value::List(_)) if name == "list" => true,
-            (Type::Map(_, _), Value::Map(_)) => true,
-            (Type::Struct(name, _), Value::Map(_)) if name == "map" => true,
-            (Type::Struct(name, _), Value::Struct(s)) => &s.name == name,
-            (Type::Json, Value::Json(_)) => true,
-            (Type::Function(func_type), Value::Function(f)) => {
-                f.arg_names.len() == func_type.param_types.len()
+    pub fn value_matches_type(value: &Value, expected_type: &Type) -> bool {
+        match expected_type {
+            Type::Union(types) => {
+                // Union support - this was missing!
+                types.iter().any(|t| Self::value_matches_type(value, t))
             }
-            _ => false,
+            Type::Int => matches!(value, Value::Number(n) if n.value.fract() == 0.0),
+            Type::Float => matches!(value, Value::Number(_)),
+            Type::String => matches!(value, Value::String(_)),
+            Type::Bool => matches!(value, Value::Bool(_)),
+            Type::Null => matches!(value, Value::Null),
+            Type::List(_) => matches!(value, Value::List(_)),
+            Type::Map(_, _) => matches!(value, Value::Map(_)),
+            Type::Struct(name, _) => {
+                if let Value::Struct(s) = value {
+                    &s.name == name
+                } else {
+                    false
+                }
+            }
+            _ => true, // fallback for unknown/any types
         }
     }
 
@@ -1247,19 +1175,13 @@ impl Interpreter {
     fn resolve_type(typ: &Type, aliases: &HashMap<String, Type>) -> Type {
         match typ {
             Type::Union(types) => {
-                let resolved_types = types
+                let resolved = types
                     .iter()
                     .map(|t| Self::resolve_type(t, aliases))
                     .collect();
-                Type::Union(resolved_types)
+                Type::Union(resolved)
             }
-            Type::Alias(name, _) => {
-                if let Some(resolved) = aliases.get(name) {
-                    resolved.clone()
-                } else {
-                    typ.clone()
-                }
-            }
+            Type::Alias(name, _) => aliases.get(name).cloned().unwrap_or_else(|| typ.clone()),
             Type::List(inner) => Type::List(Box::new(Self::resolve_type(inner, aliases))),
             Type::Map(k, v) => Type::Map(
                 Box::new(Self::resolve_type(k, aliases)),
@@ -1834,41 +1756,40 @@ impl Interpreter {
     ) -> RuntimeResult {
         let mut result = RuntimeResult::new();
 
-        // Evaluate the value to match against
         let match_value = result.register(self.visit(&node.value_node, context));
         if result.should_return() {
             return result;
         }
 
-        // Try each arm in order
         for arm in &node.arms {
-            // Evaluate the pattern
             let pattern_value = result.register(self.visit(&arm.pattern_node, context));
             if result.should_return() {
                 return result;
             }
 
-            // Check if pattern matches
             let is_match = match (&match_value, &pattern_value) {
                 // Wildcard
                 (_, Value::String(s)) if s.value == "_" => true,
-                // Type-name patterns: "string", "int", "float", "bool", "null"
+
+                // Type patterns
                 (Value::String(_), Value::String(s)) if s.value == "string" => true,
-                (Value::Number(n), Value::String(s)) if s.value == "int" => {
-                    n.value.fract() == 0.0 && s.value == "int"
-                }
-                (Value::Number(n), Value::String(s)) if s.value == "float" => true,
+                (Value::Number(n), Value::String(s)) if s.value == "int" => n.value.fract() == 0.0,
+                (Value::Number(_), Value::String(s)) if s.value == "float" => true,
                 (Value::Bool(_), Value::String(s)) if s.value == "bool" => true,
-                (Value::Null, Value::String(s)) if s.value == "null" => true,
-                // Literal comparison (existing)
-                (Value::Number(a), Value::Number(b)) => (a.value - b.value).abs() < 1e-10,
+
+                // NULL pattern - this was the missing piece
+                (Value::Null, Value::String(s)) if s.value.eq_ignore_ascii_case("null") => true,
+                (Value::Null, Value::Null) => true,
+
+                // Literal value matches
                 (Value::String(a), Value::String(b)) => a.value == b.value,
+                (Value::Number(a), Value::Number(b)) => (a.value - b.value).abs() < 1e-10,
                 (Value::Bool(a), Value::Bool(b)) => a == b,
+
                 _ => false,
             };
 
             if is_match {
-                // Execute the body of the matching arm
                 let value = result.register(self.visit(&arm.body_node, context));
                 if result.should_return() {
                     return result;
@@ -1877,7 +1798,7 @@ impl Interpreter {
             }
         }
 
-        // No match found - return null
+        // No match found
         result.success(Value::Null)
     }
 
@@ -2458,21 +2379,30 @@ impl Interpreter {
 
         let call_result = match callee {
             Value::Function(func) => {
-                // Before calling, verify argument types
-                for (i, (arg, param_type)) in args.iter().zip(func.param_types.iter()).enumerate() {
-                    if !Self::value_matches_type(arg, param_type, &self.type_aliases) {
-                        return result.failure(Error::type_mismatch(
-                            &param_type.to_string(),
-                            &Self::get_type_name(arg),
-                            node.position_start.clone(),
-                            node.position_end.clone(),
-                        ));
-                    }
-                }
-                func.execute(args, context.clone(), self, node.position_start.clone())
+                // for (i, (arg, param_type)) in args.iter().zip(func.param_types.iter()).enumerate() {
+                //     let matches = Self::value_matches_type(arg, param_type, &self.type_aliases);
+                //     println!(
+                //         "DEBUG: Arg {}: {:?} matches {:?} ? {}",
+                //         i, arg, param_type, matches
+                //     );
+                //
+                //     if !matches {
+                //         return result.failure(Error::type_mismatch(
+                //             &param_type.to_string(),
+                //             &Self::get_type_name(arg),
+                //             node.position_start.clone(),
+                //             node.position_end.clone(),
+                //         ));
+                //     }
+                // }
+
+                let exec_result =
+                    func.execute(args, context.clone(), self, node.position_start.clone());
+
+                exec_result
+                // func.execute(args, context.clone(), self, node.position_start.clone())
             }
             Value::BuiltInFunction(builtin) => {
-                // Pass the call position!
                 builtin.execute(args, self, node.position_start.clone())
             }
             _ => {

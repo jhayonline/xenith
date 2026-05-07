@@ -2480,7 +2480,7 @@ impl Parser {
                 }
             }
 
-            // Parse pattern - handle string literals directly
+            // Parse pattern - handle type patterns (string, int, float, bool, null)
             let pattern_node = match self.current_token() {
                 Some(t) if t.kind == TokenType::String => {
                     let node = Node::String(StringNode::new(t.clone()));
@@ -2505,7 +2505,7 @@ impl Parser {
                     self.advance();
                     node
                 }
-                // type keywords used as match patterns (e.g. string => ..., int => ...)
+                // Type patterns (string, int, float, bool, null)
                 Some(t)
                     if matches!(
                         t.kind,
@@ -2514,18 +2514,22 @@ impl Parser {
                             | TokenType::TypeFloat
                             | TokenType::TypeBool
                             | TokenType::TypeNull
-                            | TokenType::TypeList
-                            | TokenType::TypeMap
-                            | TokenType::TypeJson
                     ) =>
                 {
-                    let type_name = t
-                        .value
-                        .clone()
-                        .unwrap_or_else(|| format!("{:?}", t.kind).to_lowercase());
+                    // Create a special node that represents a type pattern
+                    let type_name = match t.kind {
+                        TokenType::TypeString => "string",
+                        TokenType::TypeInt => "int",
+                        TokenType::TypeFloat => "float",
+                        TokenType::TypeBool => "bool",
+                        TokenType::TypeNull => "null",
+                        _ => unreachable!(),
+                    };
+
+                    // Create a string node with the type name as value
                     let synthetic_token = Token::new(
                         TokenType::String,
-                        Some(type_name),
+                        Some(type_name.to_string()),
                         t.position_start.clone(),
                         Some(t.position_end.clone()),
                     );

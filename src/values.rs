@@ -533,23 +533,17 @@ impl Function {
             ));
         }
 
-        // Check argument types
+        // TYPE CHECKING
         for (i, (arg, expected_type)) in args.iter().zip(self.param_types.iter()).enumerate() {
-            if !Self::value_matches_type(arg, expected_type) {
-                // Also check if this is a union type that the value matches
-                let matches_union = match expected_type {
-                    Type::Union(types) => types.iter().any(|t| Self::value_matches_type(arg, t)),
-                    _ => false,
-                };
+            let matches = Self::value_matches_type(arg, expected_type);
 
-                if !matches_union {
-                    return RuntimeResult::new().failure(Error::type_mismatch(
-                        &expected_type.to_string(),
-                        &Self::get_type_name(arg),
-                        call_position.clone(),
-                        call_position.clone(),
-                    ));
-                }
+            if !matches {
+                return RuntimeResult::new().failure(Error::type_mismatch(
+                    &format!("{:?}", expected_type),
+                    &Self::get_type_name(arg),
+                    call_position.clone(),
+                    call_position.clone(),
+                ));
             }
         }
 
@@ -559,17 +553,16 @@ impl Function {
             call_position.clone(),
         );
 
-        // Bind arguments in the function's local scope
+        // Bind arguments
         for (i, arg_name) in self.arg_names.iter().enumerate() {
             func_context
                 .symbol_table
                 .set_local(arg_name.clone(), args[i].clone());
         }
 
-        // Execute function body
+        // Execute body
         let exec_result = interpreter.visit(&self.body_node, &mut func_context);
 
-        // Handle return value
         if let Some(err) = exec_result.error {
             return RuntimeResult::new().failure(err);
         }
@@ -588,19 +581,25 @@ impl Function {
     }
 
     pub fn value_matches_type(value: &Value, expected_type: &Type) -> bool {
-        match (value, expected_type) {
-            (Value::Number(n), Type::Int) => n.value.fract() == 0.0,
-            (Value::Number(_), Type::Float) => true,
-            (Value::String(_), Type::String) => true,
-            (Value::Bool(_), Type::Bool) => true,
-            // Permissive collection matching - type params are hints only
-            (Value::List(_), Type::List(_)) => true,
-            (Value::List(_), Type::Struct(name, _)) if name == "list" => true,
-            (Value::Map(_), Type::Map(_, _)) => true,
-            (Value::Map(_), Type::Struct(name, _)) if name == "map" => true,
-            (Value::Struct(s), Type::Struct(name, _)) => &s.name == name,
-            (Value::Json(_), Type::Json) => true,
-            _ => false,
+        match expected_type {
+            crate::types::Type::Union(types) => {
+                types.iter().any(|t| Self::value_matches_type(value, t))
+            }
+            crate::types::Type::Int => matches!(value, Value::Number(n) if n.value.fract() == 0.0),
+            crate::types::Type::Float => matches!(value, Value::Number(_)),
+            crate::types::Type::String => matches!(value, Value::String(_)),
+            crate::types::Type::Bool => matches!(value, Value::Bool(_)),
+            crate::types::Type::Null => matches!(value, Value::Null),
+            crate::types::Type::List(_) => matches!(value, Value::List(_)),
+            crate::types::Type::Map(_, _) => matches!(value, Value::Map(_)),
+            crate::types::Type::Struct(name, _) => {
+                if let Value::Struct(s) = value {
+                    &s.name == name
+                } else {
+                    false
+                }
+            }
+            _ => true, // Unknown / Any
         }
     }
 

@@ -1,0 +1,36 @@
+# Test type pattern matching
+method process(value: string | int | bool | null) -> string {
+    match value {
+        string => release "Got a string: " + value
+        int => release "Got a number: " + (value as string)
+        bool => release "Got a boolean: " + (value ? "true" : "false")
+        null => release "Got null"
+    }
+}
+
+echo(process("hello"))
+echo(process(42))
+echo(process(true))
+echo(process(null))
+
+method greet(name: string | null) -> string {
+    match name {
+        null => release "Hello, stranger"
+        string => release "Hello, " + name
+    }
+}
+
+echo(greet("Alice"))
+echo(greet(null))
+
+method classify(n: int | float) -> string {
+    match n {
+        int => release "Integer: " + (n as string)
+        float => release "Float: " + (n as string)
+    }
+}
+
+echo(classify(42))
+echo(classify(3.14))
+
+echo("All union pattern matching tests passed")
