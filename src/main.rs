@@ -23,14 +23,17 @@ fn run_file(filename: &str) {
     match fs::read_to_string(filename) {
         Ok(source) => match run(filename, &source) {
             Ok(result) => {
-                // Show result only if not null
                 let output = value_to_string(&result);
-                if !output.is_empty() && output != "null" {
+
+                if !output.is_empty()
+                    && output != "null"
+                    && !output.starts_with('[')
+                    && output != "0"
+                {
                     println!("{}", output);
                 }
             }
             Err(e) => {
-                // Use colored error output
                 eprintln!("{}", e.as_string_colored());
                 std::process::exit(1);
             }
