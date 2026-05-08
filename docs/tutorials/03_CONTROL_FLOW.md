@@ -11,7 +11,7 @@ Xenith uses `when` instead of `if` for conditional execution.
 ### Basic `when`
 
 ```xenith
-spawn age: int = 18
+let age: int = 18
 
 when age >= 18 {
     echo("You can vote!")
@@ -23,7 +23,7 @@ when age >= 18 {
 Use `or when` for multiple conditions (like `else if`):
 
 ```xenith
-spawn score: int = 85
+let score: int = 85
 
 when score >= 90 {
     echo("Grade: A")
@@ -44,7 +44,7 @@ when score >= 90 {
 Use `otherwise` for the default case (like `else`):
 
 ```xenith
-spawn temperature: int = 25
+let temperature: int = 25
 
 when temperature > 30 {
     echo("Hot outside!")
@@ -56,15 +56,14 @@ when temperature > 30 {
 # Output: Warm outside
 ```
 
-
 ### Complex Conditions
 
 Use logical operators (`&&`, `||`, `!`) for complex conditions:
 
 ```xenith
-spawn age: int = 25
-spawn has_license: bool = true
-spawn is_weekend: bool = false
+let age: int = 25
+let has_license: bool = true
+let is_weekend: bool = false
 
 when age >= 18 && has_license {
     echo("You can drive")
@@ -88,12 +87,12 @@ condition ? value_if_true : value_if_false
 ### Basic Examples
 
 ```xenith
-spawn age: int = 18
-spawn status: string = age >= 18 ? "Adult" : "Minor"
+let age: int = 18
+let status: string = age >= 18 ? "Adult" : "Minor"
 echo(status)  # Adult
 
-spawn score: int = 75
-spawn result: string = score >= 60 ? "Pass" : "Fail"
+let score: int = 75
+let result: string = score >= 60 ? "Pass" : "Fail"
 echo(result)  # Pass
 ```
 
@@ -101,20 +100,20 @@ echo(result)  # Pass
 
 ```xenith
 # Numbers
-spawn x: int = 10
-spawn abs_x: int = x >= 0 ? x : -x
+let x: int = 10
+let abs_x: int = x >= 0 ? x : -x
 echo(abs_x)  # 10
 
-spawn y: int = -5
-spawn abs_y: int = y >= 0 ? y : -y
+let y: int = -5
+let abs_y: int = y >= 0 ? y : -y
 echo(abs_y)  # 5
 
 # Boolean
-spawn is_even: bool = x % 2 == 0 ? true : false
+let is_even: bool = x % 2 == 0 ? true : false
 echo(is_even)  # true
 
 # Method calls
-spawn max: int = x > y ? x : y
+let max: int = x > y ? x : y
 echo(max)  # 10
 ```
 
@@ -123,10 +122,10 @@ echo(max)  # 10
 You can nest ternary operators for multiple conditions:
 
 ```xenith
-spawn score: int = 85
-spawn grade: string = score >= 90 ? "A" : 
-                      (score >= 80 ? "B" : 
-                       (score >= 70 ? "C" : 
+let score: int = 85
+let grade: string = score >= 90 ? "A" :
+                      (score >= 80 ? "B" :
+                       (score >= 70 ? "C" :
                         (score >= 60 ? "D" : "F")))
 echo(grade)  # B
 ```
@@ -137,14 +136,14 @@ Use ternary for simple, single-line assignments:
 
 ```xenith
 # Good for ternary - simple assignment
-spawn can_vote: bool = age >= 18 ? true : false
+let can_vote: bool = age >= 18 ? true : false
 
 # Better with when - multiple statements
 when age >= 18 {
-    spawn status: string = "Adult"
+    let status: string = "Adult"
     echo("Welcome!")
 } otherwise {
-    spawn status: string = "Minor"
+    let status: string = "Minor"
     echo("Sorry, too young")
 }
 ```
@@ -202,7 +201,7 @@ method isBetween(value: int, min: int, max: int) -> bool {
     release value >= min && value <= max
 }
 
-spawn temperature: int = 72
+let temperature: int = 72
 
 when isBetween(temperature, 60, 80) {
     echo("Comfortable temperature")
@@ -218,17 +217,17 @@ when isBetween(temperature, 60, 80) {
 ### Multiple Conditions with Ternary
 
 ```xenith
-spawn a: int = 5
-spawn b: int = 10
-spawn c: int = 7
+let a: int = 5
+let b: int = 10
+let c: int = 7
 
 # Find maximum of three numbers
-spawn max: int = a > b ? (a > c ? a : c) : (b > c ? b : c)
+let max: int = a > b ? (a > c ? a : c) : (b > c ? b : c)
 echo(max)  # 10
 
 # Determine sign
-spawn x: int = -5
-spawn sign: string = x > 0 ? "Positive" : (x < 0 ? "Negative" : "Zero")
+let x: int = -5
+let sign: string = x > 0 ? "Positive" : (x < 0 ? "Negative" : "Zero")
 echo(sign)  # Negative
 ```
 
@@ -236,40 +235,40 @@ echo(sign)  # Negative
 
 In conditionals, values are evaluated as truthy or falsy:
 
-| Value | Truthy? |
-|-------|---------|
-| `true` | ✅ Truthy |
-| `false` | ❌ Falsy |
+| Value            | Truthy?   |
+| ---------------- | --------- |
+| `true`           | ✅ Truthy |
+| `false`          | ❌ Falsy  |
 | Non-zero numbers | ✅ Truthy |
-| `0` | ❌ Falsy |
+| `0`              | ❌ Falsy  |
 | Non-empty string | ✅ Truthy |
-| `""` (empty) | ❌ Falsy |
-| Non-empty list | ✅ Truthy |
-| `[]` (empty) | ❌ Falsy |
-| Non-empty map | ✅ Truthy |
-| `{}` (empty) | ❌ Falsy |
-| Non-null values | ✅ Truthy |
-| `null` | ❌ Falsy |
+| `""` (empty)     | ❌ Falsy  |
+| Non-empty list   | ✅ Truthy |
+| `[]` (empty)     | ❌ Falsy  |
+| Non-empty map    | ✅ Truthy |
+| `{}` (empty)     | ❌ Falsy  |
+| Non-null values  | ✅ Truthy |
+| `null`           | ❌ Falsy  |
 
 ```xenith
-spawn name: string = "Alice"
+let name: string = "Alice"
 when name {
     echo("Name exists: {name}")  # Executes
 }
 
-spawn empty: string = ""
+let empty: string = ""
 when empty {
     echo("This won't print")
 } otherwise {
     echo("String is empty")
 }
 
-spawn count: int = 5
+let count: int = 5
 when count {
     echo("Count is non-zero: {count}")  # Executes
 }
 
-spawn items: list<int> = []
+let items: list<int> = []
 when items {
     echo("List has elements")  # Won't execute
 } otherwise {
@@ -296,8 +295,8 @@ method calculate(a: int, b: int, op: string) -> int {
     }
 }
 
-spawn x: int = 10
-spawn y: int = 5
+let x: int = 10
+let y: int = 5
 
 echo(calculate(x, y, "add"))       # 15
 echo(calculate(x, y, "multiply"))  # 50
@@ -327,24 +326,24 @@ echo(getDayMessage("Tuesday"))   # Regular work day
 
 ```xenith
 method calculatePrice(original: float, is_member: bool, quantity: int) -> float {
-    spawn discount: float = 0.0
-    
+    let discount: float = 0.0
+
     when is_member {
         discount = 0.10  # 10% for members
     }
-    
+
     when quantity >= 10 {
         discount = discount + 0.05  # Extra 5% for bulk
     }
-    
-    spawn final_price: float = original * (1.0 - discount)
+
+    let final_price: float = original * (1.0 - discount)
     release final_price
 }
 
-spawn price: float = calculatePrice(100.0, true, 5)
+let price: float = calculatePrice(100.0, true, 5)
 echo(price)   # 90.0 (10% off)
 
-spawn bulk_price: float = calculatePrice(100.0, true, 10)
+let bulk_price: float = calculatePrice(100.0, true, 10)
 echo(bulk_price)  # 85.0 (15% off total)
 ```
 
@@ -373,4 +372,7 @@ when name {
 - Read [LOOPS.md](LOOPS.md) for iteration
 - Explore [METHODS.md](METHODS.md) for reusable code
 - Learn about [PATTERN_MATCHING.md](PATTERN_MATCHING.md) for advanced conditional logic
+
+```
+
 ```

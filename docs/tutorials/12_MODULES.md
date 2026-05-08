@@ -52,19 +52,19 @@ export method divide(a: int, b: int) -> float {
 
 ```xenith
 # constants.xen
-export spawn PI: float = 3.14159
-export spawn E: float = 2.71828
-export spawn APP_NAME: string = "XenithApp"
-export spawn MAX_USERS: int = 1000
+export let PI: float = 3.14159
+export let E: float = 2.71828
+export let APP_NAME: string = "XenithApp"
+export let MAX_USERS: int = 1000
 ```
 
 ### Exporting Variables
 
 ```xenith
 # config.xen
-export spawn debug_mode: bool = false
-export spawn log_level: string = "INFO"
-export spawn api_url: string = "https://api.example.com"
+export let debug_mode: bool = false
+export let log_level: string = "INFO"
+export let api_url: string = "https://api.example.com"
 ```
 
 ## Importing with `grab`
@@ -75,8 +75,8 @@ export spawn api_url: string = "https://api.example.com"
 # main.xen
 grab { add, multiply, PI } from "math"
 
-spawn sum: int = add(5, 3)           # 8
-spawn product: int = multiply(4, 2)  # 8
+let sum: int = add(5, 3)           # 8
+let product: int = multiply(4, 2)  # 8
 echo(PI)                              # 3.14159
 ```
 
@@ -88,8 +88,8 @@ Use `as` to rename imported items:
 # main.xen
 grab { add as sum, multiply as product, PI as pi_value } from "math"
 
-spawn result1: int = sum(10, 20)        # 30
-spawn result2: int = product(6, 7)      # 42
+let result1: int = sum(10, 20)        # 30
+let result2: int = product(6, 7)      # 42
 echo(pi_value)                           # 3.14159
 ```
 
@@ -99,10 +99,10 @@ echo(pi_value)                           # 3.14159
 # main.xen
 grab { add, subtract, multiply, divide, PI, E } from "math"
 
-spawn a: int = add(10, 5)        # 15
-spawn b: int = subtract(10, 5)   # 5
-spawn c: int = multiply(10, 5)   # 50
-spawn d: float = divide(10, 3)   # 3.333...
+let a: int = add(10, 5)        # 15
+let b: int = subtract(10, 5)   # 5
+let c: int = multiply(10, 5)   # 50
+let d: float = divide(10, 3)   # 3.333...
 ```
 
 ## Namespace Imports
@@ -113,9 +113,9 @@ Import all exports from a module under a namespace:
 # main.xen
 grab * as math from "math"
 
-spawn sum: int = math.add(5, 3)        # 8
-spawn difference: int = math.subtract(10, 4)  # 6
-spawn product: int = math.multiply(3, 7)      # 21
+let sum: int = math.add(5, 3)        # 8
+let difference: int = math.subtract(10, 4)  # 6
+let product: int = math.multiply(3, 7)      # 21
 echo(math.PI)                         # 3.14159
 echo(math.E)                          # 2.71828
 ```
@@ -137,7 +137,7 @@ export method toLower(text: string) -> string {
 }
 
 export method reverse(text: string) -> string {
-    spawn result: string = ""
+    let result: string = ""
     for i = text.len() - 1 to 0 step -1 {
         result = result + (text[i] as string)
     }
@@ -149,9 +149,9 @@ export method isPalindrome(text: string) -> bool {
 }
 
 export method countChars(text: string) -> map<string, int> {
-    spawn counts: map<string, int> = {}
+    let counts: map<string, int> = {}
     for i = 0 to text.len() {
-        spawn ch: string = text[i] as string
+        let ch: string = text[i] as string
         when counts.has_key(ch) {
             counts[ch] = counts[ch] + 1
         } otherwise {
@@ -161,7 +161,7 @@ export method countChars(text: string) -> map<string, int> {
     release counts
 }
 
-export spawn VERSION: string = "1.0.0"
+export let VERSION: string = "1.0.0"
 ```
 
 ### Math Utilities Module
@@ -192,8 +192,8 @@ export method isPrime(n: int) -> bool {
     when n % 2 == 0 {
         release false
     }
-    
-    spawn i: int = 3
+
+    let i: int = 3
     while i * i <= n {
         when n % i == 0 {
             release false
@@ -214,7 +214,7 @@ export method lcm(a: int, b: int) -> int {
     release (a * b) / gcd(a, b)
 }
 
-export spawn PHI: float = 1.618033988749895
+export let PHI: float = 1.618033988749895
 ```
 
 ### Using Multiple Modules
@@ -226,7 +226,7 @@ grab { factorial, fibonacci, isPrime, gcd, PHI } from "advanced_math"
 grab { add, multiply, PI } from "math"
 
 # Test string utilities
-spawn text: string = "racecar"
+let text: string = "racecar"
 echo("Original: {text}")
 echo("Reversed: {reverse(text)}")
 echo("Is palindrome? {isPalindrome(text)}")
@@ -267,17 +267,17 @@ export method circleCircumference(radius: float) -> float {
     release 2 * PI * radius
 }
 
-export spawn PI: float = 3.14159
+export let PI: float = 3.14159
 ```
 
 ```xenith
 # main.xen
 grab * as geo from "geometry"
 
-spawn rect_area: int = geo.rectangleArea(10, 5)
-spawn rect_perim: int = geo.rectanglePerimeter(10, 5)
-spawn circ_area: float = geo.circleArea(7.0)
-spawn circ_circum: float = geo.circleCircumference(7.0)
+let rect_area: int = geo.rectangleArea(10, 5)
+let rect_perim: int = geo.rectanglePerimeter(10, 5)
+let circ_area: float = geo.circleArea(7.0)
+let circ_circum: float = geo.circleCircumference(7.0)
 
 echo("Rectangle area: {rect_area}")           # 50
 echo("Rectangle perimeter: {rect_perim}")     # 30
@@ -317,9 +317,9 @@ export method isEmail(email: string) -> bool {
 }
 
 export method isPhone(phone: string) -> bool {
-    spawn digits: int = 0
+    let digits: int = 0
     for i = 0 to phone.len() {
-        spawn ch: string = phone[i] as string
+        let ch: string = phone[i] as string
         when ch >= "0" && ch <= "9" {
             digits = digits + 1
         }
@@ -338,7 +338,7 @@ grab { connect, query, disconnect } from "database"
 grab { isEmail, isPhone, isPostalCode } from "validation"
 
 # Validate input
-spawn email: string = "user@example.com"
+let email: string = "user@example.com"
 when isEmail(email) {
     echo("Valid email: {email}")
 } otherwise {
@@ -347,7 +347,7 @@ when isEmail(email) {
 
 # Use database
 connect("postgres://localhost:5432/mydb")
-spawn results: list<map<string, string>> = query("SELECT * FROM users")
+let results: list<map<string, string>> = query("SELECT * FROM users")
 disconnect()
 ```
 
@@ -355,9 +355,9 @@ disconnect()
 
 ```xenith
 # config.xen
-export spawn APP_NAME: string = "XenithApp"
-export spawn VERSION: string = "1.0.0"
-export spawn DEBUG: bool = false
+export let APP_NAME: string = "XenithApp"
+export let VERSION: string = "1.0.0"
+export let DEBUG: bool = false
 
 export method setDebug(enabled: bool) -> null {
     DEBUG = enabled
@@ -385,7 +385,7 @@ when cfg.DEBUG {
 }
 
 cfg.setDebug(true)
-spawn config_map: map<string, string> = cfg.getConfig()
+let config_map: map<string, string> = cfg.getConfig()
 
 for key, value in config_map.items() {
     echo("{key} = {value}")
@@ -418,7 +418,7 @@ export method sleep(ms: int) -> null {
 # main.xen
 grab { formatDate, sleep } from "utils/helpers"
 
-spawn today: string = formatDate(2024, 4, 8)
+let today: string = formatDate(2024, 4, 8)
 echo("Today is {today}")
 ```
 
@@ -466,7 +466,7 @@ grab { add, factorial } from "math/index"
 
 ```xenith
 # config.xen
-export spawn USE_ADVANCED_MATH: bool = true
+export let USE_ADVANCED_MATH: bool = true
 
 # main.xen
 grab { USE_ADVANCED_MATH } from "config"
@@ -496,4 +496,7 @@ try {
 - Learn about [STRUCTS.md](STRUCTS.md) for creating custom types
 - Read [ERROR_HANDLING.md](ERROR_HANDLING.md) for robust error management
 - Explore [BUILT-IN_METHODS.md](BUILT-IN_METHODS.md) for available utilities
+
+```
+
 ```

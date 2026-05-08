@@ -14,12 +14,12 @@ grab { sqrt, pow, sin, cos, tan, asin, acos, atan, atan2, log, log10, abs, min, 
 
 The following constants are available globally (not in std::math):
 
-| Constant | Value |
-|----------|-------|
+| Constant  | Value             |
+| --------- | ----------------- |
 | `MATH_PI` | 3.141592653589793 |
-| `TRUE` | true |
-| `FALSE` | false |
-| `NULL` | null |
+| `TRUE`    | true              |
+| `FALSE`   | false             |
+| `NULL`    | null              |
 
 ## Functions
 
@@ -251,7 +251,7 @@ echo(log10(1000))   # 3
 Returns the sum of all numbers in a list.
 
 ```xenith
-spawn nums: list<float> = [10, 20, 30, 40, 50]
+let nums: list<float> = [10, 20, 30, 40, 50]
 echo(sum(nums))    # 150
 ```
 
@@ -260,7 +260,7 @@ echo(sum(nums))    # 150
 Returns the arithmetic mean of all numbers in a list.
 
 ```xenith
-spawn nums: list<float> = [10, 20, 30, 40, 50]
+let nums: list<float> = [10, 20, 30, 40, 50]
 echo(average(nums))    # 30
 ```
 
@@ -272,10 +272,10 @@ echo(average(nums))    # 30
 grab { sqrt, pow, sin, cos, tan, asin, acos, atan, radians, degrees } from "std::math"
 
 method solve_triangle(a: float, b: float) -> null {
-    spawn c: float = sqrt(pow(a, 2) + pow(b, 2))
-    spawn angle_A: float = degrees(atan(a / b))
-    spawn angle_B: float = degrees(atan(b / a))
-    
+    let c: float = sqrt(pow(a, 2) + pow(b, 2))
+    let angle_A: float = degrees(atan(a / b))
+    let angle_B: float = degrees(atan(b / a))
+
     echo("Side a: {a}")
     echo("Side b: {b}")
     echo("Hypotenuse c: {c}")
@@ -300,25 +300,25 @@ solve_triangle(3, 4)
 ```xenith
 grab { sin, cos, radians, pow } from "std::math"
 
-const spawn GRAVITY: float = 9.81
+const let GRAVITY: float = 9.81
 
 method calculate_range(velocity: float, angle_deg: float) -> float {
-    spawn angle_rad: float = radians(angle_deg)
+    let angle_rad: float = radians(angle_deg)
     release pow(velocity, 2) * sin(2 * angle_rad) / GRAVITY
 }
 
 method calculate_max_height(velocity: float, angle_deg: float) -> float {
-    spawn angle_rad: float = radians(angle_deg)
+    let angle_rad: float = radians(angle_deg)
     release pow(velocity * sin(angle_rad), 2) / (2 * GRAVITY)
 }
 
 method calculate_time_of_flight(velocity: float, angle_deg: float) -> float {
-    spawn angle_rad: float = radians(angle_deg)
+    let angle_rad: float = radians(angle_deg)
     release 2 * velocity * sin(angle_rad) / GRAVITY
 }
 
-spawn v: float = 50.0
-spawn angle: float = 45.0
+let v: float = 50.0
+let angle: float = 45.0
 
 echo("Projectile launched at {v} m/s, {angle}°")
 echo("Range: {calculate_range(v, angle)} m")
@@ -332,13 +332,13 @@ echo("Time of flight: {calculate_time_of_flight(v, angle)} s")
 grab { sum, average, sqrt, pow, min, max } from "std::math"
 
 method variance(numbers: list<float>) -> float {
-    spawn avg: float = average(numbers)
-    spawn sum_sq: float = 0.0
-    
+    let avg: float = average(numbers)
+    let sum_sq: float = 0.0
+
     for n in numbers {
         sum_sq = sum_sq + pow(n - avg, 2)
     }
-    
+
     release sum_sq / (numbers.len() as float)
 }
 
@@ -347,17 +347,17 @@ method stddev(numbers: list<float>) -> float {
 }
 
 method median(numbers: list<float>) -> float {
-    spawn sorted: list<float> = numbers
+    let sorted: list<float> = numbers
     # Note: sort would go here
-    spawn mid: int = sorted.len() / 2
-    
+    let mid: int = sorted.len() / 2
+
     when sorted.len() % 2 == 0 {
         release (sorted[mid - 1] + sorted[mid]) / 2.0
     }
     release sorted[mid]
 }
 
-spawn data: list<float> = [12, 15, 18, 22, 25, 30, 35, 40]
+let data: list<float> = [12, 15, 18, 22, 25, 30, 35, 40]
 
 echo("Data: {ret(data)}")
 echo("Count: {data.len()}")
@@ -388,11 +388,11 @@ method circle_diameter(radius: float) -> float {
 }
 
 method chord_length(radius: float, angle_deg: float) -> float {
-    spawn angle_rad: float = radians(angle_deg)
+    let angle_rad: float = radians(angle_deg)
     release 2 * radius * sin(angle_rad / 2)
 }
 
-spawn r: float = 5.0
+let r: float = 5.0
 echo("Radius: {r}")
 echo("Diameter: {circle_diameter(r)}")
 echo("Circumference: {circle_circumference(r)}")
@@ -406,19 +406,19 @@ Some math functions have domain restrictions:
 
 ```xenith
 try {
-    spawn result: float = sqrt(-1)
+    let result: float = sqrt(-1)
 } catch err {
     echo("Error: {err}")  # Cannot take square root of negative number
 }
 
 try {
-    spawn result: float = asin(2)
+    let result: float = asin(2)
 } catch err {
     echo("Error: {err}")  # asin argument must be between -1 and 1
 }
 
 try {
-    spawn result: float = log(0)
+    let result: float = log(0)
 } catch err {
     echo("Error: {err}")  # Cannot take logarithm of non-positive number
 }
@@ -435,4 +435,7 @@ try {
 - Built-in `MATH_PI` constant
 - `std::random` for random number generation
 - `std::collections` for data structures
+
+```
+
 ```

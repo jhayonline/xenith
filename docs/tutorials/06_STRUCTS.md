@@ -36,22 +36,22 @@ struct Student {
 Instantiate a struct using the struct name followed by `{ field: value, ... }`:
 
 ```xenith
-spawn alice: Person = Person {
+let alice: Person = Person {
     name: "Alice",
     age: 25
 }
 
-spawn point: Point = Point {
+let point: Point = Point {
     x: 10.5,
     y: 20.3
 }
 
-spawn rect: Rectangle = Rectangle {
+let rect: Rectangle = Rectangle {
     width: 100,
     height: 50
 }
 
-spawn student: Student = Student {
+let student: Student = Student {
     name: "Bob",
     grade: 85,
     scores: [90, 85, 88]
@@ -63,7 +63,7 @@ spawn student: Student = Student {
 Use dot notation `.` to access struct fields:
 
 ```xenith
-spawn person: Person = Person {
+let person: Person = Person {
     name: "Alice",
     age: 25
 }
@@ -77,7 +77,7 @@ echo(person.age)   # 25
 Fields are mutable by default - you can modify them after creation:
 
 ```xenith
-spawn person: Person = Person {
+let person: Person = Person {
     name: "Alice",
     age: 25
 }
@@ -103,16 +103,16 @@ impl Person {
     method greet(self: Self) -> string {
         release "Hello, my name is " + self.name
     }
-    
+
     method isAdult(self: Self) -> bool {
         release self.age >= 18
     }
-    
+
     method birthday(self: Self) -> null {
         self.age = self.age + 1
         release null
     }
-    
+
     method updateName(self: Self, new_name: string) -> null {
         self.name = new_name
         release null
@@ -130,14 +130,14 @@ impl Person {
     method getName(self: Self) -> string {
         release self.name
     }
-    
+
     # Method that modifies the struct
     method celebrateBirthday(self: Self) -> null {
         self.age = self.age + 1
         echo("Happy birthday {self.name}!")
         release null
     }
-    
+
     # Method with additional parameters
     method haveBirthday(self: Self, years: int) -> null {
         self.age = self.age + years
@@ -152,7 +152,7 @@ impl Person {
 Xenith uses a unique syntax: `StructName::method(instance, arguments...)`
 
 ```xenith
-spawn alice: Person = Person {
+let alice: Person = Person {
     name: "Alice",
     age: 25
 }
@@ -184,14 +184,14 @@ struct BankAccount {
 impl BankAccount {
     # Constructor pattern
     method new(owner: string, initial_balance: float) -> BankAccount {
-        spawn account: BankAccount = BankAccount {
+        let account: BankAccount = BankAccount {
             owner: owner,
             balance: initial_balance,
             account_number: "ACC" + (1000 as string)
         }
         release account
     }
-    
+
     # Deposit money
     method deposit(self: Self, amount: float) -> null {
         when amount <= 0 {
@@ -202,7 +202,7 @@ impl BankAccount {
         echo("Deposited ${amount}. New balance: ${self.balance}")
         release null
     }
-    
+
     # Withdraw money
     method withdraw(self: Self, amount: float) -> null {
         when amount <= 0 {
@@ -217,12 +217,12 @@ impl BankAccount {
         echo("Withdrew ${amount}. New balance: ${self.balance}")
         release null
     }
-    
+
     # Check balance
     method getBalance(self: Self) -> float {
         release self.balance
     }
-    
+
     # Transfer money
     method transfer(self: Self, target: BankAccount, amount: float) -> null {
         when amount > self.balance {
@@ -234,7 +234,7 @@ impl BankAccount {
         echo("Transferred ${amount} from {self.owner} to {target.owner}")
         release null
     }
-    
+
     # Display account info
     method display(self: Self) -> null {
         echo("Account: {self.account_number}")
@@ -245,13 +245,13 @@ impl BankAccount {
 }
 
 # Usage
-spawn alice_account: BankAccount = BankAccount {
+let alice_account: BankAccount = BankAccount {
     owner: "Alice",
     balance: 1000.0,
     account_number: "ACC1001"
 }
 
-spawn bob_account: BankAccount = BankAccount {
+let bob_account: BankAccount = BankAccount {
     owner: "Bob",
     balance: 500.0,
     account_number: "ACC1002"
@@ -287,32 +287,32 @@ impl Rectangle {
     method area(self: Self) -> int {
         release self.width * self.height
     }
-    
+
     # Calculate perimeter
     method perimeter(self: Self) -> int {
         release 2 * (self.width + self.height)
     }
-    
+
     # Check if square
     method isSquare(self: Self) -> bool {
         release self.width == self.height
     }
-    
+
     # Scale the rectangle
     method scale(self: Self, factor: int) -> null {
         self.width = self.width * factor
         self.height = self.height * factor
         release null
     }
-    
+
     # Compare with another rectangle
     method isLargerThan(self: Self, other: Rectangle) -> bool {
         release self.area() > other.area()
     }
 }
 
-spawn rect1: Rectangle = Rectangle { width: 10, height: 5 }
-spawn rect2: Rectangle = Rectangle { width: 7, height: 7 }
+let rect1: Rectangle = Rectangle { width: 10, height: 5 }
+let rect2: Rectangle = Rectangle { width: 7, height: 7 }
 
 echo("Rectangle 1 area: {Rectangle::area(rect1)}")        # 50
 echo("Rectangle 1 perimeter: {Rectangle::perimeter(rect1)}")  # 30
@@ -346,14 +346,14 @@ impl Person {
     method getFullAddress(self: Self) -> string {
         release "{self.address.street}, {self.address.city} {self.address.zip}"
     }
-    
+
     method moveTo(self: Self, new_address: Address) -> null {
         self.address = new_address
         release null
     }
 }
 
-spawn alice: Person = Person {
+let alice: Person = Person {
     name: "Alice",
     age: 25,
     address: Address {
@@ -366,7 +366,7 @@ spawn alice: Person = Person {
 echo(Person::getFullAddress(alice))
 # Output: 123 Main St, Springfield 12345
 
-spawn new_address: Address = Address {
+let new_address: Address = Address {
     street: "456 Oak Ave",
     city: "Shelbyville",
     zip: "67890"
@@ -392,7 +392,7 @@ impl Classroom {
         self.scores[student_name] = 0
         release null
     }
-    
+
     method setScore(self: Self, student: string, score: int) -> null {
         when self.scores.has_key(student) {
             self.scores[student] = score
@@ -401,9 +401,9 @@ impl Classroom {
         }
         release null
     }
-    
+
     method getAverage(self: Self) -> float {
-        spawn total: int = 0
+        let total: int = 0
         for score in self.scores.values() {
             total = total + score
         }
@@ -412,11 +412,11 @@ impl Classroom {
         }
         release (total as float) / (self.students.len() as float)
     }
-    
+
     method getTopStudent(self: Self) -> string {
-        spawn top_name: string = ""
-        spawn top_score: int = -1
-        
+        let top_name: string = ""
+        let top_score: int = -1
+
         for name, score in self.scores.items() {
             when score > top_score {
                 top_score = score
@@ -427,7 +427,7 @@ impl Classroom {
     }
 }
 
-spawn math_class: Classroom = Classroom {
+let math_class: Classroom = Classroom {
     name: "Math 101",
     students: [],
     scores: {}
@@ -494,7 +494,7 @@ impl Person {
     }
 }
 
-spawn alice: Person = Person::new("Alice", 25)
+let alice: Person = Person::new("Alice", 25)
 ```
 
 ### Validation on Creation
@@ -504,11 +504,11 @@ impl Person {
     method newValidated(name: string, age: int) -> Person {
         when age < 0 {
             echo("Age cannot be negative! Setting to 0")
-            spawn age: int = 0
+            let age: int = 0
         }
         when name == "" {
             echo("Name cannot be empty! Setting to 'Unknown'")
-            spawn name: string = "Unknown"
+            let name: string = "Unknown"
         }
         release Person {
             name: name,
@@ -534,7 +534,7 @@ impl User {
         self.email = new_email
         release null
     }
-    
+
     method getId(self: Self) -> string {
         release self.id  # Read-only access
     }
@@ -546,4 +546,7 @@ impl User {
 - Learn about [COLLECTIONS.md](COLLECTIONS.md) for lists and maps
 - Read [METHODS.md](METHODS.md) for more on method definitions
 - Explore [TYPE_SYSTEM.md](TYPE_SYSTEM.md) for advanced type concepts
+
+```
+
 ```

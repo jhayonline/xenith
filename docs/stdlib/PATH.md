@@ -7,7 +7,7 @@ The `std::path` module provides platform-safe path manipulation functions. All o
 ## Importing
 
 ```xenith
-grab { 
+grab {
     join, basename, dirname, extension, stem,
     is_absolute, is_relative, absolute, normalize, components, parent
 } from "std::path"
@@ -20,7 +20,7 @@ grab {
 Joins path components using the platform's native separator.
 
 ```xenith
-spawn path: string = join(["/home", "user", "docs", "file.txt"])
+let path: string = join(["/home", "user", "docs", "file.txt"])
 echo(path)  # /home/user/docs/file.txt (Unix)
             # \home\user\docs\file.txt (Windows)
 ```
@@ -30,10 +30,10 @@ echo(path)  # /home/user/docs/file.txt (Unix)
 Returns the last component of a path (filename or final directory).
 
 ```xenith
-spawn name: string = basename("/home/user/file.txt")
+let name: string = basename("/home/user/file.txt")
 echo(name)  # file.txt
 
-spawn dir_name: string = basename("/home/user/docs/")
+let dir_name: string = basename("/home/user/docs/")
 echo(dir_name)  # docs
 ```
 
@@ -42,10 +42,10 @@ echo(dir_name)  # docs
 Returns the parent directory portion of a path.
 
 ```xenith
-spawn parent: string = dirname("/home/user/file.txt")
+let parent: string = dirname("/home/user/file.txt")
 echo(parent)  # /home/user
 
-spawn root: string = dirname("/home")
+let root: string = dirname("/home")
 echo(root)  # /
 ```
 
@@ -54,10 +54,10 @@ echo(root)  # /
 Returns the file extension without the dot. For files with multiple dots, returns the last extension.
 
 ```xenith
-spawn ext: string = extension("archive.tar.gz")
+let ext: string = extension("archive.tar.gz")
 echo(ext)  # gz
 
-spawn no_ext: string = extension("README")
+let no_ext: string = extension("README")
 echo(no_ext)  # (empty string)
 ```
 
@@ -66,10 +66,10 @@ echo(no_ext)  # (empty string)
 Returns the filename without its extension.
 
 ```xenith
-spawn name: string = stem("document.pdf")
+let name: string = stem("document.pdf")
 echo(name)  # document
 
-spawn name: string = stem("archive.tar.gz")
+let name: string = stem("archive.tar.gz")
 echo(name)  # archive.tar
 ```
 
@@ -97,10 +97,10 @@ echo(is_relative("docs/file.txt"))  # true
 Converts a relative path to an absolute path. Resolves symbolic links.
 
 ```xenith
-spawn abs: string = absolute(".")
+let abs: string = absolute(".")
 echo(abs)  # /home/user/project (full path)
 
-spawn abs_file: string = absolute("docs/readme.txt")
+let abs_file: string = absolute("docs/readme.txt")
 echo(abs_file)  # /home/user/project/docs/readme.txt
 ```
 
@@ -111,10 +111,10 @@ echo(abs_file)  # /home/user/project/docs/readme.txt
 Removes redundant separators, `.` (current directory), and resolves `..` (parent directory).
 
 ```xenith
-spawn norm: string = normalize("/home/./user/../user/docs/./file.txt")
+let norm: string = normalize("/home/./user/../user/docs/./file.txt")
 echo(norm)  # /home/user/docs/file.txt
 
-spawn norm: string = normalize("docs/../files/./notes.txt")
+let norm: string = normalize("docs/../files/./notes.txt")
 echo(norm)  # files/notes.txt
 ```
 
@@ -123,7 +123,7 @@ echo(norm)  # files/notes.txt
 Splits a path into its individual components.
 
 ```xenith
-spawn parts: list<string> = components("/home/user/docs/file.txt")
+let parts: list<string> = components("/home/user/docs/file.txt")
 for part in parts {
     echo(part)
 }
@@ -140,10 +140,10 @@ for part in parts {
 Returns the parent directory. Same as `dirname()` but returns `.` for paths with no parent.
 
 ```xenith
-spawn parent_dir: string = parent("/home/user/docs/file.txt")
+let parent_dir: string = parent("/home/user/docs/file.txt")
 echo(parent_dir)  # /home/user/docs
 
-spawn current: string = parent("file.txt")
+let current: string = parent("file.txt")
 echo(current)  # .
 ```
 
@@ -156,7 +156,7 @@ grab {
 } from "std::path"
 
 # Build a path
-spawn file_path: string = join(["/var", "log", "app", "output.log"])
+let file_path: string = join(["/var", "log", "app", "output.log"])
 echo("Full path: {file_path}")
 
 # Extract components
@@ -169,8 +169,8 @@ echo("Name: {stem(file_path)}")
 echo("Is absolute? {is_absolute(file_path)}")
 
 # Normalize messy path
-spawn messy: string = join(["/home", ".", "user", "..", "user", "docs"])
-spawn clean: string = normalize(messy)
+let messy: string = join(["/home", ".", "user", "..", "user", "docs"])
+let clean: string = normalize(messy)
 echo("Normalized: {clean}")
 
 # Iterate through components
@@ -180,7 +180,7 @@ for comp in components(file_path) {
 }
 
 # Navigate to parent
-spawn current: string = file_path
+let current: string = file_path
 while parent(current) != current {
     echo("Parent: {current}")
     current = parent(current)
@@ -193,7 +193,7 @@ while parent(current) != current {
 
 ```xenith
 try {
-    spawn abs: string = absolute("nonexistent/file.txt")
+    let abs: string = absolute("nonexistent/file.txt")
 } catch err {
     echo("Failed to get absolute path: {err}")
 }
@@ -201,14 +201,17 @@ try {
 
 ## Platform Behavior
 
-| Operation | Unix | Windows |
-|-----------|------|---------|
-| Separator | `/` | `\` |
-| Root | `/` | `C:\` |
-| Absolute | Starts with `/` | Starts with drive letter + `:\` |
+| Operation | Unix            | Windows                         |
+| --------- | --------------- | ------------------------------- |
+| Separator | `/`             | `\`                             |
+| Root      | `/`             | `C:\`                           |
+| Absolute  | Starts with `/` | Starts with drive letter + `:\` |
 
 ## See Also
 
 - `std::fs` - File system operations
 - `std::process` - Working with current directory
+
+```
+
 ```

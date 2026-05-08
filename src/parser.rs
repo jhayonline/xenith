@@ -1365,7 +1365,7 @@ impl Parser {
             }
         }
 
-        // Check for variable reassignment (identifier followed by '=' without 'spawn')
+        // Check for variable reassignment (identifier followed by '=' without 'let')
         if let Some(tok) = self.current_token() {
             if tok.kind == TokenType::Identifier {
                 // Peek ahead to see if next token is '=', '+=', '-=', '++', or '--'
@@ -2298,7 +2298,7 @@ impl Parser {
         })))
     }
 
-    // Variable reassignment (without 'spawn')
+    // Variable reassignment (without 'let')
     fn var_reassignment(&mut self) -> ParseResult {
         let mut result = ParseResult::new();
 

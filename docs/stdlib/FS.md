@@ -17,7 +17,7 @@ grab { read, write, append, exists, is_file, is_dir, mkdir, mkdir_all, remove, r
 Reads the entire contents of a file as a string.
 
 ```xenith
-spawn content: string = read("config.txt")
+let content: string = read("config.txt")
 echo(content)
 ```
 
@@ -49,7 +49,7 @@ Returns `true` if a file or directory exists at the given path.
 
 ```xenith
 when exists("data.txt") {
-    spawn content: string = read("data.txt")
+    let content: string = read("data.txt")
 } otherwise {
     echo("File not found")
 }
@@ -121,7 +121,7 @@ remove_all("project/cache")  # Deletes entire directory tree
 Returns a list of all file and directory names in the given directory.
 
 ```xenith
-spawn files: list<string> = list_dir(".")
+let files: list<string> = list_dir(".")
 for file in files {
     echo(file)
 }
@@ -142,7 +142,7 @@ copy("backup.txt", "restore.txt")
 ## Complete Example
 
 ```xenith
-grab { 
+grab {
     read, write, append, exists, is_file, is_dir,
     mkdir, mkdir_all, remove, remove_all, list_dir, copy
 } from "std::fs"
@@ -157,7 +157,7 @@ write("app/data/users.txt", "Alice\nBob\nCharlie\n")
 append("app/data/users.txt", "Diana\n")
 
 # Read and process
-spawn content: string = read("app/data/users.txt")
+let content: string = read("app/data/users.txt")
 echo("Users:\n{content}")
 
 # Check file type
@@ -165,7 +165,7 @@ echo("Is file? {is_file("app/data/users.txt")}")   # true
 echo("Is dir? {is_dir("app/data")}")                # true
 
 # List directory contents
-spawn items: list<string> = list_dir("app/data")
+let items: list<string> = list_dir("app/data")
 for item in items {
     echo("  {item}")
 }
@@ -184,7 +184,7 @@ All functions can fail. Use `try-catch` to handle errors gracefully:
 
 ```xenith
 try {
-    spawn content: string = read("missing.txt")
+    let content: string = read("missing.txt")
 } catch err {
     echo("Error reading file: {err}")
 }
@@ -206,4 +206,7 @@ try {
 
 - `std::path` - Path manipulation utilities
 - `std::process` - Running external commands
+
+```
+
 ```

@@ -12,8 +12,8 @@ Boolean constants representing true and false values.
 
 ```xenith
 # Direct usage
-spawn is_active: bool = TRUE
-spawn is_deleted: bool = FALSE
+let is_active: bool = TRUE
+let is_deleted: bool = FALSE
 
 # In conditions
 when is_active == TRUE {
@@ -21,13 +21,13 @@ when is_active == TRUE {
 }
 
 # In comparisons
-spawn flag: bool = TRUE
+let flag: bool = TRUE
 when flag {
     echo("Flag is true")
 }
 
 # With logical operators
-spawn result: bool = TRUE && FALSE  # false
+let result: bool = TRUE && FALSE  # false
 ```
 
 ### Practical Example with Booleans
@@ -43,12 +43,12 @@ method processUser(age: int, has_license: bool) -> string {
     }
 }
 
-spawn alice_age: int = 25
-spawn alice_license: bool = TRUE
+let alice_age: int = 25
+let alice_license: bool = TRUE
 echo(processUser(alice_age, alice_license))  # User can drive
 
-spawn bob_age: int = 20
-spawn bob_license: bool = FALSE
+let bob_age: int = 20
+let bob_license: bool = FALSE
 echo(processUser(bob_age, bob_license))  # User is adult but needs license
 ```
 
@@ -60,8 +60,8 @@ Represents the absence of a value. Often used for optional values or method retu
 
 ```xenith
 # Initialize variables as null
-spawn user_data: string = NULL
-spawn temp_value: int = NULL
+let user_data: string = NULL
+let temp_value: int = NULL
 
 # Methods can return null
 method findUser(name: string) -> string {
@@ -71,7 +71,7 @@ method findUser(name: string) -> string {
     release NULL  # User not found
 }
 
-spawn result: string = findUser("Bob")
+let result: string = findUser("Bob")
 when result == NULL {
     echo("User not found")
 } otherwise {
@@ -83,8 +83,8 @@ when result == NULL {
 
 ```xenith
 # Configuration with optional values
-spawn config_timeout: int = NULL
-spawn config_retry: bool = NULL
+let config_timeout: int = NULL
+let config_retry: bool = NULL
 
 method getTimeout() -> int {
     when config_timeout == NULL {
@@ -118,7 +118,7 @@ struct User {
     phone: string  # Optional field
 }
 
-spawn alice: User = User {
+let alice: User = User {
     name: "Alice",
     email: "alice@example.com",
     phone: NULL  # No phone number
@@ -127,7 +127,7 @@ spawn alice: User = User {
 method displayUserInfo(user: User) -> null {
     echo("Name: {user.name}")
     echo("Email: {user.email}")
-    
+
     when user.phone == NULL {
         echo("Phone: Not provided")
     } otherwise {
@@ -147,7 +147,7 @@ displayUserInfo(alice)
 
 ```xenith
 # Always check for null before using
-spawn data: string = NULL
+let data: string = NULL
 
 # Safe - check first
 when data == NULL {
@@ -178,7 +178,7 @@ The mathematical constant π (pi), approximately 3.141592653589793.
 
 ```xenith
 # Basic usage
-spawn pi: float = MATH_PI
+let pi: float = MATH_PI
 echo(pi)  # 3.141592653589793
 
 # Circle calculations
@@ -190,7 +190,7 @@ method circleCircumference(radius: float) -> float {
     release 2 * MATH_PI * radius
 }
 
-spawn r: float = 5.0
+let r: float = 5.0
 echo("Area: {circleArea(r)}")           # 78.5398
 echo("Circumference: {circleCircumference(r)}")  # 31.4159
 ```
@@ -216,8 +216,8 @@ method cylinderSurfaceArea(radius: float, height: float) -> float {
 }
 
 # Test calculations
-spawn radius: float = 3.0
-spawn height: float = 10.0
+let radius: float = 3.0
+let height: float = 10.0
 
 echo("Sphere radius: {radius}")
 echo("Sphere volume: {sphereVolume(radius)}")
@@ -248,17 +248,17 @@ method sinTaylor(x: float) -> float {
 }
 
 # Test conversions
-spawn angle_deg: float = 90.0
-spawn angle_rad: float = toRadians(angle_deg)
+let angle_deg: float = 90.0
+let angle_rad: float = toRadians(angle_deg)
 echo("{angle_deg}° = {angle_rad} radians")
 
-spawn back_to_deg: float = toDegrees(angle_rad)
+let back_to_deg: float = toDegrees(angle_rad)
 echo("{angle_rad} rad = {back_to_deg}°")
 
 # Calculate sine of 30 degrees
-spawn thirty_deg: float = 30.0
-spawn thirty_rad: float = toRadians(thirty_deg)
-spawn sin_val: float = sinTaylor(thirty_rad)
+let thirty_deg: float = 30.0
+let thirty_rad: float = toRadians(thirty_deg)
+let sin_val: float = sinTaylor(thirty_rad)
 echo("sin(30°) ≈ {sin_val}")  # Approximately 0.5
 ```
 
@@ -279,12 +279,12 @@ method showCircleMenu() -> null {
 method calculateCircleArea() -> null {
     clear()
     echo("Enter circle radius: ")
-    spawn radius: float = input_int() as float
-    
-    spawn area: float = MATH_PI * radius * radius
+    let radius: float = input_int() as float
+
+    let area: float = MATH_PI * radius * radius
     echo("\nCircle with radius {radius}:")
     echo("Area = {area}")
-    
+
     echo("\nPress Enter to continue...")
     input()
     release null
@@ -293,12 +293,12 @@ method calculateCircleArea() -> null {
 method calculateCircleCircumference() -> null {
     clear()
     echo("Enter circle radius: ")
-    spawn radius: float = input_int() as float
-    
-    spawn circumference: float = 2 * MATH_PI * radius
+    let radius: float = input_int() as float
+
+    let circumference: float = 2 * MATH_PI * radius
     echo("\nCircle with radius {radius}:")
     echo("Circumference = {circumference}")
-    
+
     echo("\nPress Enter to continue...")
     input()
     release null
@@ -307,24 +307,24 @@ method calculateCircleCircumference() -> null {
 method calculateCircleDiameter() -> null {
     clear()
     echo("Enter circle radius: ")
-    spawn radius: float = input_int() as float
-    
-    spawn diameter: float = 2 * radius
+    let radius: float = input_int() as float
+
+    let diameter: float = 2 * radius
     echo("\nCircle with radius {radius}:")
     echo("Diameter = {diameter}")
-    
+
     echo("\nPress Enter to continue...")
     input()
     release null
 }
 
 method circleCalculator() -> null {
-    spawn running: bool = TRUE
-    
+    let running: bool = TRUE
+
     while running {
         showCircleMenu()
-        spawn choice: int = input_int()
-        
+        let choice: int = input_int()
+
         match choice {
             1 => { calculateCircleArea() }
             2 => { calculateCircleCircumference() }
@@ -354,15 +354,15 @@ method showMainMenu() -> null {
 method calculateSphere() -> null {
     clear()
     echo("Enter sphere radius: ")
-    spawn radius: float = input_int() as float
-    
-    spawn volume: float = (4.0 / 3.0) * MATH_PI * (radius ^ 3)
-    spawn surface: float = 4 * MATH_PI * (radius ^ 2)
-    
+    let radius: float = input_int() as float
+
+    let volume: float = (4.0 / 3.0) * MATH_PI * (radius ^ 3)
+    let surface: float = 4 * MATH_PI * (radius ^ 2)
+
     echo("\nSphere with radius {radius}:")
     echo("Volume = {volume}")
     echo("Surface Area = {surface}")
-    
+
     echo("\nPress Enter to continue...")
     input()
     release null
@@ -371,29 +371,29 @@ method calculateSphere() -> null {
 method calculateCylinder() -> null {
     clear()
     echo("Enter cylinder radius: ")
-    spawn radius: float = input_int() as float
+    let radius: float = input_int() as float
     echo("Enter cylinder height: ")
-    spawn height: float = input_int() as float
-    
-    spawn volume: float = MATH_PI * (radius ^ 2) * height
-    spawn surface: float = 2 * MATH_PI * radius * (radius + height)
-    
+    let height: float = input_int() as float
+
+    let volume: float = MATH_PI * (radius ^ 2) * height
+    let surface: float = 2 * MATH_PI * radius * (radius + height)
+
     echo("\nCylinder with radius {radius}, height {height}:")
     echo("Volume = {volume}")
     echo("Surface Area = {surface}")
-    
+
     echo("\nPress Enter to continue...")
     input()
     release null
 }
 
 method main() -> null {
-    spawn running: bool = TRUE
-    
+    let running: bool = TRUE
+
     while running {
         showMainMenu()
-        spawn choice: int = input_int()
-        
+        let choice: int = input_int()
+
         match choice {
             1 => { circleCalculator() }
             2 => { calculateSphere() }
@@ -445,25 +445,25 @@ clear()
 echo("=== Physics Calculator ===")
 
 # Pendulum calculation
-spawn pendulum_length: float = 2.0  # meters
-spawn gravity: float = 9.81  # m/s²
-spawn period: float = calculatePendulumPeriod(pendulum_length, gravity)
+let pendulum_length: float = 2.0  # meters
+let gravity: float = 9.81  # m/s²
+let period: float = calculatePendulumPeriod(pendulum_length, gravity)
 echo("Pendulum length: {pendulum_length}m")
 echo("Period: {period}s")
 
 # Wave calculation
-spawn frequency: float = 440.0  # Hz (A4 note)
-spawn wavelength: float = 0.78  # meters
-spawn speed: float = calculateWaveSpeed(frequency, wavelength)
+let frequency: float = 440.0  # Hz (A4 note)
+let wavelength: float = 0.78  # meters
+let speed: float = calculateWaveSpeed(frequency, wavelength)
 echo("\nWave frequency: {frequency}Hz")
 echo("Wavelength: {wavelength}m")
 echo("Wave speed: {speed}m/s")
 
 # Circular motion
-spawn orbit_radius: float = 10.0  # meters
-spawn orbit_velocity: float = 5.0  # m/s
-spawn orbit_period: float = calculateCircularMotionPeriod(orbit_radius, orbit_velocity)
-spawn angular_vel: float = calculateAngularVelocity(orbit_period)
+let orbit_radius: float = 10.0  # meters
+let orbit_velocity: float = 5.0  # m/s
+let orbit_period: float = calculateCircularMotionPeriod(orbit_radius, orbit_velocity)
+let angular_vel: float = calculateAngularVelocity(orbit_period)
 echo("\nCircular motion:")
 echo("Radius: {orbit_radius}m")
 echo("Velocity: {orbit_velocity}m/s")
@@ -492,16 +492,16 @@ when value == NULL {
 }
 
 # Good - using TRUE/FALSE for clarity
-spawn is_ready: bool = TRUE
+let is_ready: bool = TRUE
 when is_ready == TRUE {
     echo("Ready!")
 }
 
 # Good - using MATH_PI
-spawn circumference: float = 2 * MATH_PI * radius
+let circumference: float = 2 * MATH_PI * radius
 
 # Avoid - magic numbers
-# spawn circumference: float = 2 * 3.14159 * radius  # Less accurate
+# let circumference: float = 2 * 3.14159 * radius  # Less accurate
 ```
 
 ## Common Patterns
@@ -517,7 +517,7 @@ method findInCache(key: string) -> string {
     release NULL
 }
 
-spawn cached_value: string = findInCache("user_456")
+let cached_value: string = findInCache("user_456")
 when cached_value == NULL {
     echo("Cache miss - loading from database")
     cached_value = "Bob"
@@ -531,18 +531,18 @@ when cached_value == NULL {
 ```xenith
 method getConfig(key: string) -> string {
     # Simulated config lookup
-    spawn config: map<string, string> = {
+    let config: map<string, string> = {
         "timeout": "30",
         "retries": "3"
     }
-    
+
     when config.has_key(key) {
         release config[key]
     }
     release NULL
 }
 
-spawn timeout: string = getConfig("timeout")
+let timeout: string = getConfig("timeout")
 when timeout == NULL {
     timeout = "60"  # Default value
 }
@@ -552,7 +552,7 @@ echo("Timeout: {timeout}")
 ### Initialization Pattern
 
 ```xenith
-spawn database_connection: string = NULL
+let database_connection: string = NULL
 
 method initDatabase() -> null {
     when database_connection == NULL {
@@ -583,4 +583,7 @@ queryDatabase("SELECT * FROM users")
 - Learn about [OPERATORS.md](OPERATORS.md) for working with values
 - Read [BUILT-IN_METHODS.md](BUILT-IN_METHODS.md) for available functions
 - Explore [TYPE_SYSTEM.md](TYPE_SYSTEM.md) for advanced type concepts
+
+```
+
 ```

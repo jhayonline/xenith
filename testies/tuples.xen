@@ -1,0 +1,15 @@
+# Tuple literals
+let point = (10, 20)
+let person = ("Alice", 30)
+
+# Destructuring assignment
+let (x, y) = point
+let (name, age) = person
+
+# Multiple returns
+method get_point() -> (int, int) {
+    release (10, 20)
+}
+
+# Ignoring values
+let (_, y) = point

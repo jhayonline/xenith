@@ -19,11 +19,11 @@ grab { split, join, trim, trim_start, trim_end, replace, contains, starts_with, 
 Splits a string into a list of substrings using the specified delimiter.
 
 ```xenith
-spawn parts: list<string> = split("a,b,c", ",")
+let parts: list<string> = split("a,b,c", ",")
 # parts = ["a", "b", "c"]
 
 # Empty delimiter splits into characters
-spawn chars: list<string> = split("hello", "")
+let chars: list<string> = split("hello", "")
 # chars = ["h", "e", "l", "l", "o"]
 ```
 
@@ -32,12 +32,12 @@ spawn chars: list<string> = split("hello", "")
 Joins a list of strings into a single string with the specified separator.
 
 ```xenith
-spawn fruits: list<string> = ["apple", "banana", "orange"]
-spawn result: string = join(fruits, ", ")
+let fruits: list<string> = ["apple", "banana", "orange"]
+let result: string = join(fruits, ", ")
 echo(result)  # "apple, banana, orange"
 
-spawn path: list<string> = ["home", "user", "docs"]
-spawn full_path: string = join(path, "/")
+let path: list<string> = ["home", "user", "docs"]
+let full_path: string = join(path, "/")
 echo(full_path)  # "home/user/docs"
 ```
 
@@ -48,7 +48,7 @@ echo(full_path)  # "home/user/docs"
 Removes leading and trailing whitespace.
 
 ```xenith
-spawn cleaned: string = trim("  hello  ")
+let cleaned: string = trim("  hello  ")
 echo(cleaned)  # "hello"
 ```
 
@@ -57,7 +57,7 @@ echo(cleaned)  # "hello"
 Removes leading whitespace only.
 
 ```xenith
-spawn cleaned: string = trim_start("  hello  ")
+let cleaned: string = trim_start("  hello  ")
 echo(cleaned)  # "hello  "
 ```
 
@@ -66,7 +66,7 @@ echo(cleaned)  # "hello  "
 Removes trailing whitespace only.
 
 ```xenith
-spawn cleaned: string = trim_end("  hello  ")
+let cleaned: string = trim_end("  hello  ")
 echo(cleaned)  # "  hello"
 ```
 
@@ -77,10 +77,10 @@ echo(cleaned)  # "  hello"
 Replaces all occurrences of a substring with another string.
 
 ```xenith
-spawn result: string = replace("hello world", "world", "xenith")
+let result: string = replace("hello world", "world", "xenith")
 echo(result)  # "hello xenith"
 
-spawn result: string = replace("foo bar foo", "foo", "baz")
+let result: string = replace("foo bar foo", "foo", "baz")
 echo(result)  # "baz bar baz"
 ```
 
@@ -123,7 +123,7 @@ when ends_with("document.pdf", ".pdf") {
 Converts all characters to uppercase.
 
 ```xenith
-spawn upper: string = to_upper("Hello World")
+let upper: string = to_upper("Hello World")
 echo(upper)  # "HELLO WORLD"
 ```
 
@@ -132,7 +132,7 @@ echo(upper)  # "HELLO WORLD"
 Converts all characters to lowercase.
 
 ```xenith
-spawn lower: string = to_lower("Hello World")
+let lower: string = to_lower("Hello World")
 echo(lower)  # "hello world"
 ```
 
@@ -143,10 +143,10 @@ echo(lower)  # "hello world"
 Reverses the string.
 
 ```xenith
-spawn reversed: string = reverse("hello")
+let reversed: string = reverse("hello")
 echo(reversed)  # "olleh"
 
-spawn palindrome: bool = reverse("racecar") == "racecar"
+let palindrome: bool = reverse("racecar") == "racecar"
 echo(palindrome)  # true
 ```
 
@@ -162,10 +162,10 @@ method parse_csv_line(line: string) -> list<string> {
 }
 
 method parse_csv(file_path: string) -> list<list<string>> {
-    spawn content: string = read(file_path)
-    spawn lines: list<string> = split(content, "\n")
-    spawn result: list<list<string>> = []
-    
+    let content: string = read(file_path)
+    let lines: list<string> = split(content, "\n")
+    let result: list<list<string>> = []
+
     for line in lines {
         when trim(line) != "" {
             result.append(parse_csv_line(line))
@@ -175,7 +175,7 @@ method parse_csv(file_path: string) -> list<list<string>> {
 }
 
 # Example usage
-spawn csv_data: list<list<string>> = parse_csv("data.csv")
+let csv_data: list<list<string>> = parse_csv("data.csv")
 for row in csv_data {
     echo(join(row, " | "))
 }
@@ -195,7 +195,7 @@ method is_valid_url(url: string) -> bool {
 }
 
 method is_image_file(filename: string) -> bool {
-    spawn lower: string = to_lower(filename)
+    let lower: string = to_lower(filename)
     release ends_with(lower, ".jpg") || ends_with(lower, ".png") || ends_with(lower, ".gif")
 }
 
@@ -212,23 +212,23 @@ echo(is_image_file("photo.jpg"))            # true
 grab { split, join, replace, to_upper, to_lower, trim } from "std::string"
 
 method slugify(text: string) -> string {
-    spawn lower: string = to_lower(text)
-    spawn trimmed: string = trim(lower)
-    spawn words: list<string> = split(trimmed, " ")
+    let lower: string = to_lower(text)
+    let trimmed: string = trim(lower)
+    let words: list<string> = split(trimmed, " ")
     release join(words, "-")
 }
 
 method word_count(text: string) -> int {
-    spawn trimmed: string = trim(text)
+    let trimmed: string = trim(text)
     when trimmed == "" {
         release 0
     }
-    spawn words: list<string> = split(trimmed, " ")
+    let words: list<string> = split(trimmed, " ")
     release words.len()
 }
 
 method censored(text: string, bad_words: list<string>) -> string {
-    spawn result: string = text
+    let result: string = text
     for word in bad_words {
         result = replace(result, word, "****")
     }
@@ -236,11 +236,11 @@ method censored(text: string, bad_words: list<string>) -> string {
 }
 
 # Example
-spawn title: string = "  Hello World from Xenith  "
+let title: string = "  Hello World from Xenith  "
 echo(slugify(title))  # "hello-world-from-xenith"
 
-spawn message: string = "This is a bad word example"
-spawn bad: list<string> = ["bad"]
+let message: string = "This is a bad word example"
+let bad: list<string> = ["bad"]
 echo(censored(message, bad))  # "This is a **** word example"
 ```
 
@@ -253,8 +253,8 @@ method capitalize(name: string) -> string {
     when name.len() == 0 {
         release ""
     }
-    spawn first: string = to_upper(name[0] as string)
-    spawn rest: string = to_lower(name[1..name.len()] as string)
+    let first: string = to_upper(name[0] as string)
+    let rest: string = to_lower(name[1..name.len()] as string)
     release first + rest
 }
 
@@ -263,8 +263,8 @@ method format_name(first: string, last: string) -> string {
 }
 
 method initials(name: string) -> string {
-    spawn parts: list<string> = split(trim(name), " ")
-    spawn result: list<string> = []
+    let parts: list<string> = split(trim(name), " ")
+    let result: list<string> = []
     for part in parts {
         result.append(to_upper(part[0] as string))
     }
@@ -272,10 +272,10 @@ method initials(name: string) -> string {
 }
 
 # Example
-spawn full: string = format_name("  john  ", "  DOE  ")
+let full: string = format_name("  john  ", "  DOE  ")
 echo(full)  # "John Doe"
 
-spawn init: string = initials("John Michael Doe")
+let init: string = initials("John Michael Doe")
 echo(init)  # "J.M.D"
 ```
 
@@ -285,28 +285,28 @@ echo(init)  # "J.M.D"
 grab { contains, split, trim, starts_with } from "std::string"
 
 method analyze_log(log_content: string) -> null {
-    spawn lines: list<string> = split(log_content, "\n")
-    spawn error_count: int = 0
-    spawn warning_count: int = 0
-    
+    let lines: list<string> = split(log_content, "\n")
+    let error_count: int = 0
+    let warning_count: int = 0
+
     for line in lines {
-        spawn trimmed: string = trim(line)
+        let trimmed: string = trim(line)
         when trimmed == "" {
             skip
         }
-        
+
         when contains(trimmed, "ERROR") {
             error_count = error_count + 1
             echo("ERROR: {trimmed}")
         } or when contains(trimmed, "WARNING") {
             warning_count = warning_count + 1
         }
-        
+
         when starts_with(trimmed, "FATAL") {
             echo("FATAL: {trimmed}")
         }
     }
-    
+
     echo("\nSummary:")
     echo("  Errors: {error_count}")
     echo("  Warnings: {warning_count}")
@@ -314,7 +314,7 @@ method analyze_log(log_content: string) -> null {
 }
 
 # Example log content
-spawn log_data: string = "
+let log_data: string = "
 INFO: Application started
 WARNING: Low memory
 ERROR: Connection failed
@@ -331,23 +331,23 @@ analyze_log(log_data)
 grab { replace, contains } from "std::string"
 
 method render_template(template: string, variables: map<string, string>) -> string {
-    spawn result: string = template
-    
+    let result: string = template
+
     for key, value in variables.items() {
         result = replace(result, "{{" + key + "}}", value)
     }
-    
+
     release result
 }
 
 # Example
-spawn template: string = "Hello {{name}}, you are {{age}} years old!"
-spawn data: map<string, string> = {
+let template: string = "Hello {{name}}, you are {{age}} years old!"
+let data: map<string, string> = {
     "name": "Alice",
     "age": "25"
 }
 
-spawn output: string = render_template(template, data)
+let output: string = render_template(template, data)
 echo(output)  # "Hello Alice, you are 25 years old!"
 ```
 
@@ -360,13 +360,13 @@ method is_strong_password(password: string) -> bool {
     when password.len() < 8 {
         release false
     }
-    
-    spawn has_upper: bool = false
-    spawn has_lower: bool = false
-    spawn has_digit: bool = false
-    
+
+    let has_upper: bool = false
+    let has_lower: bool = false
+    let has_digit: bool = false
+
     for i = 0 to password.len() {
-        spawn ch: string = password[i] as string
+        let ch: string = password[i] as string
         when contains("ABCDEFGHIJKLMNOPQRSTUVWXYZ", ch) {
             has_upper = true
         } or when contains("abcdefghijklmnopqrstuvwxyz", ch) {
@@ -375,7 +375,7 @@ method is_strong_password(password: string) -> bool {
             has_digit = true
         }
     }
-    
+
     release has_upper && has_lower && has_digit
 }
 
@@ -397,4 +397,7 @@ echo(is_strong_password("NoDigits"))      # false
 - Built-in string concatenation: `"Hello " + name`
 - Built-in string repetition: `"-" * 10`
 - `std::fs` for reading/writing text files
+
+```
+
 ```

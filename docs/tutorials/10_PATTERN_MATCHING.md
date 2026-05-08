@@ -25,7 +25,7 @@ match value {
 Match against specific literal values:
 
 ```xenith
-spawn grade: string = "B"
+let grade: string = "B"
 
 match grade {
     "A" => {
@@ -52,7 +52,7 @@ match grade {
 Use underscore `_` as a catch-all pattern for any value:
 
 ```xenith
-spawn status_code: int = 404
+let status_code: int = 404
 
 match status_code {
     200 => {
@@ -83,7 +83,7 @@ match status_code {
 ## Matching Numbers
 
 ```xenith
-spawn score: int = 85
+let score: int = 85
 
 match score {
     100 => {
@@ -108,7 +108,7 @@ match score {
 ## Matching Strings
 
 ```xenith
-spawn command: string = "quit"
+let command: string = "quit"
 
 match command {
     "help" => {
@@ -134,7 +134,7 @@ match command {
 ## Matching Booleans
 
 ```xenith
-spawn is_ready: bool = false
+let is_ready: bool = false
 
 match is_ready {
     true => {
@@ -150,7 +150,7 @@ match is_ready {
 ## Matching Lists (Simple)
 
 ```xenith
-spawn response: list<int> = [200, "OK"]
+let response: list<int> = [200, "OK"]
 
 match response {
     [200, "OK"] => {
@@ -255,7 +255,7 @@ method handleHTTPStatus(code: int) -> string {
     }
 }
 
-spawn codes: list<int> = [200, 404, 500, 418]
+let codes: list<int> = [200, 404, 500, 418]
 for code in codes {
     echo("{code}: {handleHTTPStatus(code)}")
 }
@@ -310,14 +310,14 @@ try {
 
 ```xenith
 method parseCommand(input: string) -> null {
-    spawn parts: list<string> = input.split(" ")
-    
+    let parts: list<string> = input.split(" ")
+
     when parts.len() == 0 {
         release null
     }
-    
-    spawn command: string = parts[0]
-    
+
+    let command: string = parts[0]
+
     match command {
         "echo" => {
             when parts.len() > 1 {
@@ -328,8 +328,8 @@ method parseCommand(input: string) -> null {
         }
         "add" => {
             when parts.len() == 3 {
-                spawn a: int = parts[1] as int
-                spawn b: int = parts[2] as int
+                let a: int = parts[1] as int
+                let b: int = parts[2] as int
                 echo(a + b)
             } otherwise {
                 echo("Usage: add <num1> <num2>")
@@ -350,9 +350,9 @@ method parseCommand(input: string) -> null {
 }
 
 # Simulated REPL
-spawn should_continue: bool = true
+let should_continue: bool = true
 while should_continue {
-    spawn input_line: string = input()
+    let input_line: string = input()
     parseCommand(input_line)
 }
 ```
@@ -367,7 +367,7 @@ method showMenu(choice: int) -> null {
     echo("3. Settings")
     echo("4. Credits")
     echo("5. Exit")
-    
+
     match choice {
         1 => {
             echo("Starting new game...")
@@ -397,9 +397,9 @@ method showMenu(choice: int) -> null {
 }
 
 try {
-    spawn running: bool = true
+    let running: bool = true
     while running {
-        spawn selection: int = input_int()
+        let selection: int = input_int()
         showMenu(selection)
     }
 } catch err {
@@ -431,7 +431,7 @@ method parseConfigValue(key: string, value: string) -> null {
         }
         "port" => {
             try {
-                spawn port_num: int = value as int
+                let port_num: int = value as int
                 when port_num < 1024 {
                     echo("Warning: Using privileged port {port_num}")
                 } or when port_num > 65535 {
@@ -457,7 +457,7 @@ method parseConfigValue(key: string, value: string) -> null {
     release null
 }
 
-spawn config: map<string, string> = {
+let config: map<string, string> = {
     "debug": "true",
     "port": "8080",
     "host": "localhost",
@@ -473,12 +473,12 @@ for key, value in config.items() {
 
 When to use `match` vs `when`:
 
-| Use `match` when... | Use `when` when... |
-|-------------------|-------------------|
-| Comparing against many literal values | Complex boolean conditions |
-| Values are discrete (enums, status codes) | Range checks (`x > 5 && x < 10`) |
-| You have a default/wildcard case | You need `or when` chains |
-| Pattern is the primary decision factor | Conditions involve multiple variables |
+| Use `match` when...                       | Use `when` when...                    |
+| ----------------------------------------- | ------------------------------------- |
+| Comparing against many literal values     | Complex boolean conditions            |
+| Values are discrete (enums, status codes) | Range checks (`x > 5 && x < 10`)      |
+| You have a default/wildcard case          | You need `or when` chains             |
+| Pattern is the primary decision factor    | Conditions involve multiple variables |
 
 ```xenith
 # Good for match - discrete values
@@ -567,4 +567,7 @@ match value {
 - Learn about [ERROR_HANDLING.md](ERROR_HANDLING.md) for robust error management
 - Read [CONTROL_FLOW.md](CONTROL_FLOW.md) for conditionals
 - Explore [STRUCTS.md](STRUCTS.md) for custom data types
+
+```
+
 ```

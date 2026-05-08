@@ -1,0 +1,11 @@
+
+let name: string | null = null;
+
+method hello(value: string | null) -> string | null { 
+  match value {
+    string => release value
+    null => release null
+  }
+}
+
+echo hello(name);

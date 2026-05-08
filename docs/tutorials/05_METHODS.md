@@ -22,7 +22,7 @@ method greet(name: string) -> string {
     release "Hello, " + name
 }
 
-spawn message: string = greet("Alice")
+let message: string = greet("Alice")
 echo(message)  # Hello, Alice
 ```
 
@@ -95,8 +95,8 @@ method add(a: int, b: int) -> int {
 
 method multiply(a: int, b: int) -> int => a * b
 
-spawn sum: int = add(5, 3)           # 8
-spawn product: int = multiply(4, 2)  # 8
+let sum: int = add(5, 3)           # 8
+let product: int = multiply(4, 2)  # 8
 
 echo(add(10, 20))  # 30
 ```
@@ -152,7 +152,7 @@ method add(a: int, b: int) -> int => a + b
 method multiply(a: int, b: int) -> int => a * b
 
 # Store method in variable
-spawn operation: BinaryOperation = add
+let operation: BinaryOperation = add
 echo(operation(5, 3))  # 8
 
 operation = multiply
@@ -161,22 +161,22 @@ echo(operation(5, 3))  # 15
 
 ### Method Type Syntax
 
-| Pattern | Meaning |
-|---------|---------|
-| `method() -> int` | Takes no parameters, returns int |
-| `method(int) -> string` | Takes one int, returns string |
+| Pattern                       | Meaning                            |
+| ----------------------------- | ---------------------------------- |
+| `method() -> int`             | Takes no parameters, returns int   |
+| `method(int) -> string`       | Takes one int, returns string      |
 | `method(int, string) -> bool` | Takes int and string, returns bool |
-| `method(list<int>) -> null` | Takes list of ints, returns null |
+| `method(list<int>) -> null`   | Takes list of ints, returns null   |
 
 ## Method Scope
 
 Variables inside a method are local and don't affect outer scopes:
 
 ```xenith
-spawn x: int = 10
+let x: int = 10
 
 method changeX() -> null {
-    spawn x: int = 20  # Local variable
+    let x: int = 20  # Local variable
     echo("Inside method: {x}")  # 20
     release null
 }
@@ -185,10 +185,10 @@ changeX()
 echo("Outside method: {x}")  # 10 (unchanged)
 ```
 
-However, you can modify outer variables by reassigning them (without `spawn`):
+However, you can modify outer variables by reassigning them (without `let`):
 
 ```xenith
-spawn counter: int = 0
+let counter: int = 0
 
 method increment() -> null {
     counter = counter + 1  # Modifies outer variable
@@ -214,7 +214,7 @@ method findFirstEven(numbers: list<int>) -> int {
     release -1  # Not found
 }
 
-spawn nums: list<int> = [1, 3, 5, 6, 7, 8]
+let nums: list<int> = [1, 3, 5, 6, 7, 8]
 echo(findFirstEven(nums))  # 6
 ```
 
@@ -232,8 +232,8 @@ method subtract(a: int, b: int) -> int => a - b
 method multiply(a: int, b: int) -> int => a * b
 method divide(a: int, b: int) -> float => (a as float) / (b as float)
 
-spawn x: int = 10
-spawn y: int = 3
+let x: int = 10
+let y: int = 3
 
 echo(add(x, y))       # 13
 echo(subtract(x, y))  # 7
@@ -245,7 +245,7 @@ echo(divide(x, y))    # 3.333...
 
 ```xenith
 method repeat(text: string, times: int) -> string {
-    spawn result: string = ""
+    let result: string = ""
     for i = 0 to times {
         result = result + text
     }
@@ -253,7 +253,7 @@ method repeat(text: string, times: int) -> string {
 }
 
 method isPalindrome(text: string) -> bool {
-    spawn reversed: string = ""
+    let reversed: string = ""
     for i = text.len() - 1 to 0 step -1 {
         reversed = reversed + text[i] as string
     }
@@ -278,4 +278,7 @@ echo(isPalindrome("hello"))     # false
 - Learn about [STRUCTS.md](STRUCTS.md) to create custom data types
 - Read [IMPL.md](IMPL.md) to attach methods to structs
 - Explore [COLLECTIONS.md](COLLECTIONS.md) for lists and maps
+
+```
+
 ```

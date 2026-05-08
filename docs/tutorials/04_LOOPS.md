@@ -32,7 +32,7 @@ for i = 5 to 0 step -1 {
 Iterate over list elements:
 
 ```xenith
-spawn fruits: list<string> = ["apple", "banana", "orange"]
+let fruits: list<string> = ["apple", "banana", "orange"]
 
 for fruit in fruits {
     echo("I like {fruit}")
@@ -48,7 +48,7 @@ for fruit in fruits {
 Iterate over map keys or key-value pairs:
 
 ```xenith
-spawn scores: map<string, int> = {
+let scores: map<string, int> = {
     "Alice": 95,
     "Bob": 87,
     "Charlie": 92
@@ -81,7 +81,7 @@ for name, score in scores.items() {
 For lists of pairs, you can unpack directly:
 
 ```xenith
-spawn pairs: list<list<int>> = [[1, 2], [3, 4], [5, 6]]
+let pairs: list<list<int>> = [[1, 2], [3, 4], [5, 6]]
 
 for a, b in pairs {
     echo("{a} + {b} = {a + b}")
@@ -97,7 +97,7 @@ for a, b in pairs {
 Execute a block while a condition is true:
 
 ```xenith
-spawn counter: int = 0
+let counter: int = 0
 
 while counter < 5 {
     echo(counter)
@@ -109,8 +109,8 @@ while counter < 5 {
 ### While Loop with Complex Conditions
 
 ```xenith
-spawn x: int = 10
-spawn y: int = 0
+let x: int = 10
+let y: int = 0
 
 while x > 0 && y < 5 {
     echo("x: {x}, y: {y}")
@@ -135,7 +135,7 @@ for i = 0 to 10 {
 }
 
 # Skip specific values
-spawn numbers: list<int> = [1, 2, 3, 4, 5, 6]
+let numbers: list<int> = [1, 2, 3, 4, 5, 6]
 
 for n in numbers {
     when n == 3 {
@@ -151,7 +151,7 @@ Use `stop` to exit the loop entirely:
 
 ```xenith
 # Find first number greater than 5
-spawn numbers: list<int> = [1, 3, 5, 7, 9, 11]
+let numbers: list<int> = [1, 3, 5, 7, 9, 11]
 
 for n in numbers {
     when n > 5 {
@@ -162,7 +162,7 @@ for n in numbers {
 # Output: First number > 5 is: 7
 
 # Stop on condition
-spawn i: int = 0
+let i: int = 0
 while i < 100 {
     when i * i > 50 {
         echo("Stopping at {i} because {i}^2 = {i * i} > 50")
@@ -178,13 +178,13 @@ For loops return a list of all expression values from each iteration:
 
 ```xenith
 # Range loop returns list of values
-spawn squares: list<int> = for i = 0 to 5 {
+let squares: list<int> = for i = 0 to 5 {
     release i * i
 }
 echo(ret(squares))  # [0, 1, 4, 9, 16]
 
 # While loop also returns a list
-spawn countdown: list<int> = while counter > 0 {
+let countdown: list<int> = while counter > 0 {
     release counter
     counter = counter - 1
 }
@@ -214,7 +214,7 @@ for i = 1 to 4 {
 }
 
 # Find pairs that sum to 10
-spawn numbers: list<int> = [1, 2, 3, 4, 5, 6, 7, 8, 9]
+let numbers: list<int> = [1, 2, 3, 4, 5, 6, 7, 8, 9]
 
 for a in numbers {
     for b in numbers {
@@ -231,14 +231,14 @@ for a in numbers {
 
 ```xenith
 method sumList(numbers: list<int>) -> int {
-    spawn total: int = 0
+    let total: int = 0
     for n in numbers {
         total = total + n
     }
     release total
 }
 
-spawn values: list<int> = [10, 20, 30, 40, 50]
+let values: list<int> = [10, 20, 30, 40, 50]
 echo(sumList(values))  # 150
 ```
 
@@ -249,8 +249,8 @@ method findMax(numbers: list<int>) -> int {
     when numbers.len() == 0 {
         release 0
     }
-    
-    spawn max_val: int = numbers[0]
+
+    let max_val: int = numbers[0]
     for n in numbers {
         when n > max_val {
             max_val = n
@@ -259,7 +259,7 @@ method findMax(numbers: list<int>) -> int {
     release max_val
 }
 
-spawn scores: list<int> = [45, 78, 92, 63, 88]
+let scores: list<int> = [45, 78, 92, 63, 88]
 echo(findMax(scores))  # 92
 ```
 
@@ -267,7 +267,7 @@ echo(findMax(scores))  # 92
 
 ```xenith
 method filterEven(numbers: list<int>) -> list<int> {
-    spawn result: list<int> = []
+    let result: list<int> = []
     for n in numbers {
         when n % 2 == 0 {
             result.append(n)
@@ -276,8 +276,8 @@ method filterEven(numbers: list<int>) -> list<int> {
     release result
 }
 
-spawn nums: list<int> = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-spawn evens: list<int> = filterEven(nums)
+let nums: list<int> = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+let evens: list<int> = filterEven(nums)
 echo(ret(evens))  # [2, 4, 6, 8, 10]
 ```
 
@@ -294,8 +294,8 @@ method isPrime(n: int) -> bool {
     when n % 2 == 0 {
         release false
     }
-    
-    spawn i: int = 3
+
+    let i: int = 3
     while i * i <= n {
         when n % i == 0 {
             release false
@@ -323,8 +323,8 @@ for i = 2 to 30 {
 
 ```xenith
 # Good - calculation outside loop
-spawn limit: int = 1000
-spawn threshold: int = limit * limit  # Calculate once
+let limit: int = 1000
+let threshold: int = limit * limit  # Calculate once
 
 for i = 0 to limit {
     when i * i > threshold {
@@ -346,7 +346,7 @@ for i = 0 to limit {
 
 ```xenith
 # DANGER: Infinite loop!
-spawn x: int = 0
+let x: int = 0
 while x < 10 {
     echo(x)
     # Forgot to increment x!
@@ -377,17 +377,20 @@ for i = 0 to 6 {
 
 ## Summary
 
-| Loop Type | Syntax | Use Case |
-|-----------|--------|----------|
-| Range for | `for i = start to end step step` | Counting, numeric ranges |
-| Collection for | `for item in collection` | Iterating over lists/maps |
-| While | `while condition` | Unknown number of iterations |
-| Skip | `skip` | Skip current iteration |
-| Stop | `stop` | Exit loop completely |
+| Loop Type      | Syntax                           | Use Case                     |
+| -------------- | -------------------------------- | ---------------------------- |
+| Range for      | `for i = start to end step step` | Counting, numeric ranges     |
+| Collection for | `for item in collection`         | Iterating over lists/maps    |
+| While          | `while condition`                | Unknown number of iterations |
+| Skip           | `skip`                           | Skip current iteration       |
+| Stop           | `stop`                           | Exit loop completely         |
 
 ## Next Steps
 
 - Learn about [CONTROL_FLOW.md](CONTROL_FLOW.md) for conditionals
 - Read [COLLECTIONS.md](COLLECTIONS.md) for more on lists and maps
 - Explore [METHODS.md](METHODS.md) for reusable code
+
+```
+
 ```

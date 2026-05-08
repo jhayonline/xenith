@@ -19,7 +19,7 @@ echo(42)
 echo(3.14159)
 
 # Print variables
-spawn name: string = "Alice"
+let name: string = "Alice"
 echo(name)
 
 # Print expressions
@@ -35,15 +35,15 @@ echo("The answer is " + (42 as string))
 Returns the string representation of a value (useful for debugging).
 
 ```xenith
-spawn number: int = 42
-spawn text: string = ret(number)
+let number: int = 42
+let text: string = ret(number)
 echo(text)  # "42"
 
-spawn list: list<int> = [1, 2, 3]
-spawn list_str: string = ret(list)
+let list: list<int> = [1, 2, 3]
+let list_str: string = ret(list)
 echo(list_str)  # "[1, 2, 3]"
 
-spawn map: map<string, int> = {"a": 1, "b": 2}
+let map: map<string, int> = {"a": 1, "b": 2}
 echo(ret(map))  # "{\"a\": 1, \"b\": 2}"
 ```
 
@@ -52,12 +52,12 @@ echo(ret(map))  # "{\"a\": 1, \"b\": 2}"
 Reads a line of text from the user and returns it as a string.
 
 ```xenith
-spawn name: string = input()
+let name: string = input()
 echo("Hello, {name}!")
 
 # With prompt (print first)
 echo("Enter your age: ")
-spawn age_str: string = input()
+let age_str: string = input()
 ```
 
 ### `input_int()` - Read Integer Input
@@ -65,11 +65,11 @@ spawn age_str: string = input()
 Reads a line of text and converts it to an integer. Re-prompts if input is not a valid integer.
 
 ```xenith
-spawn age: int = input_int()
+let age: int = input_int()
 echo("You are {age} years old")
 
 # Will keep asking until valid integer is entered
-spawn quantity: int = input_int()
+let quantity: int = input_int()
 ```
 
 ### `clear()` - Clear Console
@@ -89,9 +89,9 @@ echo("Screen is now clear!")
 Returns `true` if the value is a number (int or float).
 
 ```xenith
-spawn x: int = 42
-spawn y: string = "hello"
-spawn z: float = 3.14
+let x: int = 42
+let y: string = "hello"
+let z: float = 3.14
 
 echo(is_num(x))  # true
 echo(is_num(y))  # false
@@ -103,8 +103,8 @@ echo(is_num(z))  # true
 Returns `true` if the value is a string.
 
 ```xenith
-spawn name: string = "Alice"
-spawn age: int = 25
+let name: string = "Alice"
+let age: int = 25
 
 echo(is_str(name))  # true
 echo(is_str(age))   # false
@@ -115,8 +115,8 @@ echo(is_str(age))   # false
 Returns `true` if the value is a list.
 
 ```xenith
-spawn numbers: list<int> = [1, 2, 3]
-spawn text: string = "hello"
+let numbers: list<int> = [1, 2, 3]
+let text: string = "hello"
 
 echo(is_list(numbers))  # true
 echo(is_list(text))     # false
@@ -131,7 +131,7 @@ method greet(name: string) -> string {
     release "Hello, {name}"
 }
 
-spawn func_var: method(string) -> string = greet
+let func_var: method(string) -> string = greet
 
 echo(is_fun(greet))      # true
 echo(is_fun(echo))       # true (built-in)
@@ -145,7 +145,7 @@ echo(is_fun(42))         # false
 Adds an element to the end of a list. Returns the modified list.
 
 ```xenith
-spawn fruits: list<string> = ["apple", "banana"]
+let fruits: list<string> = ["apple", "banana"]
 fruits = append(fruits, "orange")
 echo(ret(fruits))  # ["apple", "banana", "orange"]
 
@@ -159,20 +159,20 @@ echo(ret(fruits))  # ["apple", "banana", "orange", "grape"]
 Removes and returns an element from a list. With index parameter, removes at that position. Without index, removes the last element.
 
 ```xenith
-spawn numbers: list<int> = [10, 20, 30, 40, 50]
+let numbers: list<int> = [10, 20, 30, 40, 50]
 
 # Pop last element
-spawn last: int = pop(numbers)
+let last: int = pop(numbers)
 echo(last)            # 50
 echo(ret(numbers))    # [10, 20, 30, 40]
 
 # Pop at specific index
-spawn second: int = pop(numbers, 1)
+let second: int = pop(numbers, 1)
 echo(second)          # 20
 echo(ret(numbers))    # [10, 30, 40]
 
 # Method call style
-spawn first: int = numbers.pop(0)
+let first: int = numbers.pop(0)
 echo(first)           # 10
 ```
 
@@ -181,14 +181,14 @@ echo(first)           # 10
 Appends all elements from one list to another.
 
 ```xenith
-spawn list1: list<int> = [1, 2, 3]
-spawn list2: list<int> = [4, 5, 6]
+let list1: list<int> = [1, 2, 3]
+let list2: list<int> = [4, 5, 6]
 
 list1 = extend(list1, list2)
 echo(ret(list1))  # [1, 2, 3, 4, 5, 6]
 
 # Method call style
-spawn combined: list<int> = [1, 2, 3]
+let combined: list<int> = [1, 2, 3]
 combined.extend([4, 5, 6])
 echo(ret(combined))  # [1, 2, 3, 4, 5, 6]
 ```
@@ -201,15 +201,15 @@ Returns the length of a list, string, or map.
 
 ```xenith
 # List length
-spawn fruits: list<string> = ["apple", "banana", "orange"]
+let fruits: list<string> = ["apple", "banana", "orange"]
 echo(len(fruits))  # 3
 
 # String length
-spawn text: string = "Hello"
+let text: string = "Hello"
 echo(len(text))    # 5
 
 # Map length
-spawn scores: map<string, int> = {"Alice": 95, "Bob": 87}
+let scores: map<string, int> = {"Alice": 95, "Bob": 87}
 echo(len(scores))  # 2
 
 # Method call style
@@ -248,16 +248,16 @@ method guessGame() -> null {
     clear()
     echo("=== Number Guessing Game ===")
     echo("I'm thinking of a number between 1 and 100")
-    
-    spawn secret: int = (MATH_PI * 1000) as int % 100 + 1
-    spawn attempts: int = 0
-    spawn guessed: bool = false
-    
+
+    let secret: int = (MATH_PI * 1000) as int % 100 + 1
+    let attempts: int = 0
+    let guessed: bool = false
+
     while !guessed {
         echo("\nEnter your guess: ")
-        spawn guess: int = input_int()
+        let guess: int = input_int()
         attempts = attempts + 1
-        
+
         when guess == secret {
             echo("Correct! You guessed it in {attempts} attempts!")
             guessed = true
@@ -267,7 +267,7 @@ method guessGame() -> null {
             echo("Too high! Try again.")
         }
     }
-    
+
     echo("\nThanks for playing!")
     release null
 }
@@ -283,38 +283,38 @@ guessGame()
 method processNumbers() -> null {
     clear()
     echo("=== Number Processor ===")
-    
-    spawn numbers: list<int> = []
-    
+
+    let numbers: list<int> = []
+
     # Input numbers
     echo("Enter numbers (type 'done' to finish):")
     while true {
         echo("Number: ")
-        spawn input_str: string = input()
-        
+        let input_str: string = input()
+
         when input_str == "done" {
             stop
         }
-        
+
         try {
-            spawn num: int = input_str as int
+            let num: int = input_str as int
             numbers = append(numbers, num)
         } catch err {
             echo("Invalid number! Try again.")
         }
     }
-    
+
     # Process the list
     when len(numbers) == 0 {
         echo("No numbers entered!")
         release null
     }
-    
+
     # Calculate statistics
-    spawn sum: int = 0
-    spawn max_val: int = numbers[0]
-    spawn min_val: int = numbers[0]
-    
+    let sum: int = 0
+    let max_val: int = numbers[0]
+    let min_val: int = numbers[0]
+
     for n in numbers {
         sum = sum + n
         when n > max_val {
@@ -324,9 +324,9 @@ method processNumbers() -> null {
             min_val = n
         }
     }
-    
-    spawn average: float = (sum as float) / (len(numbers) as float)
-    
+
+    let average: float = (sum as float) / (len(numbers) as float)
+
     # Display results
     echo("\n=== Results ===")
     echo("Numbers: {ret(numbers)}")
@@ -335,13 +335,13 @@ method processNumbers() -> null {
     echo("Average: {average}")
     echo("Maximum: {max_val}")
     echo("Minimum: {min_val}")
-    
+
     # Type checking demonstration
     echo("\n=== Type Checks ===")
     echo("Is numbers a list? {is_list(numbers)}")
     echo("Is sum a number? {is_num(sum)}")
     echo("Is average a number? {is_num(average)}")
-    
+
     release null
 }
 
@@ -352,7 +352,7 @@ processNumbers()
 
 ```xenith
 # todo.xen
-spawn tasks: list<string> = []
+let tasks: list<string> = []
 
 method showMenu() -> null {
     clear()
@@ -369,7 +369,7 @@ method showMenu() -> null {
 method viewTasks() -> null {
     clear()
     echo("=== Your Tasks ===")
-    
+
     when len(tasks) == 0 {
         echo("No tasks yet!")
     } otherwise {
@@ -377,7 +377,7 @@ method viewTasks() -> null {
             echo("{i + 1}. {tasks[i]}")
         }
     }
-    
+
     echo("\nPress Enter to continue...")
     input()
     release null
@@ -386,11 +386,11 @@ method viewTasks() -> null {
 method addTask() -> null {
     clear()
     echo("Enter task description: ")
-    spawn new_task: string = input()
-    
+    let new_task: string = input()
+
     tasks = append(tasks, new_task)
     echo("Task added successfully!")
-    
+
     echo("\nPress Enter to continue...")
     input()
     release null
@@ -398,25 +398,25 @@ method addTask() -> null {
 
 method removeTask() -> null {
     clear()
-    
+
     when len(tasks) == 0 {
         echo("No tasks to remove!")
         echo("\nPress Enter to continue...")
         input()
         release null
     }
-    
+
     viewTasks()
     echo("\nEnter task number to remove: ")
-    spawn task_num: int = input_int()
-    
+    let task_num: int = input_int()
+
     when task_num >= 1 && task_num <= len(tasks) {
-        spawn removed: string = pop(tasks, task_num - 1)
+        let removed: string = pop(tasks, task_num - 1)
         echo("Removed: {removed}")
     } otherwise {
         echo("Invalid task number!")
     }
-    
+
     echo("\nPress Enter to continue...")
     input()
     release null
@@ -432,12 +432,12 @@ method clearTasks() -> null {
 
 # Main program loop
 method runTodoApp() -> null {
-    spawn running: bool = true
-    
+    let running: bool = true
+
     while running {
         showMenu()
-        spawn choice: int = input_int()
-        
+        let choice: int = input_int()
+
         match choice {
             1 => { viewTasks() }
             2 => { addTask() }
@@ -487,13 +487,13 @@ export method capitalize(text: string) -> string {
     when len(text) == 0 {
         release ""
     }
-    spawn first: string = text[0] as string
+    let first: string = text[0] as string
     # Would convert to uppercase in real implementation
     release first
 }
 
 export method reverse(text: string) -> string {
-    spawn result: string = ""
+    let result: string = ""
     for i = len(text) - 1 to 0 step -1 {
         result = result + (text[i] as string)
     }
@@ -514,7 +514,7 @@ clear()
 echo("=== Utility Demo ===\n")
 
 # Test math utilities
-spawn num: int = 7
+let num: int = 7
 echo("Number: {num}")
 echo("Is even? {isEven(num)}")
 echo("Is odd? {isOdd(num)}")
@@ -522,7 +522,7 @@ echo("Square: {square(num)}")
 echo("Cube: {cube(num)}")
 
 # Test string utilities
-spawn text: string = "racecar"
+let text: string = "racecar"
 echo("\nText: {text}")
 echo("Capitalized: {capitalize(text)}")
 echo("Reversed: {reverse(text)}")
@@ -547,17 +547,17 @@ echo("Is square a function? {is_fun(square)}")
 
 ```xenith
 # Don't forget to assign the result of append/pop/extend
-spawn numbers: list<int> = [1, 2, 3]
+let numbers: list<int> = [1, 2, 3]
 append(numbers, 4)  # WRONG - numbers unchanged!
 numbers = append(numbers, 4)  # CORRECT
 
 # Check bounds before pop
-spawn empty: list<int> = []
+let empty: list<int> = []
 pop(empty)  # ERROR - index out of bounds!
 
 # Use try-catch for safe pop
 try {
-    spawn value: int = pop(empty)
+    let value: int = pop(empty)
 } catch err {
     echo("List is empty!")
 }
@@ -568,4 +568,7 @@ try {
 - Learn about [BUILT-IN_CONSTANTS.md](BUILT-IN_CONSTANTS.md) for predefined values
 - Read [COLLECTIONS.md](COLLECTIONS.md) for more list/map operations
 - Explore [MODULES.md](MODULES.md) for organizing code
+
+```
+
 ```

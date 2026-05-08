@@ -24,11 +24,11 @@ method divide(a: int, b: int) -> int {
     release a / b
 }
 
-spawn result: int = divide(10, 2)
+let result: int = divide(10, 2)
 echo(result)  # 5
 
 # This will panic
-spawn bad: int = divide(10, 0)  # Triggers panic
+let bad: int = divide(10, 0)  # Triggers panic
 ```
 
 ## Try-Catch Blocks
@@ -56,7 +56,7 @@ method divide(a: int, b: int) -> int {
 }
 
 try {
-    spawn result: int = divide(10, 0)
+    let result: int = divide(10, 0)
     echo("Result: {result}")  # This won't execute
 } catch err {
     echo("Error caught: {err}")
@@ -68,7 +68,7 @@ try {
 
 ```xenith
 try {
-    spawn result: int = divide(10, 2)
+    let result: int = divide(10, 2)
     echo("Result: {result}")  # This executes
 } catch err {
     echo("This won't execute")
@@ -126,7 +126,7 @@ Try-catch also catches runtime errors like division by zero:
 
 ```xenith
 try {
-    spawn x: int = 10 / 0
+    let x: int = 10 / 0
     echo("This won't print")
 } catch err {
     echo("Caught runtime error: {err}")
@@ -141,7 +141,7 @@ You can nest try-catch blocks for fine-grained error handling:
 ```xenith
 try {
     echo("Outer try")
-    
+
     try {
         echo("  Inner try")
         panic "Inner error"
@@ -149,7 +149,7 @@ try {
     } catch inner_err {
         echo("  Inner catch: {inner_err}")
     }
-    
+
     echo("Outer continues after inner catch")
 } catch outer_err {
     echo("Outer catch (won't execute): {outer_err}")
@@ -167,9 +167,9 @@ try {
 
 ```xenith
 method getPositiveNumber() -> int {
-    spawn input_str: string = input()
-    spawn num: int = input_str as int
-    
+    let input_str: string = input()
+    let num: int = input_str as int
+
     when num <= 0 {
         panic "Number must be positive!"
     }
@@ -178,7 +178,7 @@ method getPositiveNumber() -> int {
 
 try {
     echo("Enter a positive number:")
-    spawn value: int = getPositiveNumber()
+    let value: int = getPositiveNumber()
     echo("You entered: {value}")
 } catch err {
     echo("Invalid input: {err}")
@@ -199,14 +199,14 @@ method readConfig(filename: string) -> string {
 }
 
 method parseConfig(content: string) -> map<string, string> {
-    spawn config: map<string, string> = {}
-    spawn lines: list<string> = content.split("\n")
-    
+    let config: map<string, string> = {}
+    let lines: list<string> = content.split("\n")
+
     for line in lines {
         when line == "" {
             skip
         }
-        spawn parts: list<string> = line.split("=")
+        let parts: list<string> = line.split("=")
         when parts.len() != 2 {
             panic "Invalid config line: {line}"
         }
@@ -217,8 +217,8 @@ method parseConfig(content: string) -> map<string, string> {
 
 # Use with error handling
 try {
-    spawn content: string = readConfig("config.xen")
-    spawn settings: map<string, string> = parseConfig(content)
+    let content: string = readConfig("config.xen")
+    let settings: map<string, string> = parseConfig(content)
     echo("Config loaded successfully")
     for key, value in settings.items() {
         echo("{key} = {value}")
@@ -252,7 +252,7 @@ method processResponse(data: string) -> null {
     release null
 }
 
-spawn urls: list<string> = [
+let urls: list<string> = [
     "http://api.example.com",
     "bad://example.com",
     "http://error.com",
@@ -262,7 +262,7 @@ spawn urls: list<string> = [
 for url in urls {
     try {
         echo("\nFetching {url}")
-        spawn response: string = fetchData(url)
+        let response: string = fetchData(url)
         processResponse(response)
     } catch err {
         echo("Error for {url}: {err}")
@@ -290,7 +290,7 @@ impl BankAccount {
         echo("Withdrew ${amount}. New balance: ${self.balance}")
         release null
     }
-    
+
     method deposit(self: Self, amount: float) -> null {
         when amount <= 0 {
             panic "Deposit amount must be positive"
@@ -299,7 +299,7 @@ impl BankAccount {
         echo("Deposited ${amount}. New balance: ${self.balance}")
         release null
     }
-    
+
     method transfer(self: Self, target: BankAccount, amount: float) -> null {
         try {
             self.withdraw(amount)
@@ -312,8 +312,8 @@ impl BankAccount {
     }
 }
 
-spawn alice: BankAccount = BankAccount { owner: "Alice", balance: 100.0 }
-spawn bob: BankAccount = BankAccount { owner: "Bob", balance: 50.0 }
+let alice: BankAccount = BankAccount { owner: "Alice", balance: 100.0 }
+let bob: BankAccount = BankAccount { owner: "Bob", balance: 50.0 }
 
 # Successful transfer
 try {
@@ -391,7 +391,7 @@ method processValue(value: int) -> null {
     release null
 }
 
-spawn test_values: list<int> = [-5, 0, 50, 150]
+let test_values: list<int> = [-5, 0, 50, 150]
 
 for val in test_values {
     try {
@@ -455,12 +455,12 @@ method setAge(age: int) -> null {
 
 ```xenith
 method retryOperation(max_attempts: int) -> null {
-    spawn attempts: int = 0
-    
+    let attempts: int = 0
+
     while attempts < max_attempts {
         try {
             # Operation that might fail
-            spawn random: int = (MATH_PI * 1000) as int % 10
+            let random: int = (MATH_PI * 1000) as int % 10
             when random < 7 {
                 panic "Random failure"
             }
@@ -489,7 +489,7 @@ try {
 ```xenith
 method withResource(resource_name: string) -> null {
     echo("Opening {resource_name}")
-    
+
     try {
         # Use resource
         when resource_name == "bad" {
@@ -512,4 +512,7 @@ method withResource(resource_name: string) -> null {
 - Learn about [PATTERN_MATCHING.md](PATTERN_MATCHING.md) for advanced conditional logic
 - Read [METHODS.md](METHODS.md) for more on method design
 - Explore [COLLECTIONS.md](COLLECTIONS.md) for data structures
+
+```
+
 ```
