@@ -255,11 +255,13 @@ impl Parser {
                     }
                 }
 
-                // Check if this is a registered type alias
+                // Check if this is a registered type alias FIRST
                 if let Some(alias_type) = self.type_aliases.get(&name) {
+                    // Return the resolved alias type
                     return Ok(alias_type.clone());
                 }
 
+                // If not an alias, it's a struct
                 Type::Struct(name, Vec::new())
             }
             _ => {
@@ -325,7 +327,7 @@ impl Parser {
         }
     }
 
-    /// Original parse_type function renamed (keep your existing code exactly as is)
+    /// Original parse_type function renamed
     fn parse_type_original(&mut self) -> ParseResult {
         let mut result = ParseResult::new();
         let type_token = match self.current_token() {
@@ -573,20 +575,35 @@ impl Parser {
                 let name = type_token.value.clone().unwrap();
                 self.advance();
 
+                let mut parsed_type = Type::Unknown;
+
                 if let Some(tok) = self.current_token() {
                     if tok.kind == TokenType::Lt {
                         match self.parse_generic_type(name) {
-                            Ok(t) => return result.success_type(t),
+                            Ok(t) => parsed_type = t,
                             Err(e) => return result.failure(e),
                         }
+                    } else {
+                        // Check if this is a registered type alias
+                        if let Some(alias_type) = self.type_aliases.get(&name) {
+                            parsed_type = alias_type.clone();
+                        } else {
+                            // Not an alias, treat as struct
+                            parsed_type = Type::Struct(name, Vec::new());
+                        }
+                    }
+                } else {
+                    // Check if this is a registered type alias
+                    if let Some(alias_type) = self.type_aliases.get(&name) {
+                        parsed_type = alias_type.clone();
+                    } else {
+                        // Not an alias, treat as struct
+                        parsed_type = Type::Struct(name, Vec::new());
                     }
                 }
 
-                if let Some(alias_type) = self.type_aliases.get(&name) {
-                    return result.success_type(alias_type.clone());
-                }
-
-                Type::Struct(name, Vec::new())
+                // Use the parsed_type we set, don't create a new one
+                parsed_type
             }
             _ => {
                 return result.failure(

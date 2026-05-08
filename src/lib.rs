@@ -116,6 +116,9 @@ pub fn run_with_context(
     };
 
     let mut parser = Parser::new(tokens);
+    // Pass type aliases from interpreter to parser
+    parser.type_aliases = interpreter.type_aliases.clone();
+
     let parse_result = parser.parse();
 
     if let Some(error) = parse_result.error {

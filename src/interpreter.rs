@@ -783,7 +783,9 @@ impl Interpreter {
         let alias_name = node.name.value.as_ref().unwrap().clone();
         let alias_type = node.alias_type.clone();
 
-        self.type_aliases.insert(alias_name, alias_type);
+        // Resolve the alias type immediately and store the resolved type
+        let resolved_type = self.resolve_type_alias(&alias_type);
+        self.type_aliases.insert(alias_name, resolved_type);
 
         RuntimeResult::new().success(Value::Null)
     }
@@ -1085,8 +1087,11 @@ impl Interpreter {
 
         // Check if this is a new variable declaration (has type annotation)
         if let Some(var_type) = &node.var_type {
-            // Check if the value type matches the declared type
-            if !Self::value_matches_type(&value, var_type) {
+            // Resolve type alias before checking
+            let resolved_type = self.resolve_type_alias(var_type);
+
+            // Check if the value type matches the resolved declared type
+            if !self.value_matches_type(&value, &resolved_type) {
                 return RuntimeResult::new().failure(Error::type_mismatch(
                     &var_type.to_string(),
                     &Self::get_type_name(&value),
@@ -1094,10 +1099,12 @@ impl Interpreter {
                     node.position_end.clone(),
                 ));
             }
-            // Store with type
-            context
-                .symbol_table
-                .set_with_type(var_name.clone(), value.clone(), var_type.clone());
+            // Store with the original type (or resolved? both work)
+            context.symbol_table.set_with_type(
+                var_name.clone(),
+                value.clone(),
+                resolved_type.clone(),
+            );
         } else {
             // Type inference - store without explicit type
             let inferred_type = Self::infer_type(&value);
@@ -1157,22 +1164,49 @@ impl Interpreter {
     }
 
     /// Check if a value matches an expected type
-    pub fn value_matches_type(value: &Value, expected_type: &Type) -> bool {
-        match expected_type {
+    pub fn value_matches_type(&self, value: &Value, expected_type: &Type) -> bool {
+        // Resolve type aliases first
+        let resolved_type = self.resolve_type_alias(expected_type);
+
+        match &resolved_type {
             Type::Union(types) => {
-                // Union support - this was missing!
-                types.iter().any(|t| Self::value_matches_type(value, t))
+                // Union support
+                types.iter().any(|t| self.value_matches_type(value, t))
             }
             Type::Int => matches!(value, Value::Number(n) if n.value.fract() == 0.0),
             Type::Float => matches!(value, Value::Number(_)),
             Type::String => matches!(value, Value::String(_)),
             Type::Bool => matches!(value, Value::Bool(_)),
             Type::Null => matches!(value, Value::Null),
-            Type::List(_) => matches!(value, Value::List(_)),
-            Type::Map(_, _) => matches!(value, Value::Map(_)),
+            Type::List(inner) => {
+                if let Value::List(list) = value {
+                    // Check each element type if list not empty
+                    if list.elements.is_empty() {
+                        true
+                    } else {
+                        list.elements
+                            .iter()
+                            .all(|elem| self.value_matches_type(elem, inner))
+                    }
+                } else {
+                    false
+                }
+            }
+            Type::Map(key_type, value_type) => {
+                if let Value::Map(map) = value {
+                    map.pairs.iter().all(|(k, v)| {
+                        self.value_matches_type(
+                            &Value::String(XenithString::new(k.clone())),
+                            &key_type, // Add & to dereference Box
+                        ) && self.value_matches_type(v, &value_type)
+                    })
+                } else {
+                    false
+                }
+            }
             Type::Struct(name, _) => {
                 if let Value::Struct(s) = value {
-                    &s.name == name
+                    s.name == *name
                 } else {
                     false
                 }
@@ -1184,7 +1218,7 @@ impl Interpreter {
                     }
                     // Check each element type
                     for (val, exp_type) in values.iter().zip(expected_types.iter()) {
-                        if !Self::value_matches_type(val, exp_type) {
+                        if !self.value_matches_type(val, exp_type) {
                             return false;
                         }
                     }
@@ -1197,29 +1231,33 @@ impl Interpreter {
         }
     }
 
-    // Helper to resolve type aliases - updated to accept aliases parameter
-    fn resolve_type(typ: &Type, aliases: &HashMap<String, Type>) -> Type {
+    // Helper function to resolve type aliases
+    fn resolve_type_alias(&self, typ: &Type) -> Type {
         match typ {
-            Type::Union(types) => {
-                let resolved = types
-                    .iter()
-                    .map(|t| Self::resolve_type(t, aliases))
-                    .collect();
-                Type::Union(resolved)
+            Type::Alias(name, _) => {
+                if let Some(resolved) = self.type_aliases.get(name) {
+                    self.resolve_type_alias(resolved)
+                } else {
+                    typ.clone()
+                }
             }
-            Type::Alias(name, _) => aliases.get(name).cloned().unwrap_or_else(|| typ.clone()),
-            Type::List(inner) => Type::List(Box::new(Self::resolve_type(inner, aliases))),
+            Type::List(inner) => Type::List(Box::new(self.resolve_type_alias(inner))),
             Type::Map(k, v) => Type::Map(
-                Box::new(Self::resolve_type(k, aliases)),
-                Box::new(Self::resolve_type(v, aliases)),
+                Box::new(self.resolve_type_alias(k)),
+                Box::new(self.resolve_type_alias(v)),
             ),
+            Type::Tuple(types) => {
+                let resolved: Vec<Type> =
+                    types.iter().map(|t| self.resolve_type_alias(t)).collect();
+                Type::Tuple(resolved)
+            }
             Type::Function(f) => Type::Function(FunctionType {
                 param_types: f
                     .param_types
                     .iter()
-                    .map(|t| Self::resolve_type(t, aliases))
+                    .map(|t| self.resolve_type_alias(t))
                     .collect(),
-                return_type: Box::new(Self::resolve_type(&f.return_type, aliases)),
+                return_type: Box::new(self.resolve_type_alias(&f.return_type)),
             }),
             _ => typ.clone(),
         }
@@ -1244,7 +1282,11 @@ impl Interpreter {
             Value::BuiltInFunction(_) => "builtin".to_string(),
             Value::Json(_) => "json".to_string(),
             Value::Null => "null".to_string(),
-            Value::Tuple(_) => "tuple".to_string(),
+            // Value::Tuple(_) => "tuple".to_string(),
+            Value::Tuple(elements) => {
+                let types: Vec<String> = elements.iter().map(|e| Self::get_type_name(e)).collect();
+                format!("({})", types.join(", "))
+            }
         }
     }
 
