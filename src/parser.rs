@@ -153,6 +153,11 @@ impl Parser {
             return self.parse_function_type();
         }
 
+        // Handle tuple type: (type, type, ...)
+        if type_token.kind == TokenType::LParen {
+            return self.parse_tuple_type();
+        }
+
         let parsed_type = match type_token.kind {
             TokenType::TypeInt => Type::Int,
             TokenType::TypeFloat => Type::Float,
@@ -278,6 +283,48 @@ impl Parser {
         Ok(parsed_type)
     }
 
+    fn parse_tuple_type(&mut self) -> Result<Type, Error> {
+        // Consume '('
+        self.advance();
+
+        let mut types = Vec::new();
+
+        // Parse first type
+        let first_type = self.parse_single_type()?;
+        types.push(first_type);
+
+        // Parse remaining types separated by commas
+        while let Some(tok) = self.current_token() {
+            if tok.kind == TokenType::Comma {
+                self.advance(); // consume ','
+                let next_type = self.parse_single_type()?;
+                types.push(next_type);
+            } else {
+                break;
+            }
+        }
+
+        // Expect ')'
+        match self.current_token() {
+            Some(tok) if tok.kind == TokenType::RParen => {
+                self.advance();
+                Ok(Type::Tuple(types))
+            }
+            Some(tok) => Err(Error::unexpected_token(
+                &format!("{:?}", tok.kind),
+                "')'",
+                tok.position_start.clone(),
+                tok.position_end.clone(),
+            )),
+            None => {
+                Err(
+                    InvalidSyntaxError::new(Self::dummy_pos(), Self::dummy_pos(), "Expected ')'")
+                        .base,
+                )
+            }
+        }
+    }
+
     /// Original parse_type function renamed (keep your existing code exactly as is)
     fn parse_type_original(&mut self) -> ParseResult {
         let mut result = ParseResult::new();
@@ -292,6 +339,15 @@ impl Parser {
                 ));
             }
         };
+
+        // Handle tuple type first: (type, type, ...)
+        if type_token.kind == TokenType::LParen {
+            let tuple_type = match self.parse_tuple_type() {
+                Ok(t) => t,
+                Err(e) => return result.failure(e),
+            };
+            return result.success_type(tuple_type);
+        }
 
         // Handle function type separately
         if type_token.matches(TokenType::Keyword, Some("method")) {
@@ -2218,6 +2274,65 @@ impl Parser {
 
         self.advance(); // consume 'let'
 
+        // Check for destructuring
+        if let Some(t) = self.current_token() {
+            if t.kind == TokenType::LParen {
+                // This is a destructuring assignment
+                let pattern = result.register(&self.parse_destructure_pattern());
+                if result.error.is_some() {
+                    return result;
+                }
+
+                // Expect '='
+                match self.current_token() {
+                    Some(t) if t.kind == TokenType::Eq => {
+                        self.advance();
+                    }
+                    _ => {
+                        return result.failure(
+                            InvalidSyntaxError::new(
+                                Self::dummy_pos(),
+                                Self::dummy_pos(),
+                                "Expected '='",
+                            )
+                            .base,
+                        );
+                    }
+                }
+
+                let value = result.register(&self.expr());
+                if result.error.is_some() {
+                    return result;
+                }
+
+                let pos_end = value
+                    .as_ref()
+                    .map(|n| n.position_end().clone())
+                    .unwrap_or(pos_start.clone());
+
+                let pattern_node = pattern.unwrap();
+                let actual_pattern = if let Node::DestructurePattern(pattern_node) = pattern_node {
+                    pattern_node.pattern
+                } else {
+                    return result.failure(
+                        InvalidSyntaxError::new(
+                            Self::dummy_pos(),
+                            Self::dummy_pos(),
+                            "Expected destructuring pattern",
+                        )
+                        .base,
+                    );
+                };
+
+                return result.success(Node::Destructure(DestructureNode {
+                    patterns: vec![actual_pattern],
+                    value_node: Box::new(value.unwrap()),
+                    position_start: pos_start,
+                    position_end: pos_end,
+                }));
+            }
+        }
+
         let var_name = match self.current_token() {
             Some(t) if t.kind == TokenType::Identifier => t.clone(),
             Some(t) => {
@@ -2362,6 +2477,186 @@ impl Parser {
         }
 
         result
+    }
+
+    fn tuple_literal(&mut self) -> ParseResult {
+        let mut result = ParseResult::new();
+        let pos_start = match self.current_token() {
+            Some(t) if t.kind == TokenType::LParen => t.position_start.clone(),
+            _ => {
+                return result.failure(
+                    InvalidSyntaxError::new(Self::dummy_pos(), Self::dummy_pos(), "Expected '('")
+                        .base,
+                );
+            }
+        };
+
+        self.advance(); // consume '('
+
+        let mut elements = Vec::new();
+
+        // Check for empty tuple? (maybe not needed)
+        if let Some(t) = self.current_token() {
+            if t.kind == TokenType::RParen {
+                let pos_end = t.position_end.clone();
+                self.advance();
+                return result.success(Node::TupleLiteral(TupleLiteralNode {
+                    elements,
+                    position_start: pos_start,
+                    position_end: pos_end,
+                }));
+            }
+        }
+
+        // Parse first element
+        let first = result.register(&self.expr());
+        if result.error.is_some() {
+            return result;
+        }
+        if let Some(elem) = first {
+            elements.push(Box::new(elem));
+        }
+
+        // Parse remaining elements
+        while let Some(t) = self.current_token() {
+            if t.kind == TokenType::Comma {
+                self.advance(); // consume ','
+
+                let next = result.register(&self.expr());
+                if result.error.is_some() {
+                    return result;
+                }
+                if let Some(elem) = next {
+                    elements.push(Box::new(elem));
+                }
+            } else {
+                break;
+            }
+        }
+
+        // Expect ')'
+        let pos_end = match self.current_token() {
+            Some(t) if t.kind == TokenType::RParen => {
+                let end = t.position_end.clone();
+                self.advance();
+                end
+            }
+            Some(t) => {
+                return result.failure(
+                    InvalidSyntaxError::new(
+                        t.position_start.clone(),
+                        t.position_end.clone(),
+                        "Expected ')'",
+                    )
+                    .base,
+                );
+            }
+            None => {
+                return result.failure(
+                    InvalidSyntaxError::new(Self::dummy_pos(), Self::dummy_pos(), "Expected ')'")
+                        .base,
+                );
+            }
+        };
+
+        result.success(Node::TupleLiteral(TupleLiteralNode {
+            elements,
+            position_start: pos_start,
+            position_end: pos_end,
+        }))
+    }
+
+    fn parse_destructure_pattern(&mut self) -> ParseResult {
+        let mut result = ParseResult::new();
+        let pos_start = self
+            .current_token()
+            .map(|t| t.position_start.clone())
+            .unwrap_or_else(Self::dummy_pos);
+
+        match self.current_token() {
+            Some(t) if t.kind == TokenType::LParen => {
+                // Nested tuple pattern
+                self.advance(); // consume '('
+                let mut patterns = Vec::new();
+
+                let first = result.register(&self.parse_destructure_pattern());
+                if result.error.is_some() {
+                    return result;
+                }
+                if let Some(p) = first {
+                    // Extract the pattern from the Node
+                    if let Node::DestructurePattern(pattern_node) = p {
+                        patterns.push(pattern_node.pattern);
+                    }
+                }
+
+                while let Some(t) = self.current_token() {
+                    if t.kind == TokenType::Comma {
+                        self.advance();
+                        let next = result.register(&self.parse_destructure_pattern());
+                        if result.error.is_some() {
+                            return result;
+                        }
+                        if let Some(p) = next {
+                            if let Node::DestructurePattern(pattern_node) = p {
+                                patterns.push(pattern_node.pattern);
+                            }
+                        }
+                    } else {
+                        break;
+                    }
+                }
+
+                let pos_end = match self.current_token() {
+                    Some(t) if t.kind == TokenType::RParen => {
+                        let end = t.position_end.clone();
+                        self.advance();
+                        end
+                    }
+                    _ => {
+                        return result.failure(
+                            InvalidSyntaxError::new(
+                                Self::dummy_pos(),
+                                Self::dummy_pos(),
+                                "Expected ')'",
+                            )
+                            .base,
+                        );
+                    }
+                };
+
+                result.success(Node::DestructurePattern(DestructurePatternNode {
+                    pattern: DestructurePattern::Tuple(patterns),
+                    position_start: pos_start,
+                    position_end: pos_end,
+                }))
+            }
+            Some(t) if t.kind == TokenType::Underscore => {
+                let pos = t.position_start.clone();
+                let pos_end = t.position_end.clone();
+                self.advance();
+                result.success(Node::DestructurePattern(DestructurePatternNode {
+                    pattern: DestructurePattern::Ignore,
+                    position_start: pos,
+                    position_end: pos_end,
+                }))
+            }
+            Some(t) if t.kind == TokenType::Identifier => {
+                let token = t.clone();
+                let pos_start = token.position_start.clone();
+                let pos_end = token.position_end.clone();
+                self.advance();
+                result.success(Node::DestructurePattern(DestructurePatternNode {
+                    pattern: DestructurePattern::Variable(token),
+                    position_start: pos_start,
+                    position_end: pos_end,
+                }))
+            }
+            _ => result.failure(
+                InvalidSyntaxError::new(Self::dummy_pos(), Self::dummy_pos(), "Expected pattern")
+                    .base,
+            ),
+        }
     }
 
     fn match_expr(&mut self) -> ParseResult {
@@ -3717,8 +4012,23 @@ impl Parser {
                     return self.parse_indexing(node, result);
                 }
                 TokenType::LParen => {
+                    // Check if this is a tuple literal
+                    // Save current position
+                    let start_index = self.token_index;
                     let pos_start = tok.position_start.clone();
-                    self.advance();
+                    self.advance(); // consume '('
+
+                    // Try to parse as tuple literal first
+                    let tuple_result = self.tuple_literal_from_pos(pos_start.clone());
+
+                    // If tuple parsing succeeded, return it
+                    if tuple_result.node.is_some() {
+                        return tuple_result;
+                    }
+
+                    // Otherwise, reset and parse as grouped expression
+                    self.token_index = start_index;
+                    self.advance(); // consume '(' again
 
                     let expr = result.register(&self.expr());
                     if result.error.is_some() {
@@ -3812,6 +4122,109 @@ impl Parser {
             InvalidSyntaxError::new(Self::dummy_pos(), Self::dummy_pos(), "Expected expression")
                 .base,
         )
+    }
+
+    fn tuple_literal_from_pos(&mut self, pos_start: Position) -> ParseResult {
+        let mut result = ParseResult::new();
+        let mut elements = Vec::new();
+
+        // Check if we have a closing parenthesis immediately (empty tuple)
+        if let Some(t) = self.current_token() {
+            if t.kind == TokenType::RParen {
+                let pos_end = t.position_end.clone();
+                self.advance();
+                return result.success(Node::TupleLiteral(TupleLiteralNode {
+                    elements,
+                    position_start: pos_start,
+                    position_end: pos_end,
+                }));
+            }
+        }
+
+        // Parse first element
+        let first = result.register(&self.expr());
+        if result.error.is_some() {
+            return result;
+        }
+        if let Some(elem) = first {
+            elements.push(Box::new(elem));
+        } else {
+            return result; // Error already set
+        }
+
+        // Check for comma - if no comma, this is not a tuple, just a parenthesized expression
+        match self.current_token() {
+            Some(t) if t.kind == TokenType::Comma => {
+                self.advance(); // consume ','
+            }
+            _ => {
+                // Not a tuple - let the caller handle it as a grouped expression
+                return ParseResult::new();
+            }
+        }
+
+        // Parse remaining elements
+        loop {
+            // Check for closing parenthesis
+            if let Some(t) = self.current_token() {
+                if t.kind == TokenType::RParen {
+                    self.advance();
+                    break;
+                }
+            }
+
+            // Parse next element
+            let next = result.register(&self.expr());
+            if result.error.is_some() {
+                return result;
+            }
+            if let Some(elem) = next {
+                elements.push(Box::new(elem));
+            }
+
+            // Check for comma or closing parenthesis
+            match self.current_token() {
+                Some(t) if t.kind == TokenType::Comma => {
+                    self.advance(); // consume ','
+                    continue;
+                }
+                Some(t) if t.kind == TokenType::RParen => {
+                    self.advance();
+                    break;
+                }
+                Some(t) => {
+                    return result.failure(
+                        InvalidSyntaxError::new(
+                            t.position_start.clone(),
+                            t.position_end.clone(),
+                            "Expected ',' or ')'",
+                        )
+                        .base,
+                    );
+                }
+                None => {
+                    return result.failure(
+                        InvalidSyntaxError::new(
+                            Self::dummy_pos(),
+                            Self::dummy_pos(),
+                            "Expected ',' or ')'",
+                        )
+                        .base,
+                    );
+                }
+            }
+        }
+
+        let pos_end = self
+            .current_token()
+            .map(|t| t.position_end.clone())
+            .unwrap_or(pos_start.clone());
+
+        result.success(Node::TupleLiteral(TupleLiteralNode {
+            elements,
+            position_start: pos_start,
+            position_end: pos_end,
+        }))
     }
 
     fn struct_instantiation(&mut self, struct_name: String) -> ParseResult {

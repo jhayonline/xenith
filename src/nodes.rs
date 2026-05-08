@@ -42,6 +42,9 @@ pub enum Node {
     BoolLiteral(BoolLiteralNode),
     NullLiteral(NullLiteralNode),
     StructInstantiation(Box<StructInstantiationNode>),
+    TupleLiteral(TupleLiteralNode),
+    Destructure(DestructureNode),
+    DestructurePattern(DestructurePatternNode),
 }
 
 impl Node {
@@ -77,6 +80,9 @@ impl Node {
             Node::BoolLiteral(n) => &n.position_start,
             Node::NullLiteral(n) => &n.position_start,
             Node::StructInstantiation(n) => &n.position_start,
+            Node::TupleLiteral(n) => &n.position_start,
+            Node::Destructure(n) => &n.position_start,
+            Node::DestructurePattern(n) => &n.position_start,
         }
     }
 
@@ -112,6 +118,9 @@ impl Node {
             Node::BoolLiteral(n) => &n.position_end,
             Node::NullLiteral(n) => &n.position_end,
             Node::StructInstantiation(n) => &n.position_end,
+            Node::TupleLiteral(n) => &n.position_end,
+            Node::Destructure(n) => &n.position_end,
+            Node::DestructurePattern(n) => &n.position_end,
         }
     }
 
@@ -470,4 +479,57 @@ pub struct StructInstantiationNode {
     pub fields: Vec<(Token, Node)>,
     pub position_start: Position,
     pub position_end: Position,
+}
+
+#[derive(Debug, Clone)]
+pub struct TupleLiteralNode {
+    pub elements: Vec<Box<Node>>,
+    pub position_start: Position,
+    pub position_end: Position,
+}
+
+#[derive(Debug, Clone)]
+pub struct DestructureNode {
+    pub patterns: Vec<DestructurePattern>,
+    pub value_node: Box<Node>,
+    pub position_start: Position,
+    pub position_end: Position,
+}
+
+#[derive(Debug, Clone)]
+pub enum DestructurePattern {
+    Variable(Token),                // a
+    Ignore,                         // _
+    Tuple(Vec<DestructurePattern>), // nested (a, b)
+}
+
+#[derive(Debug, Clone)]
+pub struct DestructurePatternNode {
+    pub pattern: DestructurePattern,
+    pub position_start: Position,
+    pub position_end: Position,
+}
+
+impl DestructurePattern {
+    pub fn position_start(&self) -> Position {
+        match self {
+            DestructurePattern::Variable(token) => token.position_start.clone(),
+            DestructurePattern::Ignore => Position::new(0, 0, 0, "", ""), // Or store position
+            DestructurePattern::Tuple(patterns) => patterns
+                .first()
+                .map(|p| p.position_start())
+                .unwrap_or_else(|| Position::new(0, 0, 0, "", "")),
+        }
+    }
+
+    pub fn position_end(&self) -> Position {
+        match self {
+            DestructurePattern::Variable(token) => token.position_end.clone(),
+            DestructurePattern::Ignore => Position::new(0, 0, 0, "", ""), // Or store position
+            DestructurePattern::Tuple(patterns) => patterns
+                .last()
+                .map(|p| p.position_end())
+                .unwrap_or_else(|| Position::new(0, 0, 0, "", "")),
+        }
+    }
 }

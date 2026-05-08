@@ -1,15 +1,31 @@
+echo("=== Tuple Tests ===\n")
+
 # Tuple literals
 let point = (10, 20)
+echo("point = {ret(point)}")
+
 let person = ("Alice", 30)
+echo("person = {ret(person)}")
 
 # Destructuring assignment
 let (x, y) = point
+echo("x = {x}, y = {y}")
+
 let (name, age) = person
+echo("{name} is {age} years old")
 
 # Multiple returns
 method get_point() -> (int, int) {
+    echo("Inside get_point()")
     release (10, 20)
 }
 
+echo("\nTesting function return:")
+let (a, b) = get_point()
+echo("get_point() returned ({a}, {b})")
+
 # Ignoring values
-let (_, y) = point
+let (_, y_only) = point
+echo("Ignored x, got y = {y_only}")
+
+echo("\n=== All tests passed! ===")

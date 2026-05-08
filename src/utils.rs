@@ -157,8 +157,19 @@ pub fn value_to_string(value: &Value) -> String {
                 "false".to_string()
             }
         }
-        Value::Null => "null".to_string(), // NEW
+        Value::Null => "null".to_string(),
         Value::Json(j) => j.to_string(),
+        Value::Tuple(elements) => {
+            let mut result = String::from("(");
+            for (i, elem) in elements.iter().enumerate() {
+                if i > 0 {
+                    result.push_str(", ");
+                }
+                result.push_str(&value_to_string(elem));
+            }
+            result.push(')');
+            result
+        }
     }
 }
 
@@ -224,7 +235,18 @@ pub fn value_to_interpolated_string(value: &Value) -> String {
                 "false".to_string()
             }
         }
-        Value::Null => "null".to_string(), // Add this line
+        Value::Null => "null".to_string(),
         Value::Json(j) => j.to_string(),
+        Value::Tuple(elements) => {
+            let mut result = String::from("(");
+            for (i, elem) in elements.iter().enumerate() {
+                if i > 0 {
+                    result.push_str(", ");
+                }
+                result.push_str(&value_to_interpolated_string(elem));
+            }
+            result.push(')');
+            result
+        }
     }
 }

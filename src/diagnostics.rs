@@ -216,6 +216,7 @@ impl Diagnostics {
             Value::BuiltInFunction(_) => "builtin".to_string(),
             Value::Null => "null".to_string(),
             Value::Json(_) => "json".to_string(),
+            Value::Tuple(_) => "tuple".to_string(),
         }
     }
 

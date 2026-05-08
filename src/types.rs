@@ -33,6 +33,7 @@ pub enum Type {
     /// JSON type, can hold mixed types (null, bool, number, string, array, object)
     Json,
     Union(Vec<Type>),
+    Tuple(Vec<Type>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -86,6 +87,7 @@ impl Type {
             "bool" => Type::Bool,
             "null" => Type::Null,
             "json" => Type::Json,
+            "tuple" => Type::Tuple(vec![]),
             _ => Type::Unknown,
         }
     }
@@ -118,6 +120,16 @@ impl Type {
                 .map(|t| t.to_string())
                 .collect::<Vec<_>>()
                 .join(" | "),
+            Type::Tuple(types) => {
+                format!(
+                    "({})",
+                    types
+                        .iter()
+                        .map(|t| t.to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+            }
         }
     }
 

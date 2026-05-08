@@ -10,8 +10,8 @@ use crate::error::{Error, RuntimeError};
 use crate::lexer::Lexer;
 use crate::modules::{Module, ModuleRegistry};
 use crate::nodes::{
-    BoolLiteralNode, ImplNode, Node, NullLiteralNode, PanicNode, StructDefNode, TryCatchNode,
-    TypeAliasNode,
+    BoolLiteralNode, DestructureNode, DestructurePattern, ImplNode, Node, NullLiteralNode,
+    PanicNode, StructDefNode, TryCatchNode, TupleLiteralNode, TypeAliasNode,
 };
 use crate::parser::Parser;
 use crate::position::Position;
@@ -707,6 +707,12 @@ impl Interpreter {
             Node::BoolLiteral(n) => self.visit_bool_literal(n, context),
             Node::NullLiteral(n) => self.visit_null_literal(n, context),
             Node::StructInstantiation(n) => self.visit_struct_instantiation(n, context),
+            Node::TupleLiteral(n) => self.visit_tuple_literal(n, context),
+            Node::Destructure(n) => self.visit_destructure(n, context),
+            Node::DestructurePattern(_) => {
+                // DestructurePattern nodes are handled within destructuring
+                RuntimeResult::new().success(Value::Null)
+            }
         }
     }
 
@@ -1142,6 +1148,10 @@ impl Interpreter {
                     return_type: Box::new(Type::Unknown),
                 })
             }
+            Value::Tuple(elements) => {
+                let types: Vec<Type> = elements.iter().map(|e| Self::infer_type(e)).collect();
+                Type::Tuple(types)
+            }
             _ => Type::Unknown,
         }
     }
@@ -1163,6 +1173,22 @@ impl Interpreter {
             Type::Struct(name, _) => {
                 if let Value::Struct(s) = value {
                     &s.name == name
+                } else {
+                    false
+                }
+            }
+            Type::Tuple(expected_types) => {
+                if let Value::Tuple(values) = value {
+                    if values.len() != expected_types.len() {
+                        return false;
+                    }
+                    // Check each element type
+                    for (val, exp_type) in values.iter().zip(expected_types.iter()) {
+                        if !Self::value_matches_type(val, exp_type) {
+                            return false;
+                        }
+                    }
+                    true
                 } else {
                     false
                 }
@@ -1218,6 +1244,7 @@ impl Interpreter {
             Value::BuiltInFunction(_) => "builtin".to_string(),
             Value::Json(_) => "json".to_string(),
             Value::Null => "null".to_string(),
+            Value::Tuple(_) => "tuple".to_string(),
         }
     }
 
@@ -2597,6 +2624,103 @@ impl Interpreter {
 
     fn dummy_pos() -> Position {
         Position::new(0, 0, 0, "", "")
+    }
+
+    fn visit_tuple_literal(
+        &mut self,
+        node: &TupleLiteralNode,
+        context: &mut Context,
+    ) -> RuntimeResult {
+        let mut result = RuntimeResult::new();
+        let mut elements = Vec::new();
+
+        for elem_node in &node.elements {
+            let value = result.register(self.visit(elem_node, context));
+            if result.should_return() {
+                return result;
+            }
+            elements.push(value);
+        }
+
+        result.success(Value::Tuple(elements))
+    }
+
+    fn visit_destructure(
+        &mut self,
+        node: &DestructureNode,
+        context: &mut Context,
+    ) -> RuntimeResult {
+        let mut result = RuntimeResult::new();
+        let value = result.register(self.visit(&node.value_node, context));
+        if result.should_return() {
+            return result;
+        }
+
+        for pattern in &node.patterns {
+            result.register(self.destructure_value(pattern, &value, context));
+            if result.should_return() {
+                return result;
+            }
+        }
+
+        result.success(Value::Null)
+    }
+
+    fn destructure_value(
+        &mut self,
+        pattern: &DestructurePattern,
+        value: &Value,
+        context: &mut Context,
+    ) -> RuntimeResult {
+        let mut result = RuntimeResult::new();
+
+        match pattern {
+            DestructurePattern::Variable(token) => {
+                let name = token.value.as_ref().unwrap().clone();
+                context.symbol_table.set_local(name, value.clone());
+            }
+            DestructurePattern::Ignore => {
+                // Do nothing
+            }
+            DestructurePattern::Tuple(patterns) => {
+                let tuple_values = match value.as_tuple() {
+                    Some(v) => v,
+                    None => {
+                        return result.failure(Error::type_mismatch(
+                            "tuple",
+                            &crate::interpreter::Interpreter::get_type_name(value),
+                            pattern.position_start(),
+                            pattern.position_end(),
+                        ));
+                    }
+                };
+
+                if patterns.len() != tuple_values.len() {
+                    return result.failure(
+                        Error::new(
+                            pattern.position_start(),
+                            pattern.position_end(),
+                            "Destructuring Mismatch",
+                            &format!(
+                                "Expected {} elements, got {}",
+                                patterns.len(),
+                                tuple_values.len()
+                            ),
+                        )
+                        .with_code("XEN100"),
+                    );
+                }
+
+                for (i, sub_pattern) in patterns.iter().enumerate() {
+                    result.register(self.destructure_value(sub_pattern, &tuple_values[i], context));
+                    if result.should_return() {
+                        return result;
+                    }
+                }
+            }
+        }
+
+        result.success(Value::Null)
     }
 
     fn visit_return(

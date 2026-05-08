@@ -31,6 +31,7 @@ pub enum Value {
     Struct(Struct),
     Bool(bool),
     Json(Json),
+    Tuple(Vec<Value>),
     Null,
 }
 
@@ -63,6 +64,7 @@ impl Value {
             Value::Bool(b) => *b,
             Value::Null => false,
             Value::Json(j) => !j.is_null(),
+            Value::Tuple(t) => !t.is_empty(),
         }
     }
 
@@ -100,6 +102,18 @@ impl Value {
 
     fn dummy_pos() -> crate::position::Position {
         crate::position::Position::new(0, 0, 0, "", "")
+    }
+
+    pub fn tuple(elements: Vec<Value>) -> Self {
+        Value::Tuple(elements)
+    }
+
+    // Helper for tuple operations
+    pub fn as_tuple(&self) -> Option<&Vec<Value>> {
+        match self {
+            Value::Tuple(t) => Some(t),
+            _ => None,
+        }
     }
 
     /// Addition operation
@@ -621,6 +635,7 @@ impl Function {
             Value::BuiltInFunction(_) => "builtin".to_string(),
             Value::Null => "null".to_string(),
             Value::Json(_) => "json".to_string(),
+            Value::Tuple(_) => "tuple".to_string(),
         }
     }
 }
@@ -829,8 +844,8 @@ impl BuiltInFunction {
             match arg {
                 Value::Number(n) => print!("{}", n.value),
                 Value::String(s) => print!("{}", s.value),
-                Value::Bool(b) => print!("{}", b), // Add this
-                Value::Null => print!("null"),     // Add this
+                Value::Bool(b) => print!("{}", b),
+                Value::Null => print!("null"),
                 Value::List(l) => {
                     print!("[");
                     for (i, elem) in l.elements.iter().enumerate() {
@@ -878,6 +893,23 @@ impl BuiltInFunction {
                     print!("<built-in function {}>", b.name);
                 }
                 Value::Json(j) => print!("{}", j.to_string()),
+                Value::Tuple(t) => {
+                    print!("(");
+                    for (i, elem) in t.iter().enumerate() {
+                        if i > 0 {
+                            print!(", ");
+                        }
+                        // Recursively print element - would need proper handling
+                        match elem {
+                            Value::Number(n) => print!("{}", n.value),
+                            Value::String(s) => print!("\"{}\"", s.value),
+                            Value::Bool(b) => print!("{}", b),
+                            Value::Null => print!("null"),
+                            _ => print!("?"),
+                        }
+                    }
+                    print!(")");
+                }
             }
         }
         println!();
