@@ -664,10 +664,17 @@ impl Lexer {
                 interpolation_parts.push(("text".to_string(), string_val));
             }
 
-            // Store interpolation data
+            // Store interpolation data. The parts are packed into one string
+            // delimited by `|`, so a `|` inside a part -- `"{a || b}"` -- has
+            // to be escaped or it would be read as a part boundary and silently
+            // truncate the expression.
             let mut encoded = String::from("__INTERPOLATED__");
             for (part_type, content) in interpolation_parts {
-                encoded.push_str(&format!("|{}:{}", part_type, content));
+                encoded.push_str(&format!(
+                    "|{}:{}",
+                    part_type,
+                    crate::nodes::escape_interpolation_part(&content)
+                ));
             }
             Token::new(
                 TokenType::InterpolatedString,

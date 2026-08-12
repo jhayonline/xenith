@@ -672,12 +672,22 @@ impl Function {
 
         // Check argument count
         if args.len() != self.arg_names.len() {
-            return RuntimeResult::new().failure(Error::too_few_arguments(
-                self.arg_names.len(),
-                args.len(),
-                call_position.clone(),
-                call_position,
-            ));
+            let error = if args.len() > self.arg_names.len() {
+                Error::too_many_arguments(
+                    self.arg_names.len(),
+                    args.len(),
+                    call_position.clone(),
+                    call_position,
+                )
+            } else {
+                Error::too_few_arguments(
+                    self.arg_names.len(),
+                    args.len(),
+                    call_position.clone(),
+                    call_position,
+                )
+            };
+            return RuntimeResult::new().failure(error);
         }
 
         // TYPE CHECKING
@@ -685,8 +695,9 @@ impl Function {
             let matches = Value::value_matches_type(arg, expected_type);
 
             if !matches {
+                // `to_string`, not `{:?}`: the reader wants `int`, not `Int`.
                 return RuntimeResult::new().failure(Error::type_mismatch(
-                    &format!("{:?}", expected_type),
+                    &expected_type.to_string(),
                     &Value::get_type_name(arg),
                     call_position.clone(),
                     call_position.clone(),

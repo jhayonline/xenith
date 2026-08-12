@@ -336,6 +336,35 @@ pub struct InterpolationPart {
     pub content: String, // If text: the literal text, if expression: the expression source
 }
 
+/// Hides `|` and `\` from the part delimiter used by the interpolation
+/// encoding, so an expression containing `||` survives the round trip.
+pub fn escape_interpolation_part(content: &str) -> String {
+    content.replace('\\', "\\\\").replace('|', "\\p")
+}
+
+/// Inverse of [`escape_interpolation_part`].
+pub fn unescape_interpolation_part(content: &str) -> String {
+    let mut out = String::with_capacity(content.len());
+    let mut chars = content.chars();
+    while let Some(c) = chars.next() {
+        if c != '\\' {
+            out.push(c);
+            continue;
+        }
+        match chars.next() {
+            Some('p') => out.push('|'),
+            Some('\\') => out.push('\\'),
+            // Not one of ours: keep the backslash and whatever followed.
+            Some(other) => {
+                out.push('\\');
+                out.push(other);
+            }
+            None => out.push('\\'),
+        }
+    }
+    out
+}
+
 impl InterpolatedStringNode {
     pub fn new(token: Token) -> Self {
         // Parse the encoded string
@@ -347,7 +376,7 @@ impl InterpolatedStringNode {
                 if let (Some(part_type), Some(content)) = (split.next(), split.next()) {
                     parts.push(InterpolationPart {
                         is_expression: part_type == "expr",
-                        content: content.to_string(),
+                        content: unescape_interpolation_part(content),
                     });
                 }
             }

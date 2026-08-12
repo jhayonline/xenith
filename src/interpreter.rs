@@ -32,6 +32,10 @@ pub struct Interpreter {
     /// Module registry for caching loaded modules
     pub module_registry: Option<ModuleRegistry>,
     pub struct_names: std::collections::HashSet<String>,
+    /// Declared fields of each struct, in source order, used to check literals.
+    pub struct_defs: HashMap<String, Vec<(String, Type)>>,
+    /// Modules part way through loading, used to detect circular imports.
+    pub loading_modules: Vec<String>,
     pub type_aliases: HashMap<String, Type>,
 }
 
@@ -40,78 +44,32 @@ impl Interpreter {
     pub fn new() -> Self {
         let mut global = SymbolTable::new();
 
-        // Built-in constants
-        global.set("NULL".to_string(), Value::Null);
-        global.set("FALSE".to_string(), Value::Bool(false));
-        global.set("TRUE".to_string(), Value::Bool(true));
-        global.set("MATH_PI".to_string(), Value::Number(Number::math_pi()));
+        // Built-in constants and functions come from one shared list so the
+        // language server cannot advertise a name the interpreter no longer has.
+        for constant in crate::builtins::registry::BUILTIN_CONSTANTS {
+            let value = match constant.name {
+                "NULL" => Value::Null,
+                "TRUE" => Value::Bool(true),
+                "FALSE" => Value::Bool(false),
+                "MATH_PI" => Value::Number(Number::math_pi()),
+                _ => continue,
+            };
+            global.set(constant.name.to_string(), value);
+        }
 
-        // Built-in functions
-        global.set(
-            "echo".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("echo")),
-        );
-        global.set(
-            "format".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("format")),
-        );
-        global.set(
-            "ret".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("ret")),
-        );
-        global.set(
-            "input".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("input")),
-        );
-        global.set(
-            "input_int".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("input_int")),
-        );
-        global.set(
-            "clear".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("clear")),
-        );
-        global.set(
-            "is_num".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("is_num")),
-        );
-        global.set(
-            "is_str".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("is_str")),
-        );
-        global.set(
-            "is_list".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("is_list")),
-        );
-        global.set(
-            "is_fun".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("is_fun")),
-        );
-        global.set(
-            "append".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("append")),
-        );
-        global.set(
-            "pop".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("pop")),
-        );
-        global.set(
-            "extend".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("extend")),
-        );
-        global.set(
-            "len".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("len")),
-        );
-        global.set(
-            "run".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("run")),
-        );
+        for builtin in crate::builtins::registry::BUILTIN_FUNCTIONS {
+            global.set(
+                builtin.name.to_string(),
+                Value::BuiltInFunction(BuiltInFunction::new(builtin.name)),
+            );
+        }
 
         Self {
             global_symbol_table: global,
             module_registry: None,
             struct_names: std::collections::HashSet::new(),
+            struct_defs: HashMap::new(),
+            loading_modules: Vec::new(),
             type_aliases: HashMap::new(),
         }
     }
@@ -122,15 +80,36 @@ impl Interpreter {
         pos: &Position,
         context: &Context,
     ) -> Result<Module, String> {
+        // Refuse a cycle rather than recursing until the process runs out of
+        // stack. The list lives here rather than on the registry because
+        // loading a module hands the registry out and back again, so a nested
+        // `grab` would otherwise start from an empty one.
+        if self.loading_modules.iter().any(|name| name == module_path) {
+            let mut chain = self.loading_modules.clone();
+            chain.push(module_path.to_string());
+            return Err(format!(
+                "circular import: {}",
+                chain
+                    .iter()
+                    .map(|name| format!("'{}'", name))
+                    .collect::<Vec<_>>()
+                    .join(" imports ")
+            ));
+        }
+
         // Initialize module registry if needed
         if self.module_registry.is_none() {
             self.module_registry = Some(ModuleRegistry::new(&pos.file_name));
         }
 
+        self.loading_modules.push(module_path.to_string());
+
         // Take ownership of the registry temporarily
         let mut registry = self.module_registry.take().unwrap();
         let result = registry.load_module(module_path, self);
         self.module_registry = Some(registry);
+
+        self.loading_modules.pop();
 
         result
     }
@@ -184,7 +163,7 @@ impl Interpreter {
         // Store struct definition in the symbol table
         let struct_name = node.name.value.as_ref().unwrap().clone();
 
-        // Create a map of field names to their types for validation
+        // The declared fields, kept so literals can be checked against them.
         let mut field_types = Vec::new();
         for field in &node.fields {
             let field_name = field.name.value.as_ref().unwrap().clone();
@@ -192,6 +171,7 @@ impl Interpreter {
         }
 
         self.struct_names.insert(struct_name.clone());
+        self.struct_defs.insert(struct_name.clone(), field_types);
         context.symbol_table.set(
             struct_name.clone(),
             Value::String(XenithString::new(format!("__struct__{}", struct_name))),
@@ -208,13 +188,82 @@ impl Interpreter {
         let mut result = RuntimeResult::new();
         let mut struct_instance = crate::values::Struct::new(node.struct_name.clone());
 
+        let declared = self.struct_defs.get(&node.struct_name).cloned();
+
         for (field_name, value_node) in &node.fields {
             let value = result.register(self.visit(value_node, context));
             if result.should_return() {
                 return result;
             }
             let name = field_name.value.as_ref().unwrap().clone();
+
+            // Reject unknown fields, and values whose type does not match what
+            // the struct declared. Without this a literal could invent fields
+            // or hold anything at all, and the mistake only surfaced much later
+            // as a confusing read.
+            if let Some(fields) = &declared {
+                match fields.iter().find(|(declared_name, _)| *declared_name == name) {
+                    Some((_, expected)) => {
+                        let expected = self.resolve_type_alias(expected);
+                        if !Value::value_matches_type(&value, &expected) {
+                            return result.failure(
+                                Error::type_mismatch(
+                                    &expected.to_string(),
+                                    &Value::get_type_name(&value),
+                                    field_name.position_start.clone(),
+                                    field_name.position_end.clone(),
+                                )
+                                .with_note(&format!(
+                                    "field `{}` of struct `{}`",
+                                    name, node.struct_name
+                                )),
+                            );
+                        }
+                    }
+                    None => {
+                        return result.failure(Error::field_not_found(
+                            &node.struct_name,
+                            &name,
+                            field_name.position_start.clone(),
+                            field_name.position_end.clone(),
+                        ));
+                    }
+                }
+            }
+
             struct_instance.set_field(name, value);
+        }
+
+        // Every declared field has to be given a value; there are no defaults.
+        if let Some(fields) = &declared {
+            let missing: Vec<&str> = fields
+                .iter()
+                .map(|(name, _)| name.as_str())
+                .filter(|name| !struct_instance.fields.contains_key(*name))
+                .collect();
+
+            if !missing.is_empty() {
+                return result.failure(
+                    RuntimeError::new(
+                        node.position_start.clone(),
+                        node.position_end.clone(),
+                        &format!(
+                            "struct `{}` is missing {}",
+                            node.struct_name,
+                            missing
+                                .iter()
+                                .map(|name| format!("`{}`", name))
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        ),
+                        Some(context.clone()),
+                    )
+                    .with_code("XEN009")
+                    .with_name("Missing Field")
+                    .with_help("every field must be given a value; there are no defaults")
+                    .base,
+                );
+            }
         }
 
         result.success(Value::Struct(struct_instance))
@@ -323,6 +372,28 @@ impl Interpreter {
         let module = match self.load_module(&module_path, &node.position_start, context) {
             Ok(m) => m,
             Err(err) => {
+                // `load_module` reports failures as strings, so the two cases
+                // are told apart by prefix. A cycle deserves its own name and
+                // hint; anything else is a missing or broken module.
+                // A nested failure arrives already rendered, so the innermost
+                // "circular import" text is buried inside it rather than at the
+                // front. Stringly typed module errors are why this has to look
+                // for the text at all; a real error type would carry the code.
+                let is_cycle = err.contains("circular import") || err.contains("Circular Import");
+                let (code, name, help) = if is_cycle {
+                    (
+                        "XEN021",
+                        "Circular Import",
+                        "break the cycle by moving the shared definitions into a third module",
+                    )
+                } else {
+                    (
+                        "XEN012",
+                        "Module Not Found",
+                        "check the path is relative to this file, and that the file exists",
+                    )
+                };
+
                 return result.failure(
                     RuntimeError::new(
                         node.position_start.clone(),
@@ -330,6 +401,9 @@ impl Interpreter {
                         &err,
                         Some(context.clone()),
                     )
+                    .with_code(code)
+                    .with_name(name)
+                    .with_help(help)
                     .base,
                 );
             }
@@ -371,6 +445,9 @@ impl Interpreter {
                             ),
                             Some(context.clone()),
                         )
+                        .with_code("XEN012")
+                        .with_name("Module Not Found")
+                        .with_help("mark the definition with `export` in the module")
                         .base,
                     );
                 }
@@ -415,6 +492,8 @@ impl Interpreter {
                         None,
                     )
                     .with_code("XEN017")
+                    .with_name("Integer Overflow")
+                    .with_help("use a float if the value needs to be this large")
                     .base,
                 ),
             }
@@ -705,6 +784,175 @@ impl Interpreter {
     }
 
 
+    /// Stores `value` at the location `target` names, and writes the change
+    /// back through every container it is nested inside.
+    ///
+    /// Values are held by value, so `grid[1][2] = 9` cannot mutate in place:
+    /// the inner list is updated, then stored back into the outer list, which
+    /// is stored back into the variable. Recursing over the target expression
+    /// makes that unwinding fall out for free at any depth.
+    ///
+    /// Returns `Some(error)` on failure, `None` on success.
+    fn assign_into(
+        &mut self,
+        target: &Node,
+        value: Value,
+        context: &mut Context,
+    ) -> Option<Error> {
+        match target {
+            // Base case: a plain variable.
+            Node::VarAccess(var_node) => {
+                let name = var_node.variable_name_token.value.as_ref()?;
+
+                if context.symbol_table.is_constant(name) {
+                    return Some(
+                        RuntimeError::new(
+                            var_node.position_start.clone(),
+                            var_node.position_end.clone(),
+                            &format!("cannot reassign constant `{}`", name),
+                            Some(context.clone()),
+                        )
+                        .with_code("XEN018")
+                        .with_name("Constant Reassignment")
+                        .base,
+                    );
+                }
+
+                if !context.symbol_table.assign_existing(name, value) {
+                    return Some(Error::undefined_variable(
+                        name,
+                        var_node.position_start.clone(),
+                        var_node.position_end.clone(),
+                    ));
+                }
+                None
+            }
+
+            // `container[index] = value`
+            Node::BinaryOperator(bin_op)
+                if bin_op.operator_token.kind == crate::tokens::TokenType::Index =>
+            {
+                let mut result = RuntimeResult::new();
+
+                let container = result.register(self.visit(&bin_op.left_node, context));
+                if let Some(error) = result.error {
+                    return Some(*error);
+                }
+                let index = result.register(self.visit(&bin_op.right_node, context));
+                if let Some(error) = result.error {
+                    return Some(*error);
+                }
+
+                let position_start = bin_op.position_start.clone();
+                let position_end = bin_op.position_end.clone();
+                let fail = |detail: &str| {
+                    Some(
+                        RuntimeError::new(
+                            position_start.clone(),
+                            position_end.clone(),
+                            detail,
+                            Some(context.clone()),
+                        )
+                        .with_code("XEN004")
+                        .base,
+                    )
+                };
+
+                let updated = match (container, index) {
+                    (Value::List(mut list), Value::Number(n)) => {
+                        let Some(slot) = n.as_index() else {
+                            return fail("list index must be a non-negative int");
+                        };
+                        if !list.set(slot, value) {
+                            return Some(Error::index_out_of_bounds(
+                                slot,
+                                list.elements.len(),
+                                bin_op.position_start.clone(),
+                                bin_op.position_end.clone(),
+                            ));
+                        }
+                        Value::List(list)
+                    }
+                    // Assigning to a key that is absent inserts it, which is
+                    // how a map gets built up after its literal.
+                    (Value::Map(mut map), Value::String(key)) => {
+                        map.set(key.value.clone(), value);
+                        Value::Map(map)
+                    }
+                    (Value::List(_), other) => {
+                        return fail(&format!(
+                            "list index must be an int, found {}",
+                            Value::get_type_name(&other)
+                        ));
+                    }
+                    (Value::Map(_), other) => {
+                        return fail(&format!(
+                            "map key must be a string, found {}",
+                            Value::get_type_name(&other)
+                        ));
+                    }
+                    (other, _) => {
+                        return fail(&format!(
+                            "cannot index-assign into {}",
+                            Value::get_type_name(&other)
+                        ));
+                    }
+                };
+
+                // Push the rebuilt container back to wherever it came from.
+                self.assign_into(&bin_op.left_node, updated, context)
+            }
+
+            // `record.field[i] = value`
+            Node::MethodAccess(field_node) => {
+                let mut result = RuntimeResult::new();
+                let object = result.register(self.visit(&field_node.object, context));
+                if let Some(error) = result.error {
+                    return Some(*error);
+                }
+
+                let field_name = field_node.method_name.value.clone()?;
+                let updated = match object {
+                    Value::Struct(mut s) => {
+                        s.set_field(field_name, value);
+                        Value::Struct(s)
+                    }
+                    Value::Map(mut m) => {
+                        m.set(field_name, value);
+                        Value::Map(m)
+                    }
+                    other => {
+                        return Some(
+                            RuntimeError::new(
+                                field_node.position_start.clone(),
+                                field_node.position_end.clone(),
+                                &format!(
+                                    "cannot set field `{}` on {}",
+                                    field_node.method_name.value.clone().unwrap_or_default(),
+                                    Value::get_type_name(&other)
+                                ),
+                                Some(context.clone()),
+                            )
+                            .base,
+                        );
+                    }
+                };
+
+                self.assign_into(&field_node.object, updated, context)
+            }
+
+            other => Some(
+                RuntimeError::new(
+                    other.position_start().clone(),
+                    other.position_end().clone(),
+                    "left side of `=` is not something that can be assigned to",
+                    Some(context.clone()),
+                )
+                .base,
+            ),
+        }
+    }
+
     fn visit_binary_op(
         &mut self,
         node: &crate::nodes::BinaryOperatorNode,
@@ -714,6 +962,21 @@ impl Interpreter {
 
         // Handle assignment separately before evaluating both sides
         if node.operator_token.kind == crate::tokens::TokenType::Eq {
+            // Indexed assignment: `xs[0] = v`, `m["key"] = v`, `grid[1][2] = v`
+            if let Node::BinaryOperator(bin_op) = &*node.left_node {
+                if bin_op.operator_token.kind == crate::tokens::TokenType::Index {
+                    let value = result.register(self.visit(&node.right_node, context));
+                    if result.should_return() {
+                        return result;
+                    }
+
+                    if let Some(error) = self.assign_into(&node.left_node, value.clone(), context) {
+                        return RuntimeResult::new().failure(error);
+                    }
+                    return result.success(value);
+                }
+            }
+
             // Check if this is a struct field assignment (left side has a dot)
             if let Node::BinaryOperator(bin_op) = &*node.left_node {
                 if bin_op.operator_token.kind == crate::tokens::TokenType::Dot {
@@ -1021,6 +1284,7 @@ impl Interpreter {
                         Some(context.clone()),
                     )
                     .with_code("XEN011")
+                    .with_name("Invalid Type Conversion")
                     .base
                 };
 
@@ -1247,6 +1511,10 @@ impl Interpreter {
     fn visit_if(&mut self, node: &crate::nodes::IfNode, context: &mut Context) -> RuntimeResult {
         let mut result = RuntimeResult::new();
 
+        // The branch body runs in a child scope, so a `let` inside it is local
+        // to the branch. Loop and method bodies already worked this way;
+        // `when` and `while` did not, which made block scoping depend on which
+        // keyword you happened to be standing in.
         for (condition, expr) in &node.cases {
             let condition_value = result.register(self.visit(condition, context));
             if result.should_return() {
@@ -1254,7 +1522,9 @@ impl Interpreter {
             }
 
             if condition_value.is_true() {
-                let value = result.register(self.visit(expr, context));
+                let mut branch_ctx =
+                    context.create_child("<when>", node.position_start.clone());
+                let value = result.register(self.visit(expr, &mut branch_ctx));
                 if result.should_return() {
                     return result;
                 }
@@ -1263,7 +1533,9 @@ impl Interpreter {
         }
 
         if let Some((expr, _)) = &node.else_case {
-            let value = result.register(self.visit(expr, context));
+            let mut branch_ctx =
+                context.create_child("<otherwise>", node.position_start.clone());
+            let value = result.register(self.visit(expr, &mut branch_ctx));
             if result.should_return() {
                 return result;
             }
@@ -1360,7 +1632,14 @@ impl Interpreter {
                     None
                 };
 
-                for (key_str, val) in &map.pairs {
+                // Iterate in sorted key order, the same order `.keys()`,
+                // `.values()` and `.items()` produce. Walking the underlying
+                // HashMap directly gave a different order on every run, so the
+                // same program printed its output shuffled each time.
+                let mut ordered: Vec<(&String, &Value)> = map.pairs.iter().collect();
+                ordered.sort_by(|a, b| a.0.cmp(b.0));
+
+                for (key_str, val) in ordered {
                     let mut loop_ctx = context.create_child("<for>", Self::dummy_pos());
 
                     if let Some(ref p) = parts {
@@ -1489,6 +1768,10 @@ impl Interpreter {
         let mut result = RuntimeResult::new();
         let mut elements = Vec::new();
 
+        // One scope reused across iterations, cleared each time, so a `let` in
+        // the body is local to the iteration rather than leaking outward.
+        let mut body_ctx = context.create_child("<while>", node.position_start.clone());
+
         loop {
             let condition = result.register(self.visit(&node.condition_node, context));
             if result.should_return() {
@@ -1499,7 +1782,8 @@ impl Interpreter {
                 break;
             }
 
-            let value = result.register(self.visit(&node.body_node, context));
+            body_ctx.symbol_table.clear_local();
+            let value = result.register(self.visit(&node.body_node, &mut body_ctx));
             if result.should_return() && !result.loop_should_continue && !result.loop_should_break {
                 return result;
             }
@@ -1615,7 +1899,7 @@ impl Interpreter {
 
             // Call the method on the object
             let method_name = method_node.method_name.value.as_ref().unwrap();
-            let call_result = self.call_method(object.clone(), method_name, args, context);
+            let (call_result, mutated) = self.call_method(object.clone(), method_name, args, context);
 
             // Register the result
             let value = result.register(call_result);
@@ -1623,11 +1907,14 @@ impl Interpreter {
                 return result;
             }
 
-            // If this is a method that modifies the object (like append),
-            // update the variable in the context
-            if let Some(name) = var_name {
-                if method_name == "append" {
-                    context.symbol_table.set(name, value.clone());
+            // A method like `append` mutates its receiver, so the new state has
+            // to be written back to the variable it was read from -- and back
+            // into the scope that *declared* it. Writing to the current scope
+            // instead would make `xs.append(v)` inside a loop body build up a
+            // shadow copy and silently leave the original list empty.
+            if let (Some(name), Some(updated)) = (var_name, mutated) {
+                if !context.symbol_table.assign_existing(&name, updated.clone()) {
+                    context.symbol_table.set(name, updated);
                 }
             }
 
@@ -1694,32 +1981,46 @@ impl Interpreter {
         result.success(value)
     }
 
+    /// Calls a built-in method on a value.
+    ///
+    /// Returns the call's result and, for the methods that mutate their
+    /// receiver, the receiver's new state so the caller can store it back.
     fn call_method(
         &mut self,
         object: Value,
         method_name: &str,
         args: Vec<Value>,
         context: &mut Context,
-    ) -> RuntimeResult {
+    ) -> (RuntimeResult, Option<Value>) {
+        let fail = |detail: &str| {
+            (
+                RuntimeResult::new().failure(
+                    RuntimeError::new(
+                        Self::dummy_pos(),
+                        Self::dummy_pos(),
+                        detail,
+                        Some(context.clone()),
+                    )
+                    .base,
+                ),
+                None,
+            )
+        };
+
         match (object, method_name) {
             (Value::List(mut list), "append") => {
                 if args.len() != 1 {
-                    return RuntimeResult::new().failure(
-                        RuntimeError::new(
-                            Self::dummy_pos(),
-                            Self::dummy_pos(),
-                            "append expects 1 argument",
-                            Some(context.clone()),
-                        )
-                        .base,
-                    );
+                    return fail("append expects 1 argument");
                 }
                 list.append(args[0].clone());
-                // Return the modified list (or could return NULL)
-                RuntimeResult::new().success(Value::List(list))
+                let updated = Value::List(list);
+                (
+                    RuntimeResult::new().success(updated.clone()),
+                    Some(updated),
+                )
             }
             (Value::List(mut list), "pop") => {
-                let index = if args.len() >= 1 {
+                let index = if !args.is_empty() {
                     match &args[0] {
                         Value::Number(n) => n.as_index(),
                         _ => None,
@@ -1727,68 +2028,53 @@ impl Interpreter {
                 } else {
                     None
                 };
-                if let Some(popped) = list.pop(index) {
-                    // Need to also return the modified list if you want chainable methods
-                    // For now, return popped value
-                    RuntimeResult::new().success(popped)
-                } else {
-                    RuntimeResult::new().failure(
-                        RuntimeError::new(
-                            Self::dummy_pos(),
-                            Self::dummy_pos(),
-                            "pop index out of bounds",
-                            Some(context.clone()),
-                        )
-                        .base,
-                    )
+                match list.pop(index) {
+                    // The popped element is the call's value; the shortened
+                    // list is what the variable should now hold.
+                    Some(popped) => (
+                        RuntimeResult::new().success(popped),
+                        Some(Value::List(list)),
+                    ),
+                    None => fail("pop index out of bounds"),
                 }
             }
-            (Value::List(list), "len") => {
-                RuntimeResult::new().success(Value::int(list.len() as i64))
-            }
-            (Value::Map(map), "items") => RuntimeResult::new().success(Value::List(map.items())),
-            (Value::Map(map), "keys") => RuntimeResult::new().success(Value::List(map.keys())),
-            (Value::Map(map), "values") => RuntimeResult::new().success(Value::List(map.values())),
-            (Value::Map(map), "len") => {
-                RuntimeResult::new().success(Value::int(map.len() as i64))
-            }
+            (Value::List(list), "len") => (
+                RuntimeResult::new().success(Value::int(list.len() as i64)),
+                None,
+            ),
+            (Value::Map(map), "items") => (
+                RuntimeResult::new().success(Value::List(map.items())),
+                None,
+            ),
+            (Value::Map(map), "keys") => (
+                RuntimeResult::new().success(Value::List(map.keys())),
+                None,
+            ),
+            (Value::Map(map), "values") => (
+                RuntimeResult::new().success(Value::List(map.values())),
+                None,
+            ),
+            (Value::Map(map), "len") => (
+                RuntimeResult::new().success(Value::int(map.len() as i64)),
+                None,
+            ),
             (Value::Map(map), "has_key") => {
                 if args.len() != 1 {
-                    return RuntimeResult::new().failure(
-                        RuntimeError::new(
-                            Self::dummy_pos(),
-                            Self::dummy_pos(),
-                            "has_key expects 1 argument",
-                            Some(context.clone()),
-                        )
-                        .base,
-                    );
+                    return fail("has_key expects 1 argument");
                 }
-                let key = match &args[0] {
-                    Value::String(s) => &s.value,
-                    _ => {
-                        return RuntimeResult::new().failure(
-                            RuntimeError::new(
-                                Self::dummy_pos(),
-                                Self::dummy_pos(),
-                                "has_key expects a string key",
-                                Some(context.clone()),
-                            )
-                            .base,
-                        );
-                    }
+                let Value::String(key) = &args[0] else {
+                    return fail("has_key expects a string key");
                 };
-                RuntimeResult::new().success(Value::Bool(map.contains_key(key)))
-            }
-_ => RuntimeResult::new().failure(
-                RuntimeError::new(
-                    Self::dummy_pos(),
-                    Self::dummy_pos(),
-                    &format!("Method '{}' not found on object", method_name),
-                    Some(context.clone()),
+                (
+                    RuntimeResult::new().success(Value::Bool(map.contains_key(&key.value))),
+                    None,
                 )
-                .base,
+            }
+            (Value::String(s), "len") => (
+                RuntimeResult::new().success(Value::int(s.value.chars().count() as i64)),
+                None,
             ),
+            (_, name) => fail(&format!("Method '{}' not found on object", name)),
         }
     }
 
@@ -1877,7 +2163,7 @@ _ => RuntimeResult::new().failure(
                                 tuple_values.len()
                             ),
                         )
-                        .with_code("XEN100"),
+                        .with_code("XEN020"),
                     );
                 }
 

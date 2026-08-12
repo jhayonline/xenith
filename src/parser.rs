@@ -72,6 +72,18 @@ impl Parser {
         matches!(tok.kind, TokenType::Newline | TokenType::Semicolon)
     }
 
+    /// Consumes any run of line breaks. Used inside bracketed constructs,
+    /// where a newline is layout rather than the end of a statement.
+    fn skip_line_breaks(&mut self) {
+        while let Some(tok) = self.current_token() {
+            if Self::is_line_break(tok) {
+                self.advance();
+            } else {
+                break;
+            }
+        }
+    }
+
     fn dummy_pos() -> Position {
         Position::new(0, 0, 0, "", "")
     }
@@ -1400,6 +1412,54 @@ impl Parser {
         if let Some(tok) = self.current_token() {
             if tok.matches(TokenType::Keyword, Some("let")) {
                 return self.var_declaration();
+            }
+        }
+
+        // Indexed assignment: `xs[0] = v`, `m["key"] = v`, `grid[1][2] = v`.
+        // `call()` already parses the whole postfix chain, so this only has to
+        // notice that an `=` follows it.
+        if let Some(tok) = self.current_token() {
+            if tok.kind == TokenType::Identifier {
+                let starts_with_index =
+                    matches!(self.peek_token(), Some(t) if t.kind == TokenType::LSquare);
+
+                if starts_with_index {
+                    let target_result = self.call();
+
+                    if target_result.error.is_none() {
+                        let is_assignment =
+                            matches!(self.current_token(), Some(t) if t.kind == TokenType::Eq);
+
+                        if is_assignment {
+                            let eq_token = self.current_token().unwrap().clone();
+                            self.advance();
+
+                            let value_result = self.expr();
+                            if value_result.error.is_some() {
+                                return value_result;
+                            }
+
+                            let value = value_result.node.unwrap();
+                            let pos_end = value.position_end().clone();
+
+                            return ParseResult::new().success(Node::BinaryOperator(Box::new(
+                                BinaryOperatorNode {
+                                    left_node: Box::new(target_result.node.unwrap()),
+                                    operator_token: eq_token,
+                                    right_node: Box::new(value),
+                                    position_start: self.tokens[start_index]
+                                        .position_start
+                                        .clone(),
+                                    position_end: pos_end,
+                                },
+                            )));
+                        }
+                    }
+
+                    // Not an assignment after all -- it was an ordinary index
+                    // expression. Rewind and let the normal path handle it.
+                    self.token_index = start_index;
+                }
             }
         }
 
@@ -2879,7 +2939,76 @@ impl Parser {
         }
     }
 
+    /// Entry point for binary expressions, lowest precedence first:
+    ///
+    /// ```text
+    /// comp_expr  ->  or_expr
+    /// or_expr    ->  and_expr  ( "||" and_expr )*
+    /// and_expr   ->  rel_expr  ( "&&" rel_expr )*
+    /// rel_expr   ->  arith_expr ( ("=="|"!="|"<"|">"|"<="|">=") arith_expr )*
+    /// arith_expr ->  term ( ("+"|"-") term )*
+    /// term       ->  cast_expr ( ("*"|"/"|"%") cast_expr )*
+    /// cast_expr  ->  factor ( "as" TYPE )*
+    /// ```
+    ///
+    /// These used to share one level, which made `a > 1 && b < 2` group as
+    /// `((a > 1) && b) < 2` -- and put `as` below `*`, so `n as float / 2.0`
+    /// never reached the division.
     fn comp_expr(&mut self) -> ParseResult {
+        self.or_expr()
+    }
+
+    fn or_expr(&mut self) -> ParseResult {
+        let mut result = ParseResult::new();
+
+        let left = result.register(&self.and_expr());
+        if result.error.is_some() {
+            return result;
+        }
+        let mut left = left.unwrap();
+
+        while let Some(tok) = self.current_token().cloned() {
+            if !tok.matches(TokenType::Keyword, Some("||")) {
+                break;
+            }
+            self.advance();
+
+            let right = result.register(&self.and_expr());
+            if result.error.is_some() {
+                return result;
+            }
+            left = Node::bin_op(left, tok, right.unwrap());
+        }
+
+        result.success(left)
+    }
+
+    fn and_expr(&mut self) -> ParseResult {
+        let mut result = ParseResult::new();
+
+        let left = result.register(&self.rel_expr());
+        if result.error.is_some() {
+            return result;
+        }
+        let mut left = left.unwrap();
+
+        while let Some(tok) = self.current_token().cloned() {
+            if !tok.matches(TokenType::Keyword, Some("&&")) {
+                break;
+            }
+            self.advance();
+
+            let right = result.register(&self.rel_expr());
+            if result.error.is_some() {
+                return result;
+            }
+            left = Node::bin_op(left, tok, right.unwrap());
+        }
+
+        result.success(left)
+    }
+
+    fn rel_expr(&mut self) -> ParseResult {
         let mut result = ParseResult::new();
 
         let left = result.register(&self.arith_expr());
@@ -2889,11 +3018,8 @@ impl Parser {
         let mut left = left.unwrap();
 
         while let Some(tok) = self.current_token().cloned() {
-            let op_type = tok.kind.clone();
-
-            // Check for comparison operators
-            let is_operator = matches!(
-                op_type,
+            let is_comparison = matches!(
+                tok.kind,
                 TokenType::Ee
                     | TokenType::Ne
                     | TokenType::Lt
@@ -2901,72 +3027,79 @@ impl Parser {
                     | TokenType::Lte
                     | TokenType::Gte
             );
-
-            // Check for logical operators (&& and || are keywords)
-            let is_logical = tok.matches(TokenType::Keyword, Some("&&"))
-                || tok.matches(TokenType::Keyword, Some("||"));
-
-            // Check for 'as' type conversion (keyword)
-            let is_as = tok.matches(TokenType::Keyword, Some("as"));
-
-            if !is_operator && !is_logical && !is_as {
+            if !is_comparison {
                 break;
             }
-
-            let op = tok.clone();
             self.advance();
 
-            if is_as {
-                // For 'as', the right side should be a type name, not a full expression
-                // Parse the type name (int, float, string, bool)
-                let type_name = match self.current_token() {
-                    Some(t) if t.kind == TokenType::TypeInt => "int",
-                    Some(t) if t.kind == TokenType::TypeFloat => "float",
-                    Some(t) if t.kind == TokenType::TypeString => "string",
-                    Some(t) if t.kind == TokenType::TypeBool => "bool",
-                    Some(t) => {
-                        return result.failure(
-                            InvalidSyntaxError::new(
-                                t.position_start.clone(),
-                                t.position_end.clone(),
-                                &format!("Expected type name after 'as', got {:?}", t.kind),
-                            )
-                            .base,
-                        );
-                    }
-                    None => {
-                        return result.failure(
-                            InvalidSyntaxError::new(
-                                Self::dummy_pos(),
-                                Self::dummy_pos(),
-                                "Expected type name after 'as'",
-                            )
-                            .base,
-                        );
-                    }
-                };
-
-                let type_token = self.current_token().unwrap().clone();
-                self.advance();
-
-                // Create a string node for the type name
-                let right = Node::String(StringNode::new(Token::new(
-                    TokenType::String,
-                    Some(type_name.to_string()),
-                    type_token.position_start.clone(),
-                    Some(type_token.position_end.clone()),
-                )));
-
-                left = Node::bin_op(left, op, right);
-            } else {
-                // Regular operator - parse right side as expression
-                let right = result.register(&self.arith_expr());
-                if result.error.is_some() {
-                    return result;
-                }
-                let right = right.unwrap();
-                left = Node::bin_op(left, op, right);
+            let right = result.register(&self.arith_expr());
+            if result.error.is_some() {
+                return result;
             }
+            left = Node::bin_op(left, tok, right.unwrap());
+        }
+
+        result.success(left)
+    }
+
+    /// `x as int` -- binds tighter than arithmetic, so `n as float / 2.0`
+    /// divides the converted value rather than trying to convert `float / 2.0`.
+    fn cast_expr(&mut self) -> ParseResult {
+        let mut result = ParseResult::new();
+
+        let left = result.register(&self.factor());
+        if result.error.is_some() {
+            return result;
+        }
+        let mut left = left.unwrap();
+
+        while let Some(tok) = self.current_token().cloned() {
+            if !tok.matches(TokenType::Keyword, Some("as")) {
+                break;
+            }
+            self.advance();
+
+            // Only a primitive type name may follow `as`.
+            let type_name = match self.current_token() {
+                Some(t) if t.kind == TokenType::TypeInt => "int",
+                Some(t) if t.kind == TokenType::TypeFloat => "float",
+                Some(t) if t.kind == TokenType::TypeString => "string",
+                Some(t) if t.kind == TokenType::TypeBool => "bool",
+                Some(t) => {
+                    return result.failure(
+                        InvalidSyntaxError::new(
+                            t.position_start.clone(),
+                            t.position_end.clone(),
+                            &format!("Expected type name after 'as', got {:?}", t.kind),
+                        )
+                        .with_help("`as` converts to int, float, string or bool")
+                        .base,
+                    );
+                }
+                None => {
+                    return result.failure(
+                        InvalidSyntaxError::new(
+                            Self::dummy_pos(),
+                            Self::dummy_pos(),
+                            "Expected type name after 'as'",
+                        )
+                        .base,
+                    );
+                }
+            };
+
+            let type_token = self.current_token().unwrap().clone();
+            self.advance();
+
+            // The interpreter reads the target type off a string node.
+            let right = Node::String(StringNode::new(Token::new(
+                TokenType::String,
+                Some(type_name.to_string()),
+                type_token.position_start.clone(),
+                Some(type_token.position_end.clone()),
+            )));
+
+            left = Node::bin_op(left, tok, right);
         }
 
         result.success(left)
@@ -3005,7 +3138,7 @@ impl Parser {
     fn term(&mut self) -> ParseResult {
         let mut result = ParseResult::new();
 
-        let left = result.register(&self.factor());
+        let left = result.register(&self.cast_expr());
         if result.error.is_some() {
             return result;
         }
@@ -3024,7 +3157,7 @@ impl Parser {
             let op = tok.clone();
             self.advance();
 
-            let right = result.register(&self.factor());
+            let right = result.register(&self.cast_expr());
             if result.error.is_some() {
                 return result;
             }
@@ -3965,6 +4098,11 @@ impl Parser {
         };
         self.advance();
 
+        // Inside brackets a line break is layout, not the end of a statement,
+        // so a list literal can be spread over several lines the way a map
+        // literal already could.
+        self.skip_line_breaks();
+
         // Empty list
         if let Some(t) = self.current_token().cloned() {
             if t.kind == TokenType::RSquare {
@@ -3986,12 +4124,21 @@ impl Parser {
         if let Some(e) = elem {
             elements.push(Box::new(e));
         }
+        self.skip_line_breaks();
 
         while let Some(t) = self.current_token() {
             if t.kind != TokenType::Comma {
                 break;
             }
             self.advance();
+            self.skip_line_breaks();
+
+            // A trailing comma before the closing bracket is allowed.
+            if let Some(t) = self.current_token() {
+                if t.kind == TokenType::RSquare {
+                    break;
+                }
+            }
 
             let next_elem = result.register(&self.expr());
             if result.error.is_some() {
@@ -4000,6 +4147,7 @@ impl Parser {
             if let Some(e) = next_elem {
                 elements.push(Box::new(e));
             }
+            self.skip_line_breaks();
         }
 
         match self.current_token() {

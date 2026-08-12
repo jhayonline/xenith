@@ -1,0 +1,45 @@
+# Maintainer: jhayonline <themarathondev7@gmail.com>
+#
+# Builds Xenith from the local checkout two directories up. Run `makepkg -si`
+# from this directory to install system-wide into /usr/bin.
+#
+# Prefer `cargo install --path .` for day-to-day development; this exists so the
+# interpreter and language server can be tracked by pacman like anything else.
+
+pkgname=xenith
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="The Xenith programming language: interpreter, REPL and language server"
+arch=('x86_64' 'aarch64')
+url="https://github.com/jhayonline/xenith"
+license=('MIT')
+depends=('gcc-libs')
+makedepends=('cargo')
+provides=('xenith' 'xenith-lsp')
+conflicts=('xenith-git')
+options=('!lto')  # the release profile already enables LTO
+
+_repo="$(realpath "${startdir}/../..")"
+
+prepare() {
+    cd "$_repo"
+    cargo fetch --locked
+}
+
+build() {
+    cd "$_repo"
+    export RUSTUP_TOOLCHAIN=stable
+    export CARGO_TARGET_DIR="${srcdir}/target"
+    cargo build --frozen --release --all-targets
+}
+
+package() {
+    install -Dm755 "${srcdir}/target/release/xenith" "${pkgdir}/usr/bin/xenith"
+    install -Dm755 "${srcdir}/target/release/xenith-lsp" "${pkgdir}/usr/bin/xenith-lsp"
+    install -Dm644 "${_repo}/LICENSE" "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+    install -Dm644 "${_repo}/README.md" "${pkgdir}/usr/share/doc/${pkgname}/README.md"
+
+    # Editor support, for anyone who wants to source it from /usr/share.
+    install -dm755 "${pkgdir}/usr/share/${pkgname}/editors"
+    cp -r "${_repo}/editors/nvim" "${pkgdir}/usr/share/${pkgname}/editors/"
+}
