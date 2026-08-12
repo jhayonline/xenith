@@ -34,6 +34,7 @@ pub fn source(name: &str) -> Option<&'static str> {
     match name {
         "string" => Some(include_str!("string.xen")),
         "math" => Some(include_str!("math.xen")),
+        "fs" => Some(include_str!("fs.xen")),
         _ => None,
     }
 }

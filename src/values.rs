@@ -837,6 +837,17 @@ impl BuiltInFunction {
             "len" => self.len(args, call_pos),
             "run" => self.run(args, interpreter, call_pos),
             "substring" => self.substring(args, call_pos),
+            "fs_read" => self.fs_read(args, call_pos),
+            "fs_write" => self.fs_write(args, call_pos, false),
+            "fs_append" => self.fs_write(args, call_pos, true),
+            "fs_remove" => self.fs_remove(args, call_pos),
+            "fs_exists" => self.fs_test(args, call_pos, "fs_exists", |p| p.exists()),
+            "fs_is_file" => self.fs_test(args, call_pos, "fs_is_file", |p| p.is_file()),
+            "fs_is_dir" => self.fs_test(args, call_pos, "fs_is_dir", |p| p.is_dir()),
+            "fs_size" => self.fs_size(args, call_pos),
+            "fs_list" => self.fs_list(args, call_pos),
+            "fs_create_dir" => self.fs_create_dir(args, call_pos),
+            "fs_remove_dir" => self.fs_remove_dir(args, call_pos),
             "sin" => self.float_fn("sin", args, call_pos, f64::sin),
             "cos" => self.float_fn("cos", args, call_pos, f64::cos),
             "tan" => self.float_fn("tan", args, call_pos, f64::tan),
@@ -1154,6 +1165,175 @@ impl BuiltInFunction {
         };
 
         RuntimeResult::new().success(Value::float(y.atan2(*x)))
+    }
+
+    // -- filesystem ------------------------------------------------------
+    //
+    // Every one of these reports failure in a string that is empty when
+    // nothing went wrong, rather than by stopping the program. A missing file
+    // is an ordinary thing for a program to have to handle.
+
+    /// The one string argument these all start with.
+    fn fs_path(&self, name: &str, args: &[Value], call_pos: &Position) -> Result<String, RuntimeResult> {
+        let fail = |detail: String| {
+            RuntimeResult::new().failure(
+                RuntimeError::new(call_pos.clone(), call_pos.clone(), &detail, None)
+                    .with_code("XEN001")
+                    .with_name("Type Mismatch")
+                    .base,
+            )
+        };
+
+        match args.first() {
+            Some(Value::String(path)) => Ok(path.value.clone()),
+            Some(other) => Err(fail(format!(
+                "{} expects a path as a string, found {}",
+                name,
+                Value::get_type_name(other)
+            ))),
+            None => Err(fail(format!("{} expects a path", name))),
+        }
+    }
+
+    fn ok_pair(value: Value) -> RuntimeResult {
+        RuntimeResult::new().success(Value::Tuple(vec![value, Value::string("")]))
+    }
+
+    fn err_pair(empty: Value, message: String) -> RuntimeResult {
+        RuntimeResult::new().success(Value::Tuple(vec![
+            empty,
+            Value::String(XenithString::new(message)),
+        ]))
+    }
+
+    fn outcome(result: std::io::Result<()>) -> RuntimeResult {
+        match result {
+            Ok(()) => RuntimeResult::new().success(Value::string("")),
+            Err(e) => RuntimeResult::new()
+                .success(Value::String(XenithString::new(e.to_string()))),
+        }
+    }
+
+    fn fs_read(&self, args: Vec<Value>, call_pos: Position) -> RuntimeResult {
+        let path = match self.fs_path("fs_read", &args, &call_pos) {
+            Ok(path) => path,
+            Err(failure) => return failure,
+        };
+
+        match std::fs::read_to_string(&path) {
+            Ok(contents) => Self::ok_pair(Value::String(XenithString::new(contents))),
+            Err(e) => Self::err_pair(Value::string(""), e.to_string()),
+        }
+    }
+
+    fn fs_write(&self, args: Vec<Value>, call_pos: Position, append: bool) -> RuntimeResult {
+        let name = if append { "fs_append" } else { "fs_write" };
+        let path = match self.fs_path(name, &args, &call_pos) {
+            Ok(path) => path,
+            Err(failure) => return failure,
+        };
+
+        let Some(Value::String(contents)) = args.get(1) else {
+            return RuntimeResult::new().failure(
+                RuntimeError::new(
+                    call_pos.clone(),
+                    call_pos,
+                    &format!("{} expects the contents as a string", name),
+                    None,
+                )
+                .with_code("XEN001")
+                .with_name("Type Mismatch")
+                .base,
+            );
+        };
+
+        let result = if append {
+            use std::io::Write as _;
+            std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&path)
+                .and_then(|mut file| file.write_all(contents.value.as_bytes()))
+        } else {
+            std::fs::write(&path, &contents.value)
+        };
+
+        Self::outcome(result)
+    }
+
+    fn fs_remove(&self, args: Vec<Value>, call_pos: Position) -> RuntimeResult {
+        match self.fs_path("fs_remove", &args, &call_pos) {
+            Ok(path) => Self::outcome(std::fs::remove_file(path)),
+            Err(failure) => failure,
+        }
+    }
+
+    fn fs_create_dir(&self, args: Vec<Value>, call_pos: Position) -> RuntimeResult {
+        match self.fs_path("fs_create_dir", &args, &call_pos) {
+            Ok(path) => Self::outcome(std::fs::create_dir_all(path)),
+            Err(failure) => failure,
+        }
+    }
+
+    fn fs_remove_dir(&self, args: Vec<Value>, call_pos: Position) -> RuntimeResult {
+        match self.fs_path("fs_remove_dir", &args, &call_pos) {
+            Ok(path) => Self::outcome(std::fs::remove_dir(path)),
+            Err(failure) => failure,
+        }
+    }
+
+    fn fs_test(
+        &self,
+        args: Vec<Value>,
+        call_pos: Position,
+        name: &str,
+        test: fn(&std::path::Path) -> bool,
+    ) -> RuntimeResult {
+        match self.fs_path(name, &args, &call_pos) {
+            Ok(path) => {
+                RuntimeResult::new().success(Value::Bool(test(std::path::Path::new(&path))))
+            }
+            Err(failure) => failure,
+        }
+    }
+
+    fn fs_size(&self, args: Vec<Value>, call_pos: Position) -> RuntimeResult {
+        let path = match self.fs_path("fs_size", &args, &call_pos) {
+            Ok(path) => path,
+            Err(failure) => return failure,
+        };
+
+        match std::fs::metadata(&path) {
+            Ok(meta) => Self::ok_pair(Value::int(meta.len() as i64)),
+            Err(e) => Self::err_pair(Value::int(0), e.to_string()),
+        }
+    }
+
+    /// Names in a directory, sorted so a program that walks one behaves the
+    /// same on every machine and every run.
+    fn fs_list(&self, args: Vec<Value>, call_pos: Position) -> RuntimeResult {
+        let path = match self.fs_path("fs_list", &args, &call_pos) {
+            Ok(path) => path,
+            Err(failure) => return failure,
+        };
+
+        let entries = match std::fs::read_dir(&path) {
+            Ok(entries) => entries,
+            Err(e) => return Self::err_pair(Value::list(Vec::new()), e.to_string()),
+        };
+
+        let mut names: Vec<String> = Vec::new();
+        for entry in entries {
+            match entry {
+                Ok(entry) => names.push(entry.file_name().to_string_lossy().to_string()),
+                Err(e) => return Self::err_pair(Value::list(Vec::new()), e.to_string()),
+            }
+        }
+        names.sort();
+
+        Self::ok_pair(Value::list(
+            names.into_iter().map(|n| Value::string(&n)).collect(),
+        ))
     }
 
     /// The characters of `text` from `start` up to but not including `end`.

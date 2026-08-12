@@ -88,7 +88,7 @@ to definition, references, rename, document symbols and completion. Any LSP capa
 
 - **[Tutorial](docs/tutorial/README.md)** to learn the language. Nineteen short
   pages covering all of it.
-- **[Internals](docs/internals/README.md)** to work on the interpreter. Eleven
+- **[Internals](docs/internals/README.md)** to work on the interpreter. Twelve
   pages on how it is built and what to fix next.
 
 ## The language in one screen
@@ -148,9 +148,9 @@ methods including closures and passing them as values, modules, a static checker
 that reports every type error before anything runs, and diagnostics that point at
 the right code and suggest a fix.
 
-**Missing:** the standard library is one module. `std::string` is there, written
-in Xenith; maths, files, time and randomness are not, and collections are waiting
-on a decision about generics.
+**Missing:** the standard library covers strings, maths and files, all written in
+Xenith. Time and randomness are not there, and collections are waiting on a
+decision about generics.
 
 The full list, with what to do instead in each case, is
 [Known limitations](docs/tutorial/18-limitations.md).
@@ -161,11 +161,12 @@ A tree walking interpreter, so not fast in absolute terms, but nothing in the ho
 path is doing invisible work. On an idle machine, naive `fib(25)` runs in roughly
 a third of a second and a three million iteration counting loop in under two.
 
-Getting there meant fixing seven things, none of them where profiling was
-expected to point: a function body being deep copied on every reference, the
-whole source file being copied with every position, a 392 byte struct returned
-from every step, an interpolated string re-parsed on every evaluation, an
-allocation on every assignment, and a `Value` twice the size it needed to be.
+Getting there meant fixing nine things, almost none of them where profiling was
+expected to point: a function body deep copied on every reference, the whole
+source file copied with every position, a 392 byte struct returned from every
+step, an interpolated string re-parsed on every evaluation, an allocation on
+every assignment, a `Value` twice the size it needed to be, and every loop
+quietly collecting a list of its own iterations.
 [Performance](docs/internals/10-performance.md) describes each, since they are
 all easy to reintroduce.
 
@@ -178,8 +179,8 @@ cargo test
 The suite is driven by fixtures under `tests/`, so adding a test means adding a
 `.xen` file and its expected output rather than writing Rust. See
 [Contributing](docs/internals/12-contributing.md), which also lists what is worth
-working on. The short version: a static type checking pass is the most important
-thing missing.
+working on. The short version: more of the standard library, and a decision about
+generics before collections can be written.
 
 ## License
 

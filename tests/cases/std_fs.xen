@@ -1,0 +1,60 @@
+# std::fs. Runs in a scratch directory of its own, so it can write freely.
+
+grab { write, read, append, remove, exists, is_file, is_dir, size } from "std::fs"
+grab { read_lines, write_lines, copy } from "std::fs"
+grab { list_dir, create_dir, remove_dir } from "std::fs"
+grab { basename, dirname, extension, stem, join_path, with_extension } from "std::fs"
+
+# Writing and reading back
+echo("write [{write("a.txt", "one\ntwo\nthree\n")}]")
+let (text, read_error) = read("a.txt")
+echo("read [{read_error}] {text.len()} characters")
+
+echo("exists {exists("a.txt")} is_file {is_file("a.txt")} is_dir {is_dir("a.txt")}")
+let (bytes, size_error) = size("a.txt")
+echo("size {bytes} [{size_error}]")
+
+# Appending
+echo("append [{append("a.txt", "four\n")}]")
+let (lines, lines_error) = read_lines("a.txt")
+echo("lines {lines.len()} {ret(lines)} [{lines_error}]")
+
+# A trailing newline does not make a final empty line
+echo("write_lines [{write_lines("b.txt", ["x", "y"])}]")
+let (b_lines, _) = read_lines("b.txt")
+echo("roundtrip {b_lines.len()} {ret(b_lines)}")
+
+# An empty file has no lines
+echo("empty [{write("c.txt", "")}]")
+let (none, _) = read_lines("c.txt")
+echo("empty lines {none.len()}")
+
+# A file that is not there is an error rather than a stop
+let (missing, missing_error) = read("nowhere.txt")
+echo("missing [{missing}] reported {missing_error != ""}")
+let (missing_lines, missing_lines_error) = read_lines("nowhere.txt")
+echo("missing lines {missing_lines.len()} reported {missing_lines_error != ""}")
+
+# Copying
+echo("copy [{copy("b.txt", "d.txt")}]")
+let (copied, _) = read("d.txt")
+echo("copied {copied.len()} characters")
+
+# Directories
+echo("create [{create_dir("nested/deep")}]")
+echo("is_dir {is_dir("nested")}")
+let (inner, list_error) = list_dir("nested")
+echo("listing {ret(inner)} [{list_error}]")
+echo("remove_dir [{remove_dir("nested/deep")}]")
+echo("remove_dir again reported {remove_dir("nested/deep") != ""}")
+
+echo("remove [{remove("a.txt")}]")
+echo("gone {exists("a.txt")}")
+
+# Paths, which touch no files at all
+echo("[{basename("/a/b/c.txt")}] [{basename("c.txt")}] [{basename("/a/")}]")
+echo("[{dirname("/a/b/c.txt")}] [{dirname("c.txt")}] [{dirname("/c.txt")}]")
+echo("[{extension("a/b.tar.gz")}] [{extension("plain")}] [{extension(".gitignore")}]")
+echo("[{stem("a/b.tar.gz")}] [{stem("plain")}] [{stem(".gitignore")}]")
+echo("[{join_path("a", "b")}] [{join_path("a/", "/b")}] [{join_path("", "b")}]")
+echo("[{with_extension("dir/file.txt", "md")}] [{with_extension("file.txt", "")}]")

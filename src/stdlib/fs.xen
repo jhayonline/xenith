@@ -1,0 +1,216 @@
+# std::fs
+#
+# Files and paths. The filesystem itself is reached through the `fs_` builtins,
+# which are the only part of this that cannot be written in Xenith. Everything
+# above them, including all of the path handling, is ordinary Xenith.
+#
+# On failure: anything that touches the filesystem hands back an error as a
+# string, empty when nothing went wrong.
+#
+#     let (text, error) = read(path)
+#     when error != "" { ... }
+#
+# That differs from the `(value, bool)` used elsewhere in the library, and the
+# difference is deliberate. `index_of` failing has exactly one meaning, so a
+# flag says everything. A file operation failing has a dozen, and the reason is
+# most of what the caller needs.
+
+grab { split, join, index_of, last_index_of, is_empty } from "std::string"
+
+# ---------------------------------------------------------------------------
+# Files
+# ---------------------------------------------------------------------------
+
+# The whole file as text, and an error which is empty on success.
+export method read(path: string) -> (string, string) {
+    release fs_read(path)
+}
+
+# Writes text, creating the file or replacing what was there.
+export method write(path: string, contents: string) -> string {
+    release fs_write(path, contents)
+}
+
+# Adds text to the end, creating the file if it is not there.
+export method append(path: string, contents: string) -> string {
+    release fs_append(path, contents)
+}
+
+export method remove(path: string) -> string {
+    release fs_remove(path)
+}
+
+export method exists(path: string) -> bool {
+    release fs_exists(path)
+}
+
+export method is_file(path: string) -> bool {
+    release fs_is_file(path)
+}
+
+export method is_dir(path: string) -> bool {
+    release fs_is_dir(path)
+}
+
+# Size in bytes, and an error which is empty on success.
+export method size(path: string) -> (int, string) {
+    release fs_size(path)
+}
+
+# ---------------------------------------------------------------------------
+# Lines
+# ---------------------------------------------------------------------------
+
+# The file split on newlines. A trailing newline does not produce a final empty
+# line, because a text file conventionally ends with one and almost nobody
+# means it as an extra line.
+export method read_lines(path: string) -> (list<string>, string) {
+    let (text, error) = read(path)
+    when error != "" {
+        release ([], error)
+    }
+    when is_empty(text) {
+        release ([], "")
+    }
+
+    let lines: list<string> = split(text, "\n")
+    when lines.len() > 0 && is_empty(lines[lines.len() - 1]) {
+        # The method form of `pop` changes the list in place, unlike the free
+        # function of the same name.
+        lines.pop(lines.len() - 1)
+    }
+    release (lines, "")
+}
+
+# Writes each line followed by a newline.
+export method write_lines(path: string, lines: list<string>) -> string {
+    when lines.len() == 0 {
+        release write(path, "")
+    }
+    release write(path, join(lines, "\n") + "\n")
+}
+
+# ---------------------------------------------------------------------------
+# Directories
+# ---------------------------------------------------------------------------
+
+# The names in a directory, sorted, without their leading path.
+export method list_dir(path: string) -> (list<string>, string) {
+    release fs_list(path)
+}
+
+# Creates a directory and any missing parents. Fine if it already exists.
+export method create_dir(path: string) -> string {
+    release fs_create_dir(path)
+}
+
+# Deletes an empty directory. There is no recursive form on purpose: removing a
+# tree by accident from a script is not a mistake worth making convenient.
+export method remove_dir(path: string) -> string {
+    release fs_remove_dir(path)
+}
+
+# ---------------------------------------------------------------------------
+# Copying
+# ---------------------------------------------------------------------------
+
+# Copies a file by reading it and writing it out, so it only works for text and
+# holds the whole thing in memory.
+export method copy(source: string, destination: string) -> string {
+    let (text, error) = read(source)
+    when error != "" {
+        release error
+    }
+    release write(destination, text)
+}
+
+# ---------------------------------------------------------------------------
+# Paths
+#
+# Pure string handling, and nothing here touches the filesystem: a path is
+# taken apart the same way whether or not anything exists at it. Separators are
+# forward slashes.
+# ---------------------------------------------------------------------------
+
+const let SEPARATOR: string = "/"
+
+# The last part of a path.
+export method basename(path: string) -> string {
+    let (at, found) = last_index_of(path, SEPARATOR)
+    when !found {
+        release path
+    }
+    release substring(path, at + 1, path.len())
+}
+
+# Everything before the last part. "." when there is no separator, so the
+# result is always usable as a directory.
+export method dirname(path: string) -> string {
+    let (at, found) = last_index_of(path, SEPARATOR)
+    when !found {
+        release "."
+    }
+    when at == 0 {
+        release SEPARATOR
+    }
+    release substring(path, 0, at)
+}
+
+# The extension without its dot, empty when there is none. A leading dot means
+# a hidden file rather than an extension, so ".gitignore" has none.
+export method extension(path: string) -> string {
+    let name: string = basename(path)
+    let (at, found) = last_index_of(name, ".")
+    when !found || at == 0 {
+        release ""
+    }
+    release substring(name, at + 1, name.len())
+}
+
+# The last part without its extension.
+export method stem(path: string) -> string {
+    let name: string = basename(path)
+    let (at, found) = last_index_of(name, ".")
+    when !found || at == 0 {
+        release name
+    }
+    release substring(name, 0, at)
+}
+
+# Joins two path pieces with a single separator between them.
+export method join_path(left: string, right: string) -> string {
+    when is_empty(left) {
+        release right
+    }
+    when is_empty(right) {
+        release left
+    }
+
+    let trimmed: string = left
+    when left[left.len() - 1] == SEPARATOR {
+        trimmed = substring(left, 0, left.len() - 1)
+    }
+
+    let tail: string = right
+    when right[0] == SEPARATOR {
+        tail = substring(right, 1, right.len())
+    }
+
+    release trimmed + SEPARATOR + tail
+}
+
+# The same path with a different extension. An empty extension removes it.
+export method with_extension(path: string, extension: string) -> string {
+    let base: string = stem(path)
+    let dir: string = dirname(path)
+    let name: string = base
+
+    when !is_empty(extension) {
+        name = base + "." + extension
+    }
+
+    when dir == "." {
+        release name
+    }
+    release join_path(dir, name)
+}

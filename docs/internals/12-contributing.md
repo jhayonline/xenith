@@ -23,6 +23,7 @@ fixture rather than writing Rust.
 | Directory | Holds | Checked against |
 | --- | --- | --- |
 | `tests/cases/` | `name.xen` with `name.out` | exit 0 and byte identical stdout |
+| | | each runs in a scratch directory of its own, so a fixture may write files |
 | `tests/errors/` | `name.xen` with `name.err` | non zero exit and that error code in stderr |
 | `tests/modules/` | `main.xen` and the module it imports | exit 0 and its `.out` |
 | `testies/` | the older samples, with no expected output | that they still run at all |
@@ -92,6 +93,12 @@ Write it in Xenith. Reach for a Rust builtin only when the language genuinely
 cannot express the thing, not when Rust would be faster; that question gets asked
 later, with measurements, and moving a function into the interpreter does not
 change its signature.
+
+When a primitive is needed, its name says what kind of thing it is. An operation
+on a built in type is global under its own name, like `substring` or `sin`. A
+service is prefixed and wrapped by the module, like the `fs_` family: reading a
+file is something a program asks the world to do, and that should be visible in
+its imports.
 
 The library is checked by the same static pass as any other module, so a type
 error in it fails at the `grab` rather than silently.

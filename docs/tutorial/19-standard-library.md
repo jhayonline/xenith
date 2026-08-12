@@ -369,9 +369,139 @@ They take floats, not ints. The language does not convert between the two
 anywhere else and this is not where it should start, so `sqrt(n as float)` says
 what it does.
 
+## std::fs
+
+Files and paths. This is the one module where failure is ordinary rather than
+exceptional, so it reports differently from the rest of the library.
+
+### How failure is reported
+
+Anything that touches the filesystem hands back an error as a string, empty when
+nothing went wrong:
+
+```xenith
+grab { read } from "std::fs"
+
+let (text, error) = read("nowhere.txt")
+
+when error != "" {
+    echo("could not read it")
+} otherwise {
+    echo(text)
+}
+```
+
+```
+could not read it
+```
+
+That is not the `(value, bool)` used everywhere else, and the difference is
+deliberate. `index_of` failing has exactly one meaning, so a flag says
+everything. A file operation failing has a dozen, and the reason is most of what
+a caller needs.
+
+Operations with nothing to return give back only the error:
+
+```xenith
+grab { write } from "std::fs"
+
+let error: string = write("out.txt", "hello")
+when error == "" {
+    echo("written")
+}
+```
+
+```
+written
+```
+
+### Files
+
+| Function | |
+| --- | --- |
+| `read(path)` | `(contents, error)` |
+| `write(path, contents)` | replaces what was there, returns an error |
+| `append(path, contents)` | adds to the end |
+| `remove(path)` | |
+| `exists(path)`, `is_file(path)`, `is_dir(path)` | plain `bool` |
+| `size(path)` | `(bytes, error)` |
+| `copy(source, destination)` | text files only |
+
+### Lines
+
+`read_lines(path)` gives `(list<string>, error)`, and `write_lines(path, lines)`
+writes each with a newline after it. A trailing newline does not become a final
+empty line, because a text file conventionally ends with one and almost nobody
+means it as an extra line:
+
+```xenith
+grab { write_lines, read_lines } from "std::fs"
+
+write_lines("notes.txt", ["first", "second"])
+
+let (lines, error) = read_lines("notes.txt")
+echo("{lines.len()} {ret(lines)}")
+```
+
+```
+2 [first, second]
+```
+
+### Directories
+
+`list_dir(path)` gives `(list<string>, error)`, sorted and without the leading
+path, so a program that walks a directory behaves the same on every machine.
+`create_dir(path)` makes any missing parents and is happy if the directory is
+already there.
+
+`remove_dir(path)` deletes an empty directory. There is no recursive form on
+purpose: removing a tree by accident from a script is not a mistake worth making
+convenient.
+
+### Paths
+
+These touch no files at all. A path is taken apart the same way whether or not
+anything exists at it. Separators are forward slashes.
+
+| Function | `"/a/b/c.txt"` gives |
+| --- | --- |
+| `basename(path)` | `c.txt` |
+| `dirname(path)` | `/a/b` |
+| `extension(path)` | `txt` |
+| `stem(path)` | `c` |
+| `join_path(left, right)` | one separator between, however many you supplied |
+| `with_extension(path, ext)` | the same path with a different ending |
+
+```xenith
+grab { basename, dirname, extension, stem, join_path, with_extension } from "std::fs"
+
+echo("{basename("/a/b/c.txt")} {dirname("/a/b/c.txt")}")
+echo("{extension("archive.tar.gz")} {stem("archive.tar.gz")}")
+echo("{join_path("a/", "/b")}")
+echo("{with_extension("notes/draft.txt", "md")}")
+echo("[{extension(".gitignore")}]")
+```
+
+```
+c.txt /a/b
+gz archive.tar
+a/b
+notes/draft.md
+[]
+```
+
+A leading dot means a hidden file rather than an extension, so `.gitignore` has
+none.
+
+All of the path handling is written in Xenith on top of `std::string`. Only the
+filesystem itself needs primitives, and those carry an `fs_` prefix: an operation
+on a built in type like `substring` is global under its own name, but reading a
+file is a service, and it should be visible in the imports that a program does
+it.
+
 ## What is not here yet
 
-Files, time and randomness. Collections are waiting on a decision about generics:
+Time and randomness. Collections are waiting on a decision about generics:
 without them there is no way to write one `map` or `filter` that works for a
 `list<int>` and a `list<string>` both, and `std::math` already shows the cost in
 its `_float` suffixes.

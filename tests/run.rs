@@ -34,8 +34,32 @@ struct Run {
 }
 
 fn run(program: &Path) -> Run {
+    run_in(program, &repo_root())
+}
+
+/// Runs a fixture with a working directory of its own.
+///
+/// Fixtures are given an absolute path, so module resolution follows the file
+/// rather than the current directory. What the directory decides is where a
+/// fixture that writes files puts them, which is why the cases get a scratch
+/// one: without it a filesystem test scatters its output across the repository.
+fn run_scratched(program: &Path) -> Run {
+    let name = program.file_stem().unwrap().to_string_lossy().to_string();
+    let scratch = std::env::temp_dir().join(format!("xenith-test-{}-{}", name, std::process::id()));
+
+    let _ = fs::remove_dir_all(&scratch);
+    fs::create_dir_all(&scratch).expect("could not make a scratch directory");
+
+    let result = run_in(program, &scratch);
+
+    let _ = fs::remove_dir_all(&scratch);
+    result
+}
+
+fn run_in(program: &Path, working_dir: &Path) -> Run {
     let output = Command::new(XENITH)
         .arg(program)
+        .current_dir(working_dir)
         .output()
         .unwrap_or_else(|e| panic!("could not run {}: {e}", program.display()));
 
@@ -97,7 +121,7 @@ fn cases_produce_expected_output() {
             )
         });
 
-        let result = run(&program);
+        let result = run_scratched(&program);
         checked += 1;
         let name = program.file_name().unwrap().to_string_lossy().to_string();
 

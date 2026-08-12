@@ -150,6 +150,72 @@ pub const BUILTIN_FUNCTIONS: &[BuiltinFn] = &[
         signature: "exp(x) -> float",
         doc: "e raised to the power of x, the inverse of `log`.",
     },
+    // The filesystem primitives.
+    //
+    // These carry an `fs_` prefix and are wrapped by `std::fs`, unlike
+    // `substring` or `sin` which are global under their own names. The rule:
+    // an operation on a built in type is global, a service is prefixed and
+    // imported. Reading a file is something a program asks the world to do,
+    // and it should be visible in the imports that it does.
+    //
+    // Anything that can fail reports it in a string that is empty when nothing
+    // went wrong. A bool would say only that something failed, and for the
+    // filesystem the reason is most of the information.
+    BuiltinFn {
+        name: "fs_read",
+        signature: "fs_read(path) -> (string, string)",
+        doc: "The whole file as text, and an error which is empty on success. Fails on a file that is not valid UTF-8.",
+    },
+    BuiltinFn {
+        name: "fs_write",
+        signature: "fs_write(path, contents) -> string",
+        doc: "Writes text to a file, creating it or replacing what was there. Returns an error, empty on success.",
+    },
+    BuiltinFn {
+        name: "fs_append",
+        signature: "fs_append(path, contents) -> string",
+        doc: "Adds text to the end of a file, creating it if needed. Returns an error, empty on success.",
+    },
+    BuiltinFn {
+        name: "fs_remove",
+        signature: "fs_remove(path) -> string",
+        doc: "Deletes a file. Returns an error, empty on success.",
+    },
+    BuiltinFn {
+        name: "fs_exists",
+        signature: "fs_exists(path) -> bool",
+        doc: "Whether anything exists at that path, file or directory.",
+    },
+    BuiltinFn {
+        name: "fs_is_file",
+        signature: "fs_is_file(path) -> bool",
+        doc: "Whether the path is a file.",
+    },
+    BuiltinFn {
+        name: "fs_is_dir",
+        signature: "fs_is_dir(path) -> bool",
+        doc: "Whether the path is a directory.",
+    },
+    BuiltinFn {
+        name: "fs_size",
+        signature: "fs_size(path) -> (int, string)",
+        doc: "The size of a file in bytes, and an error which is empty on success.",
+    },
+    BuiltinFn {
+        name: "fs_list",
+        signature: "fs_list(path) -> (list, string)",
+        doc: "The names in a directory, sorted, without their leading path. And an error, empty on success.",
+    },
+    BuiltinFn {
+        name: "fs_create_dir",
+        signature: "fs_create_dir(path) -> string",
+        doc: "Creates a directory and any missing parents. Succeeds if it is already there.",
+    },
+    BuiltinFn {
+        name: "fs_remove_dir",
+        signature: "fs_remove_dir(path) -> string",
+        doc: "Deletes an empty directory. There is deliberately no recursive form: deleting a tree by accident from a script is not a mistake worth making convenient.",
+    },
     BuiltinFn {
         name: "run",
         signature: "run(path) -> value",

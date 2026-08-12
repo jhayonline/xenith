@@ -262,6 +262,20 @@ anywhere else, so `sqrt(n as float)` says what it does.
 [std::math](19-standard-library.md) has `abs`, `floor`, `round`, `sqrt` and the
 rest, written in Xenith on top of these.
 
+## Filesystem primitives
+
+`fs_read`, `fs_write`, `fs_append`, `fs_remove`, `fs_exists`, `fs_is_file`,
+`fs_is_dir`, `fs_size`, `fs_list`, `fs_create_dir` and `fs_remove_dir`.
+
+Unlike the others on this page these carry a prefix, and
+[std::fs](19-standard-library.md) wraps them under plain names. The rule: an
+operation on a built in type is global under its own name, a service is prefixed
+and imported. Reading a file is something a program asks the world to do, and it
+should be visible in the imports that it does.
+
+Use `std::fs`. These are documented so that the line between what the language
+provides and what the library adds is clear, not because you should call them.
+
 ## format
 
 ### String primitives
@@ -291,6 +305,20 @@ anywhere else, so `sqrt(n as float)` says what it does.
 
 [std::math](19-standard-library.md) has `abs`, `floor`, `round`, `sqrt` and the
 rest, written in Xenith on top of these.
+
+## Filesystem primitives
+
+`fs_read`, `fs_write`, `fs_append`, `fs_remove`, `fs_exists`, `fs_is_file`,
+`fs_is_dir`, `fs_size`, `fs_list`, `fs_create_dir` and `fs_remove_dir`.
+
+Unlike the others on this page these carry a prefix, and
+[std::fs](19-standard-library.md) wraps them under plain names. The rule: an
+operation on a built in type is global under its own name, a service is prefixed
+and imported. Reading a file is something a program asks the world to do, and it
+should be visible in the imports that it does.
+
+Use `std::fs`. These are documented so that the line between what the language
+provides and what the library adds is clear, not because you should call them.
 
 ## format(text)
 

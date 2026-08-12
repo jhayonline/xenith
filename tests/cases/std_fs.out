@@ -1,0 +1,27 @@
+write []
+read [] 14 characters
+exists true is_file true is_dir false
+size 14 []
+append []
+lines 4 [one, two, three, four] []
+write_lines []
+roundtrip 2 [x, y]
+empty []
+empty lines 0
+missing [] reported true
+missing lines 0 reported true
+copy []
+copied 4 characters
+create []
+is_dir true
+listing deep []
+remove_dir []
+remove_dir again reported true
+remove []
+gone false
+[c.txt] [c.txt] []
+[/a/b] [.] [/]
+[gz] [] []
+[b.tar] [plain] [.gitignore]
+[a/b] [a/b] [b]
+[dir/file.md] [file]
