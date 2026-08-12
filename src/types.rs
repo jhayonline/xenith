@@ -30,9 +30,6 @@ pub enum Type {
     Alias(String, Box<Type>),
     /// Unknown/not yet resolved (for parsing)
     Unknown,
-    /// JSON type, can hold mixed types (null, bool, number, string, array, object)
-    Json,
-    Union(Vec<Type>),
     Tuple(Vec<Type>),
 }
 
@@ -60,7 +57,6 @@ impl Type {
             Type::Null => "null".to_string(),
             Type::List(_) => "[]".to_string(),
             Type::Map(_, _) => "{}".to_string(),
-            Type::Json => "null".to_string(),
             _ => "null".to_string(),
         }
     }
@@ -86,7 +82,6 @@ impl Type {
             "string" => Type::String,
             "bool" => Type::Bool,
             "null" => Type::Null,
-            "json" => Type::Json,
             "tuple" => Type::Tuple(vec![]),
             _ => Type::Unknown,
         }
@@ -114,12 +109,6 @@ impl Type {
             Type::Struct(name, _) => name.clone(),
             Type::Alias(name, _) => name.clone(),
             Type::Unknown => "unknown".to_string(),
-            Type::Json => "json".to_string(),
-            Type::Union(types) => types
-                .iter()
-                .map(|t| t.to_string())
-                .collect::<Vec<_>>()
-                .join(" | "),
             Type::Tuple(types) => {
                 format!(
                     "({})",
@@ -130,17 +119,6 @@ impl Type {
                         .join(", ")
                 )
             }
-        }
-    }
-
-    pub fn is_union(&self) -> bool {
-        matches!(self, Type::Union(_))
-    }
-
-    pub fn get_union_types(&self) -> Vec<Type> {
-        match self {
-            Type::Union(types) => types.clone(),
-            _ => vec![self.clone()],
         }
     }
 

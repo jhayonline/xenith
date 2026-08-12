@@ -22,6 +22,7 @@ pub enum Node {
     UnaryOp(Box<UnaryOpNode>),
     If(Box<IfNode>),
     For(Box<ForNode>),
+    ForClassic(Box<ForClassicNode>),
     While(Box<WhileNode>),
     FuncDef(Box<FuncDefNode>),
     Call(Box<CallNode>),
@@ -30,14 +31,11 @@ pub enum Node {
     Break(BreakNode),
     InterpolatedString(InterpolatedStringNode),
     MethodAccess(MethodAccessNode),
-    Match(Box<MatchNode>),
     Map(MapNode),
-    TryCatch(Box<TryCatchNode>),
     Panic(Box<PanicNode>),
     Grab(Box<GrabNode>),
     Export(Box<ExportNode>),
     StructDef(Box<StructDefNode>),
-    Impl(Box<ImplNode>),
     TypeAlias(Box<TypeAliasNode>),
     BoolLiteral(BoolLiteralNode),
     NullLiteral(NullLiteralNode),
@@ -60,6 +58,7 @@ impl Node {
             Node::UnaryOp(n) => &n.position_start,
             Node::If(n) => &n.position_start,
             Node::For(n) => &n.position_start,
+            Node::ForClassic(n) => &n.position_start,
             Node::While(n) => &n.position_start,
             Node::FuncDef(n) => &n.position_start,
             Node::Call(n) => &n.position_start,
@@ -68,14 +67,11 @@ impl Node {
             Node::Break(n) => &n.position_start,
             Node::InterpolatedString(n) => &n.position_start,
             Node::MethodAccess(n) => &n.position_start,
-            Node::Match(n) => &n.position_start,
             Node::Map(n) => &n.position_start,
-            Node::TryCatch(n) => &n.position_start,
             Node::Panic(n) => &n.position_start,
             Node::Grab(n) => &n.position_start,
             Node::Export(n) => &n.position_start,
             Node::StructDef(n) => &n.position_start,
-            Node::Impl(n) => &n.position_start,
             Node::TypeAlias(n) => &n.position_start,
             Node::BoolLiteral(n) => &n.position_start,
             Node::NullLiteral(n) => &n.position_start,
@@ -98,6 +94,7 @@ impl Node {
             Node::UnaryOp(n) => &n.position_end,
             Node::If(n) => &n.position_end,
             Node::For(n) => &n.position_end,
+            Node::ForClassic(n) => &n.position_end,
             Node::While(n) => &n.position_end,
             Node::FuncDef(n) => &n.position_end,
             Node::Call(n) => &n.position_end,
@@ -106,14 +103,11 @@ impl Node {
             Node::Break(n) => &n.position_end,
             Node::InterpolatedString(n) => &n.position_end,
             Node::MethodAccess(n) => &n.position_end,
-            Node::Match(n) => &n.position_end,
             Node::Map(n) => &n.position_end,
-            Node::TryCatch(n) => &n.position_end,
             Node::Panic(n) => &n.position_end,
             Node::Grab(n) => &n.position_end,
             Node::Export(n) => &n.position_end,
             Node::StructDef(n) => &n.position_end,
-            Node::Impl(n) => &n.position_end,
             Node::TypeAlias(n) => &n.position_end,
             Node::BoolLiteral(n) => &n.position_end,
             Node::NullLiteral(n) => &n.position_end,
@@ -213,6 +207,10 @@ pub struct VarAssignNode {
     pub var_type: Option<Type>,
     pub value_node: Box<Node>,
     pub is_constant: bool,
+    /// `let x = ...` declares in the current scope; a bare `x = ...` updates
+    /// the binding wherever it was declared. Without this flag the two are
+    /// indistinguishable and assignment silently shadows.
+    pub is_declaration: bool,
     pub position_start: Position,
     pub position_end: Position,
 }
@@ -247,13 +245,26 @@ pub struct IfNode {
 
 /// For loop node
 #[derive(Debug, Clone)]
+/// Range loop: `for item in collection { ... }`
+///
+/// A two-variable pattern (`for k, v in map`) is encoded in
+/// `variable_name_token` as the literal text `(k,v)`.
 pub struct ForNode {
     pub variable_name_token: Token,
-    pub start_value_node: Box<Node>,
-    pub end_value_node: Box<Node>,
-    pub step_value_node: Option<Box<Node>>,
+    pub iterable_node: Box<Node>,
     pub body_node: Box<Node>,
     pub should_return_null: bool,
+    pub position_start: Position,
+    pub position_end: Position,
+}
+
+/// C-style counting loop: `for (init; condition; step) { ... }`
+#[derive(Debug, Clone)]
+pub struct ForClassicNode {
+    pub init_node: Option<Box<Node>>,
+    pub condition_node: Option<Box<Node>>,
+    pub step_node: Option<Box<Node>>,
+    pub body_node: Box<Node>,
     pub position_start: Position,
     pub position_end: Position,
 }
@@ -351,22 +362,6 @@ impl InterpolatedStringNode {
 }
 
 #[derive(Debug, Clone)]
-pub struct MatchNode {
-    pub value_node: Box<Node>,
-    pub arms: Vec<MatchArm>,
-    pub position_start: Position,
-    pub position_end: Position,
-}
-
-#[derive(Debug, Clone)]
-pub struct MatchArm {
-    pub pattern_node: Box<Node>,
-    pub body_node: Box<Node>,
-    pub position_start: Position,
-    pub position_end: Position,
-}
-
-#[derive(Debug, Clone)]
 pub struct MapNode {
     pub pairs: Vec<MapPair>,
     pub position_start: Position,
@@ -377,16 +372,6 @@ pub struct MapNode {
 pub struct MapPair {
     pub key_node: Box<Node>,
     pub value_node: Box<Node>,
-    pub position_start: Position,
-    pub position_end: Position,
-}
-
-// Try-catch node
-#[derive(Debug, Clone)]
-pub struct TryCatchNode {
-    pub try_block: Box<Node>,
-    pub catch_var: Token, // The error variable name
-    pub catch_block: Box<Node>,
     pub position_start: Position,
     pub position_end: Position,
 }
@@ -440,14 +425,6 @@ pub struct StructFieldNode {
     pub name: Token,
     pub field_type: Type,
     pub is_constant: bool,
-    pub position_start: Position,
-    pub position_end: Position,
-}
-
-#[derive(Debug, Clone)]
-pub struct ImplNode {
-    pub struct_name: Token,
-    pub methods: Vec<Box<FuncDefNode>>,
     pub position_start: Position,
     pub position_end: Position,
 }

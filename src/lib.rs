@@ -20,8 +20,8 @@ pub mod builtins;
 pub mod context;
 pub mod diagnostics;
 pub mod error;
+pub mod fxhash;
 pub mod interpreter;
-pub mod json;
 pub mod lexer;
 pub mod lint;
 pub mod modules;
@@ -95,7 +95,7 @@ pub fn run(filename: &str, source: &str) -> Result<Value, Error> {
     let result = interpreter.visit(&ast, &mut context);
 
     if let Some(error) = result.error {
-        Err(error)
+        Err(*error)
     } else if let Some(value) = result.value {
         Ok(value)
     } else {
@@ -141,7 +141,7 @@ pub fn run_with_context(
     let result = interpreter.visit(&ast, context);
 
     if let Some(error) = result.error {
-        Err(error)
+        Err(*error)
     } else if let Some(value) = result.value {
         Ok(value)
     } else {

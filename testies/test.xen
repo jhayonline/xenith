@@ -182,17 +182,17 @@ echo("")
 echo("9. LOOPS:")
 
 echo("   FOR loop 0 to 4:")
-for i = 0 to 5 {
+for (let i: int = 0; i < 5; i++) {
     echo("     i = {i}")
 }
 
 echo("   FOR loop with STEP 2:")
-for i = 0 to 10 step 2 {
+for (let i: int = 0; i < 10; i = i + 2) {
     echo("     i = {i}")
 }
 
 echo("   FOR loop with negative STEP:")
-for i = 5 to 0 step -1 {
+for (let i: int = 5; i > 0; i--) {
     echo("     i = {i}")
 }
 
@@ -204,7 +204,7 @@ while count > 0 {
 }
 
 echo("   BREAK example:")
-for i = 0 to 10 {
+for (let i: int = 0; i < 10; i++) {
     when i == 5 {
         stop
     }
@@ -212,7 +212,7 @@ for i = 0 to 10 {
 }
 
 echo("   CONTINUE example:")
-for i = 0 to 5 {
+for (let i: int = 0; i < 5; i++) {
     when i == 3 {
         skip
     }

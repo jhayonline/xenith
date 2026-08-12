@@ -30,22 +30,16 @@ const KEYWORDS: &[&str] = &[
     "or",
     "otherwise",
     "for",
-    "to",
-    "step",
     "while",
     "skip",
     "stop",
-    "match",
     "in",
-    "try",
-    "catch",
     "panic",
     "grab",
     "export",
     "as",
     "from",
     "struct",
-    "impl",
     "type",
     "true",
     "false",
@@ -58,7 +52,7 @@ const KEYWORDS: &[&str] = &[
 
 // Built-in types
 const TYPES: &[&str] = &[
-    "int", "float", "string", "bool", "list", "map", "json", "null",
+    "int", "float", "string", "bool", "list", "map", "null",
 ];
 
 // Built-in functions

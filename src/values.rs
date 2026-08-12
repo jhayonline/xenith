@@ -7,12 +7,12 @@
 //! execution semantics.
 
 use std::collections::HashMap;
+use std::rc::Rc;
 use std::io::{self, Write};
 
 use crate::context::Context;
 use crate::error::{Error, RuntimeError};
 use crate::interpreter::Interpreter;
-use crate::json::Json;
 use crate::nodes::Node;
 use crate::position::Position;
 use crate::runtime_result::RuntimeResult;
@@ -30,15 +30,19 @@ pub enum Value {
     Map(Map),
     Struct(Struct),
     Bool(bool),
-    Json(Json),
     Tuple(Vec<Value>),
     Null,
 }
 
 impl Value {
-    /// Creates a number value
-    pub fn number(f: f64) -> Self {
-        Value::Number(Number::new(f))
+    /// Creates an int value
+    pub fn int(i: i64) -> Self {
+        Value::Number(Number::Int(i))
+    }
+
+    /// Creates a float value
+    pub fn float(f: f64) -> Self {
+        Value::Number(Number::Float(f))
     }
 
     /// Creates a string value
@@ -54,7 +58,7 @@ impl Value {
     /// Checks if the value is truthy
     pub fn is_true(&self) -> bool {
         match self {
-            Value::Number(n) => n.value != 0.0,
+            Value::Number(n) => !n.is_zero(),
             Value::String(s) => !s.value.is_empty(),
             Value::List(l) => !l.elements.is_empty(),
             Value::Map(m) => !m.pairs.is_empty(),
@@ -63,7 +67,6 @@ impl Value {
             Value::BuiltInFunction(_) => true,
             Value::Bool(b) => *b,
             Value::Null => false,
-            Value::Json(j) => !j.is_null(),
             Value::Tuple(t) => !t.is_empty(),
         }
     }
@@ -116,24 +119,65 @@ impl Value {
         }
     }
 
+    // ---------------------------------------------------------------
+    // Arithmetic
+    //
+    // Go semantics: int op int -> int, float op float -> float.
+    // Mixing int and float is a type error; use `as` to convert.
+    // Integer arithmetic is checked -- overflow is an error, never a
+    // silent wrap or a slide into f64 imprecision.
+    // ---------------------------------------------------------------
+
+    fn arith_err(msg: &str) -> Error {
+        RuntimeError::new(Self::dummy_pos(), Self::dummy_pos(), msg, None).base
+    }
+
+    fn mixed_err(op: &str, a: &Number, b: &Number) -> Error {
+        RuntimeError::new(
+            Self::dummy_pos(),
+            Self::dummy_pos(),
+            &format!(
+                "cannot {} {} and {}",
+                op,
+                a.type_name(),
+                b.type_name()
+            ),
+            None,
+        )
+        .with_code("XEN001")
+        .with_name("Type Mismatch")
+        .with_help(&format!(
+            "convert explicitly, e.g. `x as {}`",
+            if a.is_int() { "float" } else { "int" }
+        ))
+        .base
+    }
+
+    fn overflow_err(op: &str) -> Error {
+        RuntimeError::new(
+            Self::dummy_pos(),
+            Self::dummy_pos(),
+            &format!("integer overflow in {}", op),
+            None,
+        )
+        .with_code("XEN017")
+        .with_name("Integer Overflow")
+        .base
+    }
+
     /// Addition operation
     pub fn add(&self, other: &Value) -> Result<Value, Error> {
         match (self, other) {
-            (Value::Number(a), Value::Number(b)) => {
-                Ok(Value::Number(Number::new(a.value + b.value)))
-            }
+            (Value::Number(a), Value::Number(b)) => match (a, b) {
+                (Number::Int(x), Number::Int(y)) => x
+                    .checked_add(*y)
+                    .map(Value::int)
+                    .ok_or_else(|| Self::overflow_err("addition")),
+                (Number::Float(x), Number::Float(y)) => Ok(Value::float(x + y)),
+                _ => Err(Self::mixed_err("add", a, b)),
+            },
             (Value::String(a), Value::String(b)) => {
                 let mut new = a.value.clone();
-                new.push_str(&b.value);
-                Ok(Value::String(XenithString::new(new)))
-            }
-            (Value::String(a), Value::Number(b)) => {
-                let mut new = a.value.clone();
-                new.push_str(&b.value.to_string());
-                Ok(Value::String(XenithString::new(new)))
-            }
-            (Value::Number(a), Value::String(b)) => {
-                let mut new = a.value.to_string();
                 new.push_str(&b.value);
                 Ok(Value::String(XenithString::new(new)))
             }
@@ -142,307 +186,393 @@ impl Value {
                 new.elements.extend(b.elements.clone());
                 Ok(Value::List(new))
             }
-            (Value::List(a), b) => {
-                let mut new = a.clone();
-                new.elements.push(b.clone());
-                Ok(Value::List(new))
-            }
-            _ => Err(RuntimeError::new(
-                Self::dummy_pos(),
-                Self::dummy_pos(),
-                "Cannot add these types",
-                None,
-            )
-            .base),
+            _ => Err(Self::arith_err(&format!(
+                "cannot add {} and {}",
+                Self::get_type_name(self),
+                Self::get_type_name(other)
+            ))),
         }
     }
 
     /// Subtraction operation
     pub fn subtract(&self, other: &Value) -> Result<Value, Error> {
         match (self, other) {
-            (Value::Number(a), Value::Number(b)) => {
-                Ok(Value::Number(Number::new(a.value - b.value)))
-            }
-            _ => Err(RuntimeError::new(
-                Self::dummy_pos(),
-                Self::dummy_pos(),
-                "Cannot subtract these types",
-                None,
-            )
-            .base),
+            (Value::Number(a), Value::Number(b)) => match (a, b) {
+                (Number::Int(x), Number::Int(y)) => x
+                    .checked_sub(*y)
+                    .map(Value::int)
+                    .ok_or_else(|| Self::overflow_err("subtraction")),
+                (Number::Float(x), Number::Float(y)) => Ok(Value::float(x - y)),
+                _ => Err(Self::mixed_err("subtract", a, b)),
+            },
+            _ => Err(Self::arith_err(&format!(
+                "cannot subtract {} from {}",
+                Self::get_type_name(other),
+                Self::get_type_name(self)
+            ))),
         }
     }
 
     /// Multiplication operation
     pub fn multiply(&self, other: &Value) -> Result<Value, Error> {
         match (self, other) {
-            (Value::Number(a), Value::Number(b)) => {
-                Ok(Value::Number(Number::new(a.value * b.value)))
+            (Value::Number(a), Value::Number(b)) => match (a, b) {
+                (Number::Int(x), Number::Int(y)) => x
+                    .checked_mul(*y)
+                    .map(Value::int)
+                    .ok_or_else(|| Self::overflow_err("multiplication")),
+                (Number::Float(x), Number::Float(y)) => Ok(Value::float(x * y)),
+                _ => Err(Self::mixed_err("multiply", a, b)),
+            },
+            (Value::String(a), Value::Number(Number::Int(n))) => {
+                if *n < 0 {
+                    return Err(Self::arith_err("cannot repeat a string a negative number of times"));
+                }
+                Ok(Value::String(XenithString::new(a.value.repeat(*n as usize))))
             }
-            (Value::String(a), Value::Number(b)) => {
-                let repeated = a.value.repeat(b.value as usize);
-                Ok(Value::String(XenithString::new(repeated)))
-            }
-            (Value::List(a), Value::List(b)) => {
-                let mut new = a.clone();
-                new.elements.extend(b.elements.clone());
-                Ok(Value::List(new))
-            }
-            _ => Err(RuntimeError::new(
-                Self::dummy_pos(),
-                Self::dummy_pos(),
-                "Cannot multiply these types",
-                None,
-            )
-            .base),
+            _ => Err(Self::arith_err(&format!(
+                "cannot multiply {} and {}",
+                Self::get_type_name(self),
+                Self::get_type_name(other)
+            ))),
         }
     }
 
-    /// Division operation
+    /// Division operation. Int / int truncates toward zero, as in Go and C.
     pub fn divide(&self, other: &Value) -> Result<Value, Error> {
         match (self, other) {
-            (Value::Number(a), Value::Number(b)) => {
-                if b.value == 0.0 {
-                    return Err(RuntimeError::new(
-                        Self::dummy_pos(),
-                        Self::dummy_pos(),
-                        "Division by zero",
-                        None,
-                    )
-                    .base);
+            (Value::Number(a), Value::Number(b)) => match (a, b) {
+                (Number::Int(_), Number::Int(0)) => Err(RuntimeError::new(
+                    Self::dummy_pos(),
+                    Self::dummy_pos(),
+                    "division by zero",
+                    None,
+                )
+                .with_code("XEN003")
+                .with_name("Division by Zero")
+                .base),
+                (Number::Int(x), Number::Int(y)) => x
+                    .checked_div(*y)
+                    .map(Value::int)
+                    .ok_or_else(|| Self::overflow_err("division")),
+                (Number::Float(x), Number::Float(y)) => {
+                    if *y == 0.0 {
+                        return Err(RuntimeError::new(
+                            Self::dummy_pos(),
+                            Self::dummy_pos(),
+                            "division by zero",
+                            None,
+                        )
+                        .with_code("XEN003")
+                        .with_name("Division by Zero")
+                        .base);
+                    }
+                    Ok(Value::float(x / y))
                 }
-                Ok(Value::Number(Number::new(a.value / b.value)))
-            }
-            (Value::List(a), Value::Number(b)) => {
-                let idx = b.value as usize;
-                if idx >= a.elements.len() {
-                    return Err(RuntimeError::new(
-                        Self::dummy_pos(),
-                        Self::dummy_pos(),
-                        "List index out of bounds",
-                        None,
-                    )
-                    .base);
-                }
-                Ok(a.elements[idx].clone())
-            }
-            _ => Err(RuntimeError::new(
-                Self::dummy_pos(),
-                Self::dummy_pos(),
-                "Cannot divide these types",
-                None,
-            )
-            .base),
+                _ => Err(Self::mixed_err("divide", a, b)),
+            },
+            _ => Err(Self::arith_err(&format!(
+                "cannot divide {} by {}",
+                Self::get_type_name(self),
+                Self::get_type_name(other)
+            ))),
+        }
+    }
+
+    /// Remainder operation
+    pub fn modulo(&self, other: &Value) -> Result<Value, Error> {
+        match (self, other) {
+            (Value::Number(a), Value::Number(b)) => match (a, b) {
+                (Number::Int(_), Number::Int(0)) => Err(RuntimeError::new(
+                    Self::dummy_pos(),
+                    Self::dummy_pos(),
+                    "remainder by zero",
+                    None,
+                )
+                .with_code("XEN003")
+                .with_name("Division by Zero")
+                .base),
+                (Number::Int(x), Number::Int(y)) => x
+                    .checked_rem(*y)
+                    .map(Value::int)
+                    .ok_or_else(|| Self::overflow_err("remainder")),
+                (Number::Float(x), Number::Float(y)) => Ok(Value::float(x % y)),
+                _ => Err(Self::mixed_err("take the remainder of", a, b)),
+            },
+            _ => Err(Self::arith_err("cannot take the remainder of these types")),
         }
     }
 
     /// Power operation
     pub fn power(&self, other: &Value) -> Result<Value, Error> {
         match (self, other) {
-            (Value::Number(a), Value::Number(b)) => {
-                Ok(Value::Number(Number::new(a.value.powf(b.value))))
-            }
-            _ => Err(RuntimeError::new(
-                Self::dummy_pos(),
-                Self::dummy_pos(),
-                "Cannot raise to power these types",
-                None,
-            )
-            .base),
+            (Value::Number(a), Value::Number(b)) => match (a, b) {
+                (Number::Int(x), Number::Int(y)) => {
+                    if *y < 0 {
+                        return Err(Self::arith_err(
+                            "cannot raise an int to a negative power -- convert to float first",
+                        ));
+                    }
+                    let exp = u32::try_from(*y).map_err(|_| Self::overflow_err("power"))?;
+                    x.checked_pow(exp)
+                        .map(Value::int)
+                        .ok_or_else(|| Self::overflow_err("power"))
+                }
+                (Number::Float(x), Number::Float(y)) => Ok(Value::float(x.powf(*y))),
+                _ => Err(Self::mixed_err("raise", a, b)),
+            },
+            _ => Err(Self::arith_err("cannot raise these types to a power")),
         }
     }
 
+    // ---------------------------------------------------------------
+    // Comparison -- always yields a bool, never a 1.0/0.0 number
+    // ---------------------------------------------------------------
+
     /// Equality comparison
     pub fn equals(&self, other: &Value) -> Result<Value, Error> {
-        let result = match (self, other) {
-            (Value::Number(a), Value::Number(b)) => (a.value - b.value).abs() < 1e-10,
+        Ok(Value::Bool(self.eq_value(other)))
+    }
+
+    fn eq_value(&self, other: &Value) -> bool {
+        match (self, other) {
+            (Value::Number(a), Value::Number(b)) => match (a, b) {
+                (Number::Int(x), Number::Int(y)) => x == y,
+                (Number::Float(x), Number::Float(y)) => x == y,
+                _ => false,
+            },
             (Value::String(a), Value::String(b)) => a.value == b.value,
+            (Value::Bool(a), Value::Bool(b)) => a == b,
+            (Value::Null, Value::Null) => true,
             (Value::List(a), Value::List(b)) => {
-                if a.elements.len() != b.elements.len() {
-                    false
-                } else {
-                    a.elements
+                a.elements.len() == b.elements.len()
+                    && a.elements
                         .iter()
                         .zip(b.elements.iter())
-                        .all(|(x, y)| match x.equals(y) {
-                            Ok(Value::Number(n)) => n.value != 0.0,
-                            Ok(Value::Bool(b)) => b,
-                            _ => false,
-                        })
-                }
+                        .all(|(x, y)| x.eq_value(y))
             }
-            (Value::Bool(a), Value::Bool(b)) => a == b,
-            (Value::Null, Value::Null) => true, // Two nulls are equal
+            (Value::Tuple(a), Value::Tuple(b)) => {
+                a.len() == b.len() && a.iter().zip(b.iter()).all(|(x, y)| x.eq_value(y))
+            }
+            (Value::Struct(a), Value::Struct(b)) => {
+                a.name == b.name
+                    && a.fields.len() == b.fields.len()
+                    && a.fields.iter().all(|(k, v)| {
+                        b.fields.get(k).map(|o| v.eq_value(o)).unwrap_or(false)
+                    })
+            }
             _ => false,
-        };
-        Ok(Value::Bool(result)) // Return Bool, not Number
+        }
     }
 
     /// Not equals comparison
     pub fn not_equals(&self, other: &Value) -> Result<Value, Error> {
-        let eq = self.equals(other)?;
-        match eq {
-            Value::Bool(b) => Ok(Value::Bool(!b)),
-            _ => Ok(Value::Number(Number::new(1.0))),
+        Ok(Value::Bool(!self.eq_value(other)))
+    }
+
+    fn compare(&self, other: &Value, op: &str) -> Result<std::cmp::Ordering, Error> {
+        match (self, other) {
+            (Value::Number(a), Value::Number(b)) => match (a, b) {
+                (Number::Int(x), Number::Int(y)) => Ok(x.cmp(y)),
+                (Number::Float(x), Number::Float(y)) => x
+                    .partial_cmp(y)
+                    .ok_or_else(|| Self::arith_err("cannot compare NaN")),
+                _ => Err(Self::mixed_err("compare", a, b)),
+            },
+            (Value::String(a), Value::String(b)) => Ok(a.value.cmp(&b.value)),
+            _ => Err(Self::arith_err(&format!(
+                "cannot compare {} {} {}",
+                Self::get_type_name(self),
+                op,
+                Self::get_type_name(other)
+            ))),
         }
     }
 
     /// Less than comparison
     pub fn less_than(&self, other: &Value) -> Result<Value, Error> {
-        match (self, other) {
-            (Value::Number(a), Value::Number(b)) => {
-                Ok(Value::Number(Number::new(if a.value < b.value {
-                    1.0
-                } else {
-                    0.0
-                })))
-            }
-            (Value::String(a), Value::String(b)) => {
-                Ok(Value::Number(Number::new(if a.value < b.value {
-                    1.0
-                } else {
-                    0.0
-                })))
-            }
-            _ => Err(RuntimeError::new(
-                Self::dummy_pos(),
-                Self::dummy_pos(),
-                "Cannot compare these types",
-                None,
-            )
-            .base),
-        }
+        Ok(Value::Bool(self.compare(other, "<")?.is_lt()))
     }
 
     /// Greater than comparison
     pub fn greater_than(&self, other: &Value) -> Result<Value, Error> {
-        match (self, other) {
-            (Value::Number(a), Value::Number(b)) => {
-                Ok(Value::Number(Number::new(if a.value > b.value {
-                    1.0
-                } else {
-                    0.0
-                })))
-            }
-            (Value::String(a), Value::String(b)) => {
-                Ok(Value::Number(Number::new(if a.value > b.value {
-                    1.0
-                } else {
-                    0.0
-                })))
-            }
-            _ => Err(RuntimeError::new(
-                Self::dummy_pos(),
-                Self::dummy_pos(),
-                "Cannot compare these types",
-                None,
-            )
-            .base),
-        }
+        Ok(Value::Bool(self.compare(other, ">")?.is_gt()))
     }
 
     /// Less than or equal comparison
     pub fn less_than_or_equal(&self, other: &Value) -> Result<Value, Error> {
-        match (self, other) {
-            (Value::Number(a), Value::Number(b)) => {
-                Ok(Value::Number(Number::new(if a.value <= b.value {
-                    1.0
-                } else {
-                    0.0
-                })))
-            }
-            (Value::String(a), Value::String(b)) => {
-                Ok(Value::Number(Number::new(if a.value <= b.value {
-                    1.0
-                } else {
-                    0.0
-                })))
-            }
-            _ => Err(RuntimeError::new(
-                Self::dummy_pos(),
-                Self::dummy_pos(),
-                "Cannot compare these types",
-                None,
-            )
-            .base),
-        }
+        Ok(Value::Bool(self.compare(other, "<=")?.is_le()))
     }
 
     /// Greater than or equal comparison
     pub fn greater_than_or_equal(&self, other: &Value) -> Result<Value, Error> {
-        match (self, other) {
-            (Value::Number(a), Value::Number(b)) => Ok(Value::Bool(a.value >= b.value)),
-            (Value::String(a), Value::String(b)) => Ok(Value::Bool(a.value >= b.value)),
-            _ => Err(RuntimeError::new(
-                Self::dummy_pos(),
-                Self::dummy_pos(),
-                "Cannot compare these types",
-                None,
-            )
-            .base),
-        }
+        Ok(Value::Bool(self.compare(other, ">=")?.is_ge()))
     }
 
     /// Logical NOT
     pub fn logical_not(&self) -> Result<Value, Error> {
-        match self {
-            Value::Bool(b) => Ok(Value::Bool(!b)),
-            Value::Number(n) => Ok(Value::Bool(n.value == 0.0)),
-            _ => Ok(Value::Bool(!self.is_true())),
-        }
+        Ok(Value::Bool(!self.is_true()))
     }
 
-    /// Negative value
+    /// Arithmetic negation
     pub fn negative(&self) -> Result<Value, Error> {
         match self {
-            Value::Number(n) => Ok(Value::Number(Number::new(-n.value))),
-            _ => Err(RuntimeError::new(
-                Self::dummy_pos(),
-                Self::dummy_pos(),
-                "Cannot negate non-number",
-                None,
-            )
-            .base),
+            Value::Number(Number::Int(n)) => n
+                .checked_neg()
+                .map(Value::int)
+                .ok_or_else(|| Self::overflow_err("negation")),
+            Value::Number(Number::Float(f)) => Ok(Value::float(-f)),
+            _ => Err(Self::arith_err(&format!(
+                "cannot negate {}",
+                Self::get_type_name(self)
+            ))),
         }
     }
 
-    /// Logical AND operation
+    /// Logical AND
     pub fn anded_by(&self, other: &Value) -> Result<Value, Error> {
-        let left_true = self.is_true();
-        let right_true = other.is_true();
-        Ok(Value::Number(Number::new(if left_true && right_true {
-            1.0
-        } else {
-            0.0
-        })))
+        Ok(Value::Bool(self.is_true() && other.is_true()))
     }
 
-    /// Logical OR operation
+    /// Logical OR
     pub fn ored_by(&self, other: &Value) -> Result<Value, Error> {
-        let left_true = self.is_true();
-        let right_true = other.is_true();
-        Ok(Value::Number(Number::new(if left_true || right_true {
-            1.0
-        } else {
-            0.0
-        })))
+        Ok(Value::Bool(self.is_true() || other.is_true()))
+    }
+
+    /// Does a runtime value inhabit the given declared type?
+    pub fn value_matches_type(value: &Value, expected_type: &Type) -> bool {
+        match expected_type {
+            Type::Int => matches!(value, Value::Number(Number::Int(_))),
+            Type::Float => matches!(value, Value::Number(Number::Float(_))),
+            Type::String => matches!(value, Value::String(_)),
+            Type::Bool => matches!(value, Value::Bool(_)),
+            Type::Null => matches!(value, Value::Null),
+            Type::List(inner) => match value {
+                Value::List(l) => l
+                    .elements
+                    .iter()
+                    .all(|e| Self::value_matches_type(e, inner)),
+                _ => false,
+            },
+            Type::Map(_, v) => match value {
+                Value::Map(m) => m.pairs.values().all(|e| Self::value_matches_type(e, v)),
+                _ => false,
+            },
+            Type::Tuple(types) => match value {
+                Value::Tuple(elems) => {
+                    elems.len() == types.len()
+                        && elems
+                            .iter()
+                            .zip(types.iter())
+                            .all(|(e, t)| Self::value_matches_type(e, t))
+                }
+                _ => false,
+            },
+            Type::Struct(name, _) => matches!(value, Value::Struct(s) if &s.name == name),
+            Type::Function(_) => {
+                matches!(value, Value::Function(_) | Value::BuiltInFunction(_))
+            }
+            Type::Alias(_, inner) => Self::value_matches_type(value, inner),
+            Type::Unknown => true,
+        }
+    }
+
+    /// Name of a value's runtime type, for diagnostics
+    pub fn get_type_name(value: &Value) -> String {
+        match value {
+            Value::Number(n) => n.type_name().to_string(),
+            Value::String(_) => "string".to_string(),
+            Value::Bool(_) => "bool".to_string(),
+            Value::List(_) => "list".to_string(),
+            Value::Map(_) => "map".to_string(),
+            Value::Struct(s) => s.name.clone(),
+            Value::Function(_) => "method".to_string(),
+            Value::BuiltInFunction(_) => "method".to_string(),
+            Value::Null => "null".to_string(),
+            Value::Tuple(_) => "tuple".to_string(),
+        }
     }
 }
 
-/// Number runtime value
-#[derive(Debug, Clone)]
-pub struct Number {
-    pub value: f64,
+/// Numeric runtime value.
+///
+/// `int` is a real 64-bit signed integer, not an f64 in disguise, so integer
+/// values above 2^53 keep every bit of precision.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Number {
+    Int(i64),
+    Float(f64),
 }
 
 impl Number {
-    pub fn new(value: f64) -> Self {
-        Self { value }
+    pub fn math_pi() -> Self {
+        Number::Float(std::f64::consts::PI)
     }
 
-    pub fn math_pi() -> Self {
-        Self {
-            value: std::f64::consts::PI,
+    /// Name of this number's type, for diagnostics
+    pub fn type_name(&self) -> &'static str {
+        match self {
+            Number::Int(_) => "int",
+            Number::Float(_) => "float",
+        }
+    }
+
+    pub fn is_int(&self) -> bool {
+        matches!(self, Number::Int(_))
+    }
+
+    pub fn is_zero(&self) -> bool {
+        match self {
+            Number::Int(i) => *i == 0,
+            Number::Float(f) => *f == 0.0,
+        }
+    }
+
+    /// Widen to f64. Lossy for ints beyond 2^53 -- only use where a float is
+    /// genuinely wanted (explicit `as float`, float-typed math).
+    pub fn to_f64(&self) -> f64 {
+        match self {
+            Number::Int(i) => *i as f64,
+            Number::Float(f) => *f,
+        }
+    }
+
+    /// Narrow to i64, truncating toward zero. None if a float is out of range
+    /// or not finite.
+    pub fn to_i64(&self) -> Option<i64> {
+        match self {
+            Number::Int(i) => Some(*i),
+            Number::Float(f) => {
+                if f.is_finite() && *f >= i64::MIN as f64 && *f <= i64::MAX as f64 {
+                    Some(*f as i64)
+                } else {
+                    None
+                }
+            }
+        }
+    }
+
+    /// Usable as a collection index?
+    pub fn as_index(&self) -> Option<usize> {
+        match self {
+            Number::Int(i) if *i >= 0 => Some(*i as usize),
+            _ => None,
+        }
+    }
+}
+
+impl std::fmt::Display for Number {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Number::Int(i) => write!(f, "{}", i),
+            // Floats always show a decimal point so `1.0` never prints as `1`
+            Number::Float(v) => {
+                if v.fract() == 0.0 && v.is_finite() {
+                    write!(f, "{:.1}", v)
+                } else {
+                    write!(f, "{}", v)
+                }
+            }
         }
     }
 }
@@ -505,9 +635,12 @@ impl List {
 #[derive(Debug, Clone)]
 pub struct Function {
     pub name: Option<String>,
-    pub body_node: Box<Node>,
-    pub arg_names: Vec<String>,
-    pub param_types: Vec<Type>,
+    /// Shared, not owned. Symbol-table reads clone the Value, so a `Box` here
+    /// meant every reference to a function deep-copied its entire body AST --
+    /// which dominated runtime (most of it in malloc/free).
+    pub body_node: Rc<Node>,
+    pub arg_names: Rc<Vec<String>>,
+    pub param_types: Rc<Vec<Type>>,
     pub should_auto_return: bool,
 }
 
@@ -521,9 +654,9 @@ impl Function {
     ) -> Self {
         Self {
             name,
-            body_node: Box::new(body_node),
-            arg_names,
-            param_types,
+            body_node: Rc::new(body_node),
+            arg_names: Rc::new(arg_names),
+            param_types: Rc::new(param_types),
             should_auto_return,
         }
     }
@@ -549,16 +682,38 @@ impl Function {
 
         // TYPE CHECKING
         for (i, (arg, expected_type)) in args.iter().zip(self.param_types.iter()).enumerate() {
-            let matches = Self::value_matches_type(arg, expected_type);
+            let matches = Value::value_matches_type(arg, expected_type);
 
             if !matches {
                 return RuntimeResult::new().failure(Error::type_mismatch(
                     &format!("{:?}", expected_type),
-                    &Self::get_type_name(arg),
+                    &Value::get_type_name(arg),
                     call_position.clone(),
                     call_position.clone(),
                 ));
             }
+        }
+
+        // The interpreter recurses on the Rust stack, so runaway recursion has
+        // to be caught here -- otherwise it aborts the process with a stack
+        // overflow instead of producing a diagnostic.
+        if context.depth_exceeded() {
+            return RuntimeResult::new().failure(
+                RuntimeError::new(
+                    call_position.clone(),
+                    call_position,
+                    &format!(
+                        "call depth exceeded {} while calling `{}`",
+                        crate::context::MAX_CALL_DEPTH,
+                        self.name.as_deref().unwrap_or("<anonymous>")
+                    ),
+                    Some(context.clone()),
+                )
+                .with_code("XEN019")
+                .with_name("Recursion Limit")
+                .with_help("check for a missing base case in the recursion")
+                .base,
+            );
         }
 
         // Create child context
@@ -578,7 +733,7 @@ impl Function {
         let exec_result = interpreter.visit(&self.body_node, &mut func_context);
 
         if let Some(err) = exec_result.error {
-            return RuntimeResult::new().failure(err);
+            return RuntimeResult::new().failure(*err);
         }
 
         if self.should_auto_return {
@@ -592,51 +747,6 @@ impl Function {
         }
 
         RuntimeResult::new().success(Value::Null)
-    }
-
-    pub fn value_matches_type(value: &Value, expected_type: &Type) -> bool {
-        match expected_type {
-            crate::types::Type::Union(types) => {
-                types.iter().any(|t| Self::value_matches_type(value, t))
-            }
-            crate::types::Type::Int => matches!(value, Value::Number(n) if n.value.fract() == 0.0),
-            crate::types::Type::Float => matches!(value, Value::Number(_)),
-            crate::types::Type::String => matches!(value, Value::String(_)),
-            crate::types::Type::Bool => matches!(value, Value::Bool(_)),
-            crate::types::Type::Null => matches!(value, Value::Null),
-            crate::types::Type::List(_) => matches!(value, Value::List(_)),
-            crate::types::Type::Map(_, _) => matches!(value, Value::Map(_)),
-            crate::types::Type::Struct(name, _) => {
-                if let Value::Struct(s) = value {
-                    &s.name == name
-                } else {
-                    false
-                }
-            }
-            _ => true, // Unknown / Any
-        }
-    }
-
-    pub fn get_type_name(value: &Value) -> String {
-        match value {
-            Value::Number(n) => {
-                if n.value.fract() == 0.0 {
-                    "int".to_string()
-                } else {
-                    "float".to_string()
-                }
-            }
-            Value::String(_) => "string".to_string(),
-            Value::Bool(_) => "bool".to_string(),
-            Value::List(_) => "list".to_string(),
-            Value::Map(_) => "map".to_string(),
-            Value::Struct(s) => format!("struct {}", s.name),
-            Value::Function(_) => "function".to_string(),
-            Value::BuiltInFunction(_) => "builtin".to_string(),
-            Value::Null => "null".to_string(),
-            Value::Json(_) => "json".to_string(),
-            Value::Tuple(_) => "tuple".to_string(),
-        }
     }
 }
 
@@ -675,157 +785,6 @@ impl BuiltInFunction {
             "len" => self.len(args, call_pos),
             "run" => self.run(args, interpreter, call_pos),
             "format" => crate::builtins::format::format(args, interpreter, call_pos),
-
-            // std::fs
-            "__fs_read" => crate::builtins::fs::read(args, call_pos),
-            "__fs_write" => crate::builtins::fs::write(args, call_pos),
-            "__fs_append" => crate::builtins::fs::append(args, call_pos),
-            "__fs_exists" => crate::builtins::fs::exists(args, call_pos),
-            "__fs_is_file" => crate::builtins::fs::is_file(args, call_pos),
-            "__fs_is_dir" => crate::builtins::fs::is_dir(args, call_pos),
-            "__fs_mkdir" => crate::builtins::fs::mkdir(args, call_pos),
-            "__fs_mkdir_all" => crate::builtins::fs::mkdir_all(args, call_pos),
-            "__fs_remove" => crate::builtins::fs::remove(args, call_pos),
-            "__fs_remove_all" => crate::builtins::fs::remove_all(args, call_pos),
-            "__fs_list_dir" => crate::builtins::fs::list_dir(args, call_pos),
-            "__fs_copy" => crate::builtins::fs::copy(args, call_pos),
-
-            // std::path
-            "__path_join" => crate::builtins::path::join(args, call_pos),
-            "__path_basename" => crate::builtins::path::basename(args, call_pos),
-            "__path_dirname" => crate::builtins::path::dirname(args, call_pos),
-            "__path_extension" => crate::builtins::path::extension(args, call_pos),
-            "__path_stem" => crate::builtins::path::stem(args, call_pos),
-            "__path_is_absolute" => crate::builtins::path::is_absolute(args, call_pos),
-            "__path_is_relative" => crate::builtins::path::is_relative(args, call_pos),
-            "__path_absolute" => crate::builtins::path::absolute(args, call_pos),
-            "__path_normalize" => crate::builtins::path::normalize(args, call_pos),
-            "__path_components" => crate::builtins::path::components(args, call_pos),
-            "__path_parent" => crate::builtins::path::parent(args, call_pos),
-
-            // std::time
-            "__time_timestamp" => crate::builtins::time::timestamp(args, call_pos),
-            "__time_timestamp_ms" => crate::builtins::time::timestamp_ms(args, call_pos),
-            "__time_sleep" => crate::builtins::time::sleep(args, call_pos),
-            "__time_sleep_sec" => crate::builtins::time::sleep_sec(args, call_pos),
-            "__time_duration_secs" => crate::builtins::time::duration_secs(args, call_pos),
-            "__time_duration_ms" => crate::builtins::time::duration_ms(args, call_pos),
-
-            // std::math
-            "__math_sqrt" => crate::builtins::math::sqrt(args, call_pos),
-            "__math_pow" => crate::builtins::math::pow(args, call_pos),
-            "__math_sin" => crate::builtins::math::sin(args, call_pos),
-            "__math_cos" => crate::builtins::math::cos(args, call_pos),
-            "__math_tan" => crate::builtins::math::tan(args, call_pos),
-            "__math_asin" => crate::builtins::math::asin(args, call_pos),
-            "__math_acos" => crate::builtins::math::acos(args, call_pos),
-            "__math_atan" => crate::builtins::math::atan(args, call_pos),
-            "__math_atan2" => crate::builtins::math::atan2(args, call_pos),
-            "__math_log" => crate::builtins::math::log(args, call_pos),
-            "__math_log10" => crate::builtins::math::log10(args, call_pos),
-            "__math_abs" => crate::builtins::math::abs(args, call_pos),
-            "__math_min" => crate::builtins::math::min(args, call_pos),
-            "__math_max" => crate::builtins::math::max(args, call_pos),
-            "__math_clamp" => crate::builtins::math::clamp(args, call_pos),
-            "__math_round" => crate::builtins::math::round(args, call_pos),
-            "__math_floor" => crate::builtins::math::floor(args, call_pos),
-            "__math_ceil" => crate::builtins::math::ceil(args, call_pos),
-            "__math_trunc" => crate::builtins::math::trunc(args, call_pos),
-            "__math_fract" => crate::builtins::math::fract(args, call_pos),
-            "__math_radians" => crate::builtins::math::radians(args, call_pos),
-            "__math_degrees" => crate::builtins::math::degrees(args, call_pos),
-            "__math_sum" => crate::builtins::math::sum(args, call_pos),
-            "__math_average" => crate::builtins::math::average(args, call_pos),
-
-            // std::string
-            "__string_split" => crate::builtins::string::split(args, call_pos),
-            "__string_join" => crate::builtins::string::join(args, call_pos),
-            "__string_trim" => crate::builtins::string::trim(args, call_pos),
-            "__string_trim_start" => crate::builtins::string::trim_start(args, call_pos),
-            "__string_trim_end" => crate::builtins::string::trim_end(args, call_pos),
-            "__string_replace" => crate::builtins::string::replace(args, call_pos),
-            "__string_contains" => crate::builtins::string::contains(args, call_pos),
-            "__string_starts_with" => crate::builtins::string::starts_with(args, call_pos),
-            "__string_ends_with" => crate::builtins::string::ends_with(args, call_pos),
-            "__string_to_upper" => crate::builtins::string::to_upper(args, call_pos),
-            "__string_to_lower" => crate::builtins::string::to_lower(args, call_pos),
-            "__string_reverse" => crate::builtins::string::reverse(args, call_pos),
-
-            // random
-            "__rand_int" => crate::builtins::random::rand_int(args, call_pos),
-            "__rand_int_range" => crate::builtins::random::rand_int_range(args, call_pos),
-            "__rand_float" => crate::builtins::random::rand_float(args, call_pos),
-            "__rand_float_range" => crate::builtins::random::rand_float_range(args, call_pos),
-            "__rand_bool" => crate::builtins::random::rand_bool(args, call_pos),
-            "__rand_choice" => crate::builtins::random::choice(args, call_pos),
-            "__rand_shuffle" => crate::builtins::random::shuffle(args, call_pos),
-            "__rand_uuid" => crate::builtins::random::uuid(args, call_pos),
-
-            // std::json
-            "__json_parse" => crate::builtins::json::parse(args, call_pos),
-            "__json_stringify" => crate::builtins::json::stringify(args, call_pos),
-            "__json_stringify_pretty" => crate::builtins::json::stringify_pretty(args, call_pos),
-            "__json_get" => crate::builtins::json::get(args, call_pos),
-            "__json_set" => crate::builtins::json::set(args, call_pos),
-            "__json_has_key" => crate::builtins::json::has_key(args, call_pos),
-            "__json_from_map" => crate::builtins::json::from_map(args, call_pos),
-            "__json_null" => crate::builtins::json::null_value(args, call_pos),
-
-            // std::dotenv
-            "__dotenv_load" => crate::builtins::dotenv::load(args, call_pos),
-            "__dotenv_load_file" => crate::builtins::dotenv::load_file(args, call_pos),
-            "__dotenv_get" => crate::builtins::dotenv::get(args, call_pos),
-            "__dotenv_get_or_default" => crate::builtins::dotenv::get_or_default(args, call_pos),
-            "__dotenv_has" => crate::builtins::dotenv::has(args, call_pos),
-            "__dotenv_set" => crate::builtins::dotenv::set(args, call_pos),
-            "__dotenv_unset" => crate::builtins::dotenv::unset(args, call_pos),
-            "__dotenv_vars" => crate::builtins::dotenv::vars(args, call_pos),
-
-            // std::http
-            "__http_get" => crate::builtins::http::get(args, call_pos),
-            "__http_post" => crate::builtins::http::post(args, call_pos),
-            "__http_put" => crate::builtins::http::put(args, call_pos),
-            "__http_delete" => crate::builtins::http::delete(args, call_pos),
-            "__http_patch" => crate::builtins::http::patch(args, call_pos),
-            "__http_set_timeout" => crate::builtins::http::set_timeout(args, call_pos),
-            "__http_set_user_agent" => crate::builtins::http::set_user_agent(args, call_pos),
-
-            // std::process
-            "__process_run" => crate::builtins::process::run_command(args, call_pos),
-            "__process_exec" => crate::builtins::process::exec_command(args, call_pos),
-            "__process_output" => crate::builtins::process::output_command(args, call_pos),
-            "__process_current_dir" => crate::builtins::process::current_dir(args, call_pos),
-            "__process_set_current_dir" => {
-                crate::builtins::process::set_current_dir(args, call_pos)
-            }
-            "__process_env_var" => crate::builtins::process::env_var(args, call_pos),
-            "__process_env_vars" => crate::builtins::process::env_vars(args, call_pos),
-            "__process_set_env_var" => crate::builtins::process::set_env_var(args, call_pos),
-            "__process_remove_env_var" => crate::builtins::process::remove_env_var(args, call_pos),
-            "__process_exit" => crate::builtins::process::exit_program(args, call_pos),
-
-            // std::collections ==============================================================
-            // Sets
-            "__set_new" => crate::builtins::collections::set_new(args, call_pos),
-            "__set_add" => crate::builtins::collections::set_add(args, call_pos),
-            "__set_contains" => crate::builtins::collections::set_contains(args, call_pos),
-            "__set_remove" => crate::builtins::collections::set_remove(args, call_pos),
-            "__set_len" => crate::builtins::collections::set_len(args, call_pos),
-            "__set_to_list" => crate::builtins::collections::set_to_list(args, call_pos),
-
-            // Stack
-            "__stack_new" => crate::builtins::collections::stack_new(args, call_pos),
-            "__stack_push" => crate::builtins::collections::stack_push(args, call_pos),
-            "__stack_pop" => crate::builtins::collections::stack_pop(args, call_pos),
-            "__stack_peek" => crate::builtins::collections::stack_peek(args, call_pos),
-            "__stack_len" => crate::builtins::collections::stack_len(args, call_pos),
-
-            // Queue
-            "__queue_new" => crate::builtins::collections::queue_new(args, call_pos),
-            "__queue_enqueue" => crate::builtins::collections::queue_enqueue(args, call_pos),
-            "__queue_dequeue" => crate::builtins::collections::queue_dequeue(args, call_pos),
-            "__queue_peek" => crate::builtins::collections::queue_peek(args, call_pos),
-            "__queue_len" => crate::builtins::collections::queue_len(args, call_pos),
             // =================================================================================
             _ => RuntimeResult::new().failure(
                 RuntimeError::new(
@@ -842,7 +801,7 @@ impl BuiltInFunction {
     fn echo(&self, args: Vec<Value>, _call_pos: Position) -> RuntimeResult {
         if let Some(arg) = args.first() {
             match arg {
-                Value::Number(n) => print!("{}", n.value),
+                Value::Number(n) => print!("{}", n),
                 Value::String(s) => print!("{}", s.value),
                 Value::Bool(b) => print!("{}", b),
                 Value::Null => print!("null"),
@@ -853,7 +812,7 @@ impl BuiltInFunction {
                             print!(", ");
                         }
                         match elem {
-                            Value::Number(n) => print!("{}", n.value),
+                            Value::Number(n) => print!("{}", n),
                             Value::String(s) => print!("\"{}\"", s.value),
                             Value::Bool(b) => print!("{}", b),
                             Value::Null => print!("null"),
@@ -870,7 +829,7 @@ impl BuiltInFunction {
                         }
                         print!("\"{}\": ", k);
                         match v {
-                            Value::Number(n) => print!("{}", n.value),
+                            Value::Number(n) => print!("{}", n),
                             Value::String(s) => print!("\"{}\"", s.value),
                             Value::Bool(b) => print!("{}", b),
                             Value::Null => print!("null"),
@@ -892,7 +851,6 @@ impl BuiltInFunction {
                 Value::BuiltInFunction(b) => {
                     print!("<built-in function {}>", b.name);
                 }
-                Value::Json(j) => print!("{}", j.to_string()),
                 Value::Tuple(t) => {
                     print!("(");
                     for (i, elem) in t.iter().enumerate() {
@@ -901,7 +859,7 @@ impl BuiltInFunction {
                         }
                         // Recursively print element - would need proper handling
                         match elem {
-                            Value::Number(n) => print!("{}", n.value),
+                            Value::Number(n) => print!("{}", n),
                             Value::String(s) => print!("\"{}\"", s.value),
                             Value::Bool(b) => print!("{}", b),
                             Value::Null => print!("null"),
@@ -936,7 +894,7 @@ impl BuiltInFunction {
             let mut input = String::new();
             io::stdin().read_line(&mut input).unwrap();
             if let Ok(num) = input.trim().parse::<i64>() {
-                return RuntimeResult::new().success(Value::Number(Number::new(num as f64)));
+                return RuntimeResult::new().success(Value::int(num));
             }
             println!("'{}' must be an integer. Try again!", input.trim());
         }
@@ -950,17 +908,17 @@ impl BuiltInFunction {
 
     fn is_num(&self, args: Vec<Value>, _call_pos: Position) -> RuntimeResult {
         let result = matches!(args.first(), Some(Value::Number(_)));
-        RuntimeResult::new().success(Value::Number(Number::new(if result { 1.0 } else { 0.0 })))
+        RuntimeResult::new().success(Value::Bool(result))
     }
 
     fn is_str(&self, args: Vec<Value>, _call_pos: Position) -> RuntimeResult {
         let result = matches!(args.first(), Some(Value::String(_)));
-        RuntimeResult::new().success(Value::Number(Number::new(if result { 1.0 } else { 0.0 })))
+        RuntimeResult::new().success(Value::Bool(result))
     }
 
     fn is_list(&self, args: Vec<Value>, _call_pos: Position) -> RuntimeResult {
         let result = matches!(args.first(), Some(Value::List(_)));
-        RuntimeResult::new().success(Value::Number(Number::new(if result { 1.0 } else { 0.0 })))
+        RuntimeResult::new().success(Value::Bool(result))
     }
 
     fn is_fun(&self, args: Vec<Value>, _call_pos: Position) -> RuntimeResult {
@@ -968,7 +926,7 @@ impl BuiltInFunction {
             args.first(),
             Some(Value::Function(_)) | Some(Value::BuiltInFunction(_))
         );
-        RuntimeResult::new().success(Value::Number(Number::new(if result { 1.0 } else { 0.0 })))
+        RuntimeResult::new().success(Value::Bool(result))
     }
 
     fn append(&self, args: Vec<Value>, call_pos: Position) -> RuntimeResult {
@@ -1011,7 +969,18 @@ impl BuiltInFunction {
 
         match (&args[0], &args[1]) {
             (Value::List(list), Value::Number(idx)) => {
-                let idx_usize = idx.value as usize;
+                let Some(idx_usize) = idx.as_index() else {
+                    return RuntimeResult::new().failure(
+                        RuntimeError::new(
+                            call_pos.clone(),
+                            call_pos,
+                            "list index must be a non-negative int",
+                            None,
+                        )
+                        .with_code("XEN004")
+                        .base,
+                    );
+                };
                 if idx_usize >= list.elements.len() {
                     return RuntimeResult::new().failure(
                         RuntimeError::new(
@@ -1074,10 +1043,10 @@ impl BuiltInFunction {
 
         match &args[0] {
             Value::List(list) => {
-                RuntimeResult::new().success(Value::Number(Number::new(list.elements.len() as f64)))
+                RuntimeResult::new().success(Value::int(list.elements.len() as i64))
             }
             Value::String(s) => {
-                RuntimeResult::new().success(Value::Number(Number::new(s.value.len() as f64)))
+                RuntimeResult::new().success(Value::int(s.value.chars().count() as i64))
             }
             _ => RuntimeResult::new().failure(
                 RuntimeError::new(
@@ -1212,36 +1181,6 @@ impl Default for Map {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct CaughtError {
-    pub message: String,
-    pub error: Option<Box<Error>>,
-}
-
-impl CaughtError {
-    pub fn from_error(error: Error) -> Self {
-        let message = format!("{}: {}", error.error_name, error.details);
-        Self {
-            message,
-            error: Some(Box::new(error)),
-        }
-    }
-
-    pub fn from_message(message: String) -> Self {
-        Self {
-            message,
-            error: None,
-        }
-    }
-
-    pub fn to_string(&self) -> String {
-        if let Some(error) = &self.error {
-            error.as_string()
-        } else {
-            self.message.clone()
-        }
-    }
-}
 
 /// Struct instance
 #[derive(Debug, Clone)]

@@ -201,11 +201,7 @@ impl Diagnostics {
     fn value_type_to_string(value: &Value) -> String {
         match value {
             Value::Number(n) => {
-                if n.value.fract() == 0.0 {
-                    "int".to_string()
-                } else {
-                    "float".to_string()
-                }
+                n.type_name().to_string()
             }
             Value::String(_) => "string".to_string(),
             Value::Bool(_) => "bool".to_string(),
@@ -215,7 +211,6 @@ impl Diagnostics {
             Value::Function(_) => "function".to_string(),
             Value::BuiltInFunction(_) => "builtin".to_string(),
             Value::Null => "null".to_string(),
-            Value::Json(_) => "json".to_string(),
             Value::Tuple(_) => "tuple".to_string(),
         }
     }
@@ -236,7 +231,7 @@ impl Diagnostics {
 
     fn value_example(value: &Value) -> String {
         match value {
-            Value::Number(n) => format!("{} as target_type", n.value as i64),
+            Value::Number(n) => format!("{} as target_type", n),
             Value::String(s) => format!("\"{}\" as target_type", s.value),
             Value::Bool(b) => format!("{} as target_type", b),
             _ => "value as target_type".to_string(),

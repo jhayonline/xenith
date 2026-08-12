@@ -67,6 +67,11 @@ impl Parser {
         result
     }
 
+    /// A newline or a `;` -- both end a statement in Xenith.
+    fn is_line_break(tok: &Token) -> bool {
+        matches!(tok.kind, TokenType::Newline | TokenType::Semicolon)
+    }
+
     fn dummy_pos() -> Position {
         Position::new(0, 0, 0, "", "")
     }
@@ -124,11 +129,6 @@ impl Parser {
             }
         }
 
-        // If we found a union (multiple types), return it
-        if types.len() > 1 {
-            return result.success_type(Type::Union(types));
-        }
-
         // Otherwise, fall back to original parsing
         self.token_index = start_index;
         self.parse_type_original()
@@ -164,14 +164,13 @@ impl Parser {
             TokenType::TypeString => Type::String,
             TokenType::TypeBool => Type::Bool,
             TokenType::TypeNull => Type::Null,
-            TokenType::TypeJson => Type::Json,
             TokenType::TypeList => {
                 self.advance(); // consume 'list'
 
                 if let Some(tok) = self.current_token() {
                     if tok.kind == TokenType::Lt {
                         self.advance(); // consume '<'
-                        let inner_type = self.parse_single_type_or_union()?;
+                        let inner_type = self.parse_single_type()?;
 
                         match self.current_token() {
                             Some(tok) if tok.kind == TokenType::Gt => {
@@ -201,7 +200,7 @@ impl Parser {
                 match self.current_token() {
                     Some(tok) if tok.kind == TokenType::Lt => {
                         self.advance(); // consume '<'
-                        let key_type = self.parse_single_type_or_union()?;
+                        let key_type = self.parse_single_type()?;
 
                         match self.current_token() {
                             Some(tok) if tok.kind == TokenType::Comma => {
@@ -217,7 +216,7 @@ impl Parser {
                             }
                         }
 
-                        let value_type = self.parse_single_type_or_union()?;
+                        let value_type = self.parse_single_type()?;
 
                         match self.current_token() {
                             Some(tok) if tok.kind == TokenType::Gt => {
@@ -508,7 +507,6 @@ impl Parser {
                     Type::List(Box::new(Type::Unknown))
                 }
             }
-            TokenType::TypeJson => Type::Json,
             TokenType::TypeMap => {
                 self.advance();
 
@@ -637,7 +635,7 @@ impl Parser {
 
         match base_name.as_str() {
             "list" => {
-                let inner_type = self.parse_single_type_or_union()?;
+                let inner_type = self.parse_single_type()?;
 
                 match self.current_token() {
                     Some(tok) if tok.kind == TokenType::Gt => {
@@ -664,7 +662,7 @@ impl Parser {
                 Ok(Type::List(Box::new(inner_type)))
             }
             "map" => {
-                let key_type = self.parse_single_type_or_union()?;
+                let key_type = self.parse_single_type()?;
 
                 match self.current_token() {
                     Some(tok) if tok.kind == TokenType::Comma => {
@@ -688,7 +686,7 @@ impl Parser {
                     }
                 }
 
-                let value_type = self.parse_single_type_or_union()?;
+                let value_type = self.parse_single_type()?;
 
                 match self.current_token() {
                     Some(tok) if tok.kind == TokenType::Gt => {
@@ -723,26 +721,6 @@ impl Parser {
         }
     }
 
-    /// Parse a single type or a union type (type | type | ...)
-    fn parse_single_type_or_union(&mut self) -> Result<Type, Error> {
-        let first = self.parse_single_type()?;
-        let mut types = vec![first];
-
-        while let Some(tok) = self.current_token() {
-            if tok.kind == TokenType::Pipe {
-                self.advance(); // consume '|'
-                types.push(self.parse_single_type()?);
-            } else {
-                break;
-            }
-        }
-
-        if types.len() == 1 {
-            Ok(types.remove(0))
-        } else {
-            Ok(Type::Union(types))
-        }
-    }
 
     /// Parse function type
     fn parse_function_type(&mut self) -> Result<Type, Error> {
@@ -868,25 +846,12 @@ impl Parser {
             }
         }
 
-        // Check for impl block FIRST
-        if let Some(tok) = self.current_token() {
-            if tok.kind == TokenType::TypeImpl {
-                return self.impl_block();
-            }
-        }
-
         // Check for type alias
         if let Some(tok) = self.current_token() {
             if tok.kind == TokenType::TypeAlias {
                 return self.type_alias();
             }
         }
-        if let Some(tok) = self.current_token() {
-            if tok.matches(TokenType::Keyword, Some("match")) {
-                return self.match_expr();
-            }
-        }
-
         // Check for type alias
         if let Some(tok) = self.current_token() {
             if tok.kind == TokenType::TypeAlias {
@@ -980,7 +945,7 @@ impl Parser {
 
         // Skip leading newlines
         while let Some(tok) = self.current_token() {
-            if tok.kind == TokenType::Newline {
+            if Self::is_line_break(tok) {
                 self.advance();
             } else {
                 break;
@@ -988,7 +953,7 @@ impl Parser {
         }
 
         while let Some(tok) = self.current_token() {
-            if tok.kind == TokenType::Newline || tok.kind == TokenType::Semicolon {
+            if Self::is_line_break(tok) {
                 self.advance();
             } else {
                 break;
@@ -1001,7 +966,7 @@ impl Parser {
 
             // Skip newlines between statements
             while let Some(tok) = self.current_token() {
-                if tok.kind == TokenType::Newline {
+                if Self::is_line_break(tok) {
                     self.advance();
                 } else {
                     break;
@@ -1462,91 +1427,6 @@ impl Parser {
         self.ternary_expr()
     }
 
-    fn try_catch_expr(&mut self) -> ParseResult {
-        let mut result = ParseResult::new();
-        let pos_start = self.current_token().unwrap().position_start.clone();
-
-        // Consume 'try'
-        self.advance();
-
-        // Parse try block (must be { ... })
-        let try_block = result.register(&self.block());
-        if result.error.is_some() {
-            return result;
-        }
-
-        // Expect 'catch'
-        match self.current_token() {
-            Some(t) if t.matches(TokenType::Keyword, Some("catch")) => {
-                self.advance();
-            }
-            Some(t) => {
-                return result.failure(
-                    InvalidSyntaxError::new(
-                        t.position_start.clone(),
-                        t.position_end.clone(),
-                        "Expected 'catch'",
-                    )
-                    .base,
-                );
-            }
-            None => {
-                return result.failure(
-                    InvalidSyntaxError::new(
-                        Self::dummy_pos(),
-                        Self::dummy_pos(),
-                        "Expected 'catch'",
-                    )
-                    .base,
-                );
-            }
-        }
-
-        // Parse catch variable (identifier)
-        let catch_var = match self.current_token() {
-            Some(t) if t.kind == TokenType::Identifier => t.clone(),
-            Some(t) => {
-                return result.failure(
-                    InvalidSyntaxError::new(
-                        t.position_start.clone(),
-                        t.position_end.clone(),
-                        "Expected identifier for catch variable",
-                    )
-                    .base,
-                );
-            }
-            None => {
-                return result.failure(
-                    InvalidSyntaxError::new(
-                        Self::dummy_pos(),
-                        Self::dummy_pos(),
-                        "Expected identifier for catch variable",
-                    )
-                    .base,
-                );
-            }
-        };
-        self.advance();
-
-        // Parse catch block
-        let catch_block = result.register(&self.block());
-        if result.error.is_some() {
-            return result;
-        }
-
-        let pos_end = self
-            .current_token()
-            .map(|t| t.position_end.clone())
-            .unwrap_or(pos_start.clone());
-
-        result.success(Node::TryCatch(Box::new(TryCatchNode {
-            try_block: Box::new(try_block.unwrap()),
-            catch_var,
-            catch_block: Box::new(catch_block.unwrap()),
-            position_start: pos_start,
-            position_end: pos_end,
-        })))
-    }
 
     fn panic_expr(&mut self) -> ParseResult {
         let mut result = ParseResult::new();
@@ -1586,7 +1466,7 @@ impl Parser {
 
         // Skip newlines before '{' or '*'
         while let Some(tok) = self.current_token() {
-            if tok.kind == TokenType::Newline {
+            if Self::is_line_break(tok) {
                 self.advance();
             } else {
                 break;
@@ -1609,7 +1489,7 @@ impl Parser {
 
             // Skip newlines after '*'
             while let Some(tok) = self.current_token() {
-                if tok.kind == TokenType::Newline {
+                if Self::is_line_break(tok) {
                     self.advance();
                 } else {
                     break;
@@ -1645,7 +1525,7 @@ impl Parser {
 
             // Skip newlines after 'as'
             while let Some(tok) = self.current_token() {
-                if tok.kind == TokenType::Newline {
+                if Self::is_line_break(tok) {
                     self.advance();
                 } else {
                     break;
@@ -1683,7 +1563,7 @@ impl Parser {
             // Parse named imports: { name, other as alias }
             // Skip newlines before '{'
             while let Some(tok) = self.current_token() {
-                if tok.kind == TokenType::Newline {
+                if Self::is_line_break(tok) {
                     self.advance();
                 } else {
                     break;
@@ -1696,7 +1576,7 @@ impl Parser {
 
                     // Skip newlines after '{'
                     while let Some(t) = self.current_token() {
-                        if t.kind == TokenType::Newline {
+                        if Self::is_line_break(t) {
                             self.advance();
                         } else {
                             break;
@@ -1707,7 +1587,7 @@ impl Parser {
                     loop {
                         // Skip newlines before each specifier
                         while let Some(t) = self.current_token() {
-                            if t.kind == TokenType::Newline {
+                            if Self::is_line_break(t) {
                                 self.advance();
                             } else {
                                 break;
@@ -1754,7 +1634,7 @@ impl Parser {
 
                         // Skip newlines before 'as' or comma or brace
                         while let Some(t) = self.current_token() {
-                            if t.kind == TokenType::Newline {
+                            if Self::is_line_break(t) {
                                 self.advance();
                             } else {
                                 break;
@@ -1773,7 +1653,7 @@ impl Parser {
 
                                 // Skip newlines after 'as'
                                 while let Some(t) = self.current_token() {
-                                    if t.kind == TokenType::Newline {
+                                    if Self::is_line_break(t) {
                                         self.advance();
                                     } else {
                                         break;
@@ -1816,7 +1696,7 @@ impl Parser {
 
                         // Skip newlines after alias or identifier
                         while let Some(t) = self.current_token() {
-                            if t.kind == TokenType::Newline {
+                            if Self::is_line_break(t) {
                                 self.advance();
                             } else {
                                 break;
@@ -1836,7 +1716,7 @@ impl Parser {
                                 self.advance();
                                 // Skip newlines after comma
                                 while let Some(t) = self.current_token() {
-                                    if t.kind == TokenType::Newline {
+                                    if Self::is_line_break(t) {
                                         self.advance();
                                     } else {
                                         break;
@@ -1879,7 +1759,7 @@ impl Parser {
 
         // Skip newlines before 'from'
         while let Some(tok) = self.current_token() {
-            if tok.kind == TokenType::Newline {
+            if Self::is_line_break(tok) {
                 self.advance();
             } else {
                 break;
@@ -1915,7 +1795,7 @@ impl Parser {
 
         // Skip newlines after 'from'
         while let Some(tok) = self.current_token() {
-            if tok.kind == TokenType::Newline {
+            if Self::is_line_break(tok) {
                 self.advance();
             } else {
                 break;
@@ -2168,6 +2048,7 @@ impl Parser {
                 var_type: None,
                 value_node: Box::new(bin_op_node),
                 is_constant: false,
+                is_declaration: false,
                 position_start: pos_start,
                 position_end: pos_end,
             })));
@@ -2261,6 +2142,7 @@ impl Parser {
             var_type: None,
             value_node: Box::new(bin_op_node),
             is_constant: false,
+            is_declaration: false,
             position_start: pos_start,
             position_end: pos_end,
         })))
@@ -2425,6 +2307,7 @@ impl Parser {
             var_type,
             value_node: Box::new(value.unwrap()),
             is_constant,
+            is_declaration: true,
             position_start: pos_start,
             position_end: pos_end,
         })))
@@ -2488,6 +2371,7 @@ impl Parser {
                 var_type: None,
                 value_node: Box::new(val_node),
                 is_constant: false,
+                is_declaration: false,
                 position_start: pos_start,
                 position_end: pos_end,
             })));
@@ -2676,382 +2560,7 @@ impl Parser {
         }
     }
 
-    fn match_expr(&mut self) -> ParseResult {
-        let mut result = ParseResult::new();
 
-        // Expect 'match' keyword
-        let pos_start = match self.current_token() {
-            Some(t) if t.matches(TokenType::Keyword, Some("match")) => t.position_start.clone(),
-            Some(t) => {
-                return result.failure(
-                    InvalidSyntaxError::new(
-                        t.position_start.clone(),
-                        t.position_end.clone(),
-                        "Expected 'match'",
-                    )
-                    .base,
-                );
-            }
-            None => {
-                return result.failure(
-                    InvalidSyntaxError::new(
-                        Self::dummy_pos(),
-                        Self::dummy_pos(),
-                        "Expected 'match'",
-                    )
-                    .base,
-                );
-            }
-        };
-        self.advance();
-
-        // Parse the value to match against - only simple expressions, not full expressions
-        // This prevents expr() from consuming the '{' that follows
-        let value_node = match self.current_token() {
-            Some(t) if t.kind == TokenType::Identifier => {
-                let node = Node::VarAccess(VarAccessNode {
-                    variable_name_token: t.clone(),
-                    position_start: t.position_start.clone(),
-                    position_end: t.position_end.clone(),
-                });
-                self.advance();
-                Some(node)
-            }
-            Some(t) if t.kind == TokenType::String => {
-                let node = Node::String(StringNode::new(t.clone()));
-                self.advance();
-                Some(node)
-            }
-            Some(t) if t.kind == TokenType::Int || t.kind == TokenType::Float => {
-                let node = Node::Number(NumberNode::new(t.clone()));
-                self.advance();
-                Some(node)
-            }
-            Some(t) => {
-                return result.failure(
-                    InvalidSyntaxError::new(
-                        t.position_start.clone(),
-                        t.position_end.clone(),
-                        &format!("Expected expression to match on, got {:?}", t.kind),
-                    )
-                    .base,
-                );
-            }
-            None => {
-                return result.failure(
-                    InvalidSyntaxError::new(
-                        Self::dummy_pos(),
-                        Self::dummy_pos(),
-                        "Expected expression to match on",
-                    )
-                    .base,
-                );
-            }
-        };
-
-        // Expect '{'
-        match self.current_token() {
-            Some(t) if t.kind == TokenType::LBrace => {
-                self.advance();
-            }
-            Some(t) => {
-                return result.failure(
-                    InvalidSyntaxError::new(
-                        t.position_start.clone(),
-                        t.position_end.clone(),
-                        "Expected '{'",
-                    )
-                    .base,
-                );
-            }
-            None => {
-                return result.failure(
-                    InvalidSyntaxError::new(Self::dummy_pos(), Self::dummy_pos(), "Expected '{'")
-                        .base,
-                );
-            }
-        }
-
-        let mut arms = Vec::new();
-
-        loop {
-            // Skip newlines
-            while let Some(t) = self.current_token() {
-                if t.kind == TokenType::Newline {
-                    self.advance();
-                } else {
-                    break;
-                }
-            }
-
-            // Check for closing brace
-            if let Some(t) = self.current_token() {
-                if t.kind == TokenType::RBrace {
-                    self.advance();
-                    break;
-                }
-            }
-
-            // Parse pattern - handle type patterns (string, int, float, bool, null)
-            let pattern_node = match self.current_token() {
-                Some(t) if t.kind == TokenType::String => {
-                    let node = Node::String(StringNode::new(t.clone()));
-                    self.advance();
-                    node
-                }
-                Some(t) if t.kind == TokenType::Underscore => {
-                    let node = Node::VarAccess(VarAccessNode {
-                        variable_name_token: t.clone(),
-                        position_start: t.position_start.clone(),
-                        position_end: t.position_end.clone(),
-                    });
-                    self.advance();
-                    node
-                }
-                Some(t) if t.kind == TokenType::Identifier => {
-                    let node = Node::VarAccess(VarAccessNode {
-                        variable_name_token: t.clone(),
-                        position_start: t.position_start.clone(),
-                        position_end: t.position_end.clone(),
-                    });
-                    self.advance();
-                    node
-                }
-                // Type patterns (string, int, float, bool, null)
-                Some(t)
-                    if matches!(
-                        t.kind,
-                        TokenType::TypeString
-                            | TokenType::TypeInt
-                            | TokenType::TypeFloat
-                            | TokenType::TypeBool
-                            | TokenType::TypeNull
-                    ) =>
-                {
-                    // Create a special node that represents a type pattern
-                    let type_name = match t.kind {
-                        TokenType::TypeString => "string",
-                        TokenType::TypeInt => "int",
-                        TokenType::TypeFloat => "float",
-                        TokenType::TypeBool => "bool",
-                        TokenType::TypeNull => "null",
-                        _ => unreachable!(),
-                    };
-
-                    // Create a string node with the type name as value
-                    let synthetic_token = Token::new(
-                        TokenType::String,
-                        Some(type_name.to_string()),
-                        t.position_start.clone(),
-                        Some(t.position_end.clone()),
-                    );
-                    let node = Node::String(StringNode::new(synthetic_token));
-                    self.advance();
-                    node
-                }
-                Some(t) if t.kind == TokenType::Int || t.kind == TokenType::Float => {
-                    let node = Node::Number(NumberNode::new(t.clone()));
-                    self.advance();
-                    node
-                }
-                Some(t) => {
-                    return result.failure(Error::unexpected_token(
-                        &format!("{:?}", t.kind),
-                        "pattern",
-                        t.position_start.clone(),
-                        t.position_end.clone(),
-                    ));
-                }
-                None => {
-                    return result.failure(
-                        InvalidSyntaxError::new(
-                            Self::dummy_pos(),
-                            Self::dummy_pos(),
-                            "Expected pattern",
-                        )
-                        .base,
-                    );
-                }
-            };
-
-            // Skip newlines before '=>'
-            while let Some(t) = self.current_token() {
-                if t.kind == TokenType::Newline {
-                    self.advance();
-                } else {
-                    break;
-                }
-            }
-
-            // Expect '=>'
-            match self.current_token() {
-                Some(t) if t.kind == TokenType::FatArrow => {
-                    self.advance();
-                }
-                Some(t) => {
-                    return result.failure(
-                        InvalidSyntaxError::new(
-                            t.position_start.clone(),
-                            t.position_end.clone(),
-                            "Expected '=>'",
-                        )
-                        .base,
-                    );
-                }
-                None => {
-                    return result.failure(
-                        InvalidSyntaxError::new(
-                            Self::dummy_pos(),
-                            Self::dummy_pos(),
-                            "Expected '=>'",
-                        )
-                        .base,
-                    );
-                }
-            }
-
-            // Skip newlines after '=>'
-            while let Some(t) = self.current_token() {
-                if t.kind == TokenType::Newline {
-                    self.advance();
-                } else {
-                    break;
-                }
-            }
-
-            // Parse body, supports both block and single expression
-            let body_node = match self.current_token() {
-                Some(t) if t.kind == TokenType::LBrace => match result.register(&self.block()) {
-                    Some(node) => node,
-                    None => {
-                        return result.failure(
-                            InvalidSyntaxError::new(
-                                Self::dummy_pos(),
-                                Self::dummy_pos(),
-                                "Expected block body",
-                            )
-                            .base,
-                        );
-                    }
-                },
-                // NEW: Handle release statement as a single expression body
-                Some(t) if t.matches(TokenType::Keyword, Some("release")) => {
-                    // Clone the position before advancing
-                    let pos_start = t.position_start.clone();
-                    // Consume 'release'
-                    self.advance();
-                    // Parse the expression after release
-                    let expr = result.register(&self.expr());
-                    if result.error.is_some() {
-                        return result;
-                    }
-                    // Create a return node
-                    Node::Return(Box::new(ReturnNode {
-                        node_to_return: expr.map(|e| Box::new(e)),
-                        position_start: pos_start.clone(),
-                        position_end: self
-                            .current_token()
-                            .map(|t| t.position_end.clone())
-                            .unwrap_or(pos_start),
-                    }))
-                }
-                Some(_) => {
-                    let expr = result.register(&self.expr());
-                    if result.error.is_some() {
-                        return result;
-                    }
-                    expr.unwrap()
-                }
-                None => {
-                    return result.failure(
-                        InvalidSyntaxError::new(
-                            Self::dummy_pos(),
-                            Self::dummy_pos(),
-                            "Expected body expression or block",
-                        )
-                        .base,
-                    );
-                }
-            };
-
-            if result.error.is_some() {
-                return result;
-            }
-
-            // Store pattern and body positions before moving them
-            let pattern_pos_start = pattern_node.position_start().clone();
-            let pattern_pos_end = pattern_node.position_end().clone();
-            let body_pos_end = body_node.position_end().clone();
-
-            arms.push(MatchArm {
-                pattern_node: Box::new(pattern_node),
-                body_node: Box::new(body_node),
-                position_start: pattern_pos_start,
-                position_end: body_pos_end,
-            });
-        }
-
-        let pos_end = self
-            .current_token()
-            .map(|t| t.position_end.clone())
-            .unwrap_or_else(|| pos_start.clone());
-
-        result.success(Node::Match(Box::new(MatchNode {
-            value_node: Box::new(value_node.unwrap()),
-            arms,
-            position_start: pos_start,
-            position_end: pos_end,
-        })))
-    }
-
-    fn match_pattern(&mut self) -> ParseResult {
-        let mut result = ParseResult::new();
-
-        match self.current_token() {
-            Some(t) if t.kind == TokenType::Int || t.kind == TokenType::Float => {
-                let node = Node::Number(NumberNode::new(t.clone()));
-                self.advance();
-                result.success(node)
-            }
-            Some(t) if t.kind == TokenType::String => {
-                let node = Node::String(StringNode::new(t.clone()));
-                self.advance();
-                result.success(node)
-            }
-            Some(t) if t.kind == TokenType::Underscore => {
-                let node = Node::VarAccess(VarAccessNode {
-                    variable_name_token: t.clone(),
-                    position_start: t.position_start.clone(),
-                    position_end: t.position_end.clone(),
-                });
-                self.advance();
-                result.success(node)
-            }
-            Some(t) if t.kind == TokenType::Identifier => {
-                // For identifiers in patterns, treat them as variable references
-                // (except '_' which we already handled)
-                let node = Node::VarAccess(VarAccessNode {
-                    variable_name_token: t.clone(),
-                    position_start: t.position_start.clone(),
-                    position_end: t.position_end.clone(),
-                });
-                self.advance();
-                result.success(node)
-            }
-            Some(t) => result.failure(
-                InvalidSyntaxError::new(
-                    t.position_start.clone(),
-                    t.position_end.clone(),
-                    &format!("Expected pattern, got {:?}", t.kind),
-                )
-                .base,
-            ),
-            None => result.failure(
-                InvalidSyntaxError::new(Self::dummy_pos(), Self::dummy_pos(), "Expected pattern")
-                    .base,
-            ),
-        }
-    }
 
     fn map_expr(&mut self) -> ParseResult {
         let mut result = ParseResult::new();
@@ -3080,7 +2589,7 @@ impl Parser {
 
         // Skip newlines after the opening brace
         while let Some(t) = self.current_token() {
-            if t.kind == TokenType::Newline {
+            if Self::is_line_break(t) {
                 self.advance();
             } else {
                 break;
@@ -3147,7 +2656,7 @@ impl Parser {
 
             // Skip newlines before ':'
             while let Some(t) = self.current_token() {
-                if t.kind == TokenType::Newline {
+                if Self::is_line_break(t) {
                     self.advance();
                 } else {
                     break;
@@ -3183,7 +2692,7 @@ impl Parser {
 
             // Skip newlines after ':'
             while let Some(t) = self.current_token() {
-                if t.kind == TokenType::Newline {
+                if Self::is_line_break(t) {
                     self.advance();
                 } else {
                     break;
@@ -3213,7 +2722,7 @@ impl Parser {
 
             // Skip newlines before comma or closing brace
             while let Some(t) = self.current_token() {
-                if t.kind == TokenType::Newline {
+                if Self::is_line_break(t) {
                     self.advance();
                 } else {
                     break;
@@ -3226,7 +2735,7 @@ impl Parser {
                     self.advance();
                     // Skip newlines after comma
                     while let Some(tok) = self.current_token() {
-                        if tok.kind == TokenType::Newline {
+                        if Self::is_line_break(tok) {
                             self.advance();
                         } else {
                             break;
@@ -3505,7 +3014,10 @@ impl Parser {
         while let Some(tok) = self.current_token().cloned() {
             let op_type = tok.kind.clone();
 
-            if op_type != TokenType::Mul && op_type != TokenType::Div {
+            if op_type != TokenType::Mul
+                && op_type != TokenType::Div
+                && op_type != TokenType::Mod
+            {
                 break;
             }
 
@@ -3975,7 +3487,7 @@ impl Parser {
                             let mut peek_index = self.token_index + 1;
                             let mut after_brace = self.tokens.get(peek_index);
                             while let Some(t) = after_brace {
-                                if t.kind == TokenType::Newline {
+                                if Self::is_line_break(t) {
                                     peek_index += 1;
                                     after_brace = self.tokens.get(peek_index);
                                 } else {
@@ -3991,7 +3503,7 @@ impl Parser {
                                     let mut after_identifier =
                                         self.tokens.get(after_identifier_index);
                                     while let Some(t) = after_identifier {
-                                        if t.kind == TokenType::Newline {
+                                        if Self::is_line_break(t) {
                                             after_identifier_index += 1;
                                             after_identifier =
                                                 self.tokens.get(after_identifier_index);
@@ -4098,12 +3610,6 @@ impl Parser {
                 }
                 _ if tok.matches(TokenType::Keyword, Some("method")) => {
                     return self.func_def();
-                }
-                _ if tok.matches(TokenType::Keyword, Some("match")) => {
-                    return self.match_expr();
-                }
-                _ if tok.matches(TokenType::Keyword, Some("try")) => {
-                    return self.try_catch_expr();
                 }
                 _ if tok.matches(TokenType::Keyword, Some("panic")) => {
                     return self.panic_expr();
@@ -4257,7 +3763,7 @@ impl Parser {
         loop {
             // Skip newlines
             while let Some(t) = self.current_token() {
-                if t.kind == TokenType::Newline {
+                if Self::is_line_break(t) {
                     self.advance();
                 } else {
                     break;
@@ -4651,6 +4157,10 @@ impl Parser {
         })))
     }
 
+    /// Parses both loop forms:
+    ///   C-style:  for (init; condition; step) { ... }
+    ///   range:    for item in collection { ... }
+    ///             for key, value in map { ... }
     fn for_expr(&mut self) -> ParseResult {
         let mut result = ParseResult::new();
 
@@ -4675,138 +4185,184 @@ impl Parser {
         };
         self.advance();
 
-        // Parse the variable name(s) - could be a single variable or (key, value) tuple
+        // A '(' right after `for` always means the C-style form. The range form
+        // never uses parentheses, so the two can never be confused.
+        if matches!(self.current_token(), Some(t) if t.kind == TokenType::LParen) {
+            return self.for_classic(pos_start);
+        }
+
+        self.for_in(pos_start)
+    }
+
+    /// `for (init; condition; step) { ... }` -- any of the three clauses may be empty.
+    fn for_classic(&mut self, pos_start: Position) -> ParseResult {
+        let mut result = ParseResult::new();
+        self.advance(); // consume '('
+
+        // --- init ---
+        let init_node = if matches!(self.current_token(), Some(t) if t.kind == TokenType::Semicolon)
+        {
+            None
+        } else {
+            let node = result.register(&self.statement());
+            if result.error.is_some() {
+                return result;
+            }
+            node.map(Box::new)
+        };
+        if let Err(e) = self.expect_semicolon("after the loop initializer") {
+            return result.failure(e);
+        }
+
+        // --- condition ---
+        let condition_node =
+            if matches!(self.current_token(), Some(t) if t.kind == TokenType::Semicolon) {
+                None
+            } else {
+                let node = result.register(&self.expr());
+                if result.error.is_some() {
+                    return result;
+                }
+                node.map(Box::new)
+            };
+        if let Err(e) = self.expect_semicolon("after the loop condition") {
+            return result.failure(e);
+        }
+
+        // --- step ---
+        let step_node = if matches!(self.current_token(), Some(t) if t.kind == TokenType::RParen) {
+            None
+        } else {
+            let node = result.register(&self.statement());
+            if result.error.is_some() {
+                return result;
+            }
+            node.map(Box::new)
+        };
+
+        match self.current_token() {
+            Some(t) if t.kind == TokenType::RParen => self.advance(),
+            Some(t) => {
+                return result.failure(
+                    InvalidSyntaxError::new(
+                        t.position_start.clone(),
+                        t.position_end.clone(),
+                        "Expected ')' to close the for clauses",
+                    )
+                    .base,
+                );
+            }
+            None => {
+                return result.failure(
+                    InvalidSyntaxError::new(
+                        Self::dummy_pos(),
+                        Self::dummy_pos(),
+                        "Expected ')' to close the for clauses",
+                    )
+                    .base,
+                );
+            }
+        }
+
+        let body = if matches!(self.current_token(), Some(t) if t.kind == TokenType::LBrace) {
+            result.register(&self.block())
+        } else {
+            result.register(&self.statement())
+        };
+        if result.error.is_some() {
+            return result;
+        }
+        let Some(body_node) = body else {
+            return result.failure(
+                InvalidSyntaxError::new(
+                    Self::dummy_pos(),
+                    Self::dummy_pos(),
+                    "Expected a loop body",
+                )
+                .base,
+            );
+        };
+
+        let pos_end = body_node.position_end().clone();
+        result.success(Node::ForClassic(Box::new(crate::nodes::ForClassicNode {
+            init_node,
+            condition_node,
+            step_node,
+            body_node: Box::new(body_node),
+            position_start: pos_start,
+            position_end: pos_end,
+        })))
+    }
+
+    fn expect_semicolon(&mut self, what: &str) -> Result<(), Error> {
+        match self.current_token() {
+            Some(t) if t.kind == TokenType::Semicolon => {
+                self.advance();
+                Ok(())
+            }
+            Some(t) => Err(InvalidSyntaxError::new(
+                t.position_start.clone(),
+                t.position_end.clone(),
+                &format!("Expected ';' {}", what),
+            )
+            .base),
+            None => Err(InvalidSyntaxError::new(
+                Self::dummy_pos(),
+                Self::dummy_pos(),
+                &format!("Expected ';' {}", what),
+            )
+            .base),
+        }
+    }
+
+    /// `for item in collection { ... }` and `for key, value in map { ... }`
+    fn for_in(&mut self, pos_start: Position) -> ParseResult {
+        let mut result = ParseResult::new();
+
         let var_name_token = match self.current_token() {
             Some(t) if t.kind == TokenType::Identifier => {
-                // Check if this is a tuple pattern (key, value) without parentheses
                 let first = t.clone();
                 self.advance();
 
-                // Look ahead to see if there's a comma
-                if let Some(comma) = self.current_token() {
-                    if comma.kind == TokenType::Comma {
-                        self.advance(); // consume ','
-
-                        let second = match self.current_token() {
-                            Some(tok) if tok.kind == TokenType::Identifier => tok.clone(),
-                            _ => {
-                                return result.failure(
-                                    InvalidSyntaxError::new(
-                                        Self::dummy_pos(),
-                                        Self::dummy_pos(),
-                                        "Expected identifier after comma",
-                                    )
-                                    .base,
-                                );
-                            }
-                        };
-                        self.advance();
-
-                        // Create a special token that encodes the tuple pattern
-                        let tuple_name = format!(
+                // `for k, v in ...` -- encode the pair as the token text "(k,v)"
+                if matches!(self.current_token(), Some(c) if c.kind == TokenType::Comma) {
+                    self.advance();
+                    let second = match self.current_token() {
+                        Some(tok) if tok.kind == TokenType::Identifier => tok.clone(),
+                        _ => {
+                            return result.failure(
+                                InvalidSyntaxError::new(
+                                    Self::dummy_pos(),
+                                    Self::dummy_pos(),
+                                    "Expected a second loop variable after ','",
+                                )
+                                .base,
+                            );
+                        }
+                    };
+                    self.advance();
+                    Token::new(
+                        TokenType::Identifier,
+                        Some(format!(
                             "({},{})",
                             first.value.as_ref().unwrap(),
                             second.value.as_ref().unwrap()
-                        );
-                        Token::new(
-                            TokenType::Identifier,
-                            Some(tuple_name),
-                            first.position_start.clone(),
-                            Some(second.position_end.clone()),
-                        )
-                    } else {
-                        // Single variable
-                        first
-                    }
+                        )),
+                        first.position_start.clone(),
+                        Some(second.position_end.clone()),
+                    )
                 } else {
                     first
                 }
             }
-            Some(t) if t.kind == TokenType::LParen => {
-                // Tuple pattern with parentheses (key, value)
-                self.advance(); // consume '('
-                let first = match self.current_token() {
-                    Some(t) if t.kind == TokenType::Identifier => t.clone(),
-                    _ => {
-                        return result.failure(
-                            InvalidSyntaxError::new(
-                                Self::dummy_pos(),
-                                Self::dummy_pos(),
-                                "Expected identifier in tuple pattern",
-                            )
-                            .base,
-                        );
-                    }
-                };
-                self.advance();
-
-                match self.current_token() {
-                    Some(t) if t.kind == TokenType::Comma => {
-                        self.advance();
-                    }
-                    _ => {
-                        return result.failure(
-                            InvalidSyntaxError::new(
-                                Self::dummy_pos(),
-                                Self::dummy_pos(),
-                                "Expected ',' in tuple pattern",
-                            )
-                            .base,
-                        );
-                    }
-                }
-
-                let second = match self.current_token() {
-                    Some(t) if t.kind == TokenType::Identifier => t.clone(),
-                    _ => {
-                        return result.failure(
-                            InvalidSyntaxError::new(
-                                Self::dummy_pos(),
-                                Self::dummy_pos(),
-                                "Expected identifier in tuple pattern",
-                            )
-                            .base,
-                        );
-                    }
-                };
-                self.advance();
-
-                match self.current_token() {
-                    Some(t) if t.kind == TokenType::RParen => {
-                        self.advance();
-                    }
-                    _ => {
-                        return result.failure(
-                            InvalidSyntaxError::new(
-                                Self::dummy_pos(),
-                                Self::dummy_pos(),
-                                "Expected ')' in tuple pattern",
-                            )
-                            .base,
-                        );
-                    }
-                }
-
-                // Create a special token that encodes the tuple pattern
-                let tuple_name = format!(
-                    "({},{})",
-                    first.value.as_ref().unwrap(),
-                    second.value.as_ref().unwrap()
-                );
-                Token::new(
-                    TokenType::Identifier,
-                    Some(tuple_name),
-                    first.position_start.clone(),
-                    Some(second.position_end.clone()),
-                )
-            }
             Some(t) => {
                 return result.failure(
                     InvalidSyntaxError::new(
                         t.position_start.clone(),
                         t.position_end.clone(),
-                        "Expected identifier or tuple pattern",
+                        "Expected a loop variable name",
                     )
+                    .with_help("write `for item in items { ... }`, or `for (let i: int = 0; i < n; i++) { ... }` to count")
                     .base,
                 );
             }
@@ -4815,172 +4371,74 @@ impl Parser {
                     InvalidSyntaxError::new(
                         Self::dummy_pos(),
                         Self::dummy_pos(),
-                        "Expected identifier or tuple pattern",
+                        "Expected a loop variable name",
                     )
                     .base,
                 );
             }
         };
 
-        // Check if this is a collection iteration (using 'in') or range iteration (using '=')
-        let is_collection_iteration = if let Some(tok) = self.current_token() {
-            tok.value.as_deref() == Some("in")
-        } else {
-            false
-        };
-
-        if is_collection_iteration {
-            // Collection iteration: for item in collection { ... }
-            self.advance(); // consume 'in'
-
-            let collection_expr = result.register(&self.expr());
-            if result.error.is_some() {
-                return result;
-            }
-
-            let body = if let Some(t) = self.current_token() {
-                if t.kind == TokenType::LBrace {
-                    result.register(&self.block())
-                } else {
-                    result.register(&self.statement())
-                }
-            } else {
-                result.register(&self.statement())
-            };
-
-            if result.error.is_some() {
-                return result;
-            }
-
-            let (collection, body_node) = match (collection_expr, body) {
-                (Some(c), Some(b)) => (c, b),
-                _ => {
-                    return result.failure(
-                        InvalidSyntaxError::new(
-                            Self::dummy_pos(),
-                            Self::dummy_pos(),
-                            "Invalid collection iteration",
-                        )
-                        .base,
-                    );
-                }
-            };
-
-            let pos_end = body_node.position_end().clone();
-            return result.success(Node::For(Box::new(ForNode {
-                variable_name_token: var_name_token,
-                start_value_node: Box::new(collection),
-                end_value_node: Box::new(Node::Number(NumberNode::new(Token::new(
-                    TokenType::Int,
-                    Some("0".to_string()),
-                    pos_start.clone(),
-                    None,
-                )))),
-                step_value_node: None,
-                body_node: Box::new(body_node),
-                should_return_null: false,
-                position_start: pos_start,
-                position_end: pos_end,
-            })));
-        }
-
-        // Range iteration: for i = 0 to 5 step 2 { ... }
         match self.current_token() {
-            Some(t) if t.kind == TokenType::Eq => {
-                self.advance();
-            }
+            Some(t) if t.value.as_deref() == Some("in") => self.advance(),
             Some(t) => {
                 return result.failure(
                     InvalidSyntaxError::new(
                         t.position_start.clone(),
                         t.position_end.clone(),
-                        "Expected '='",
+                        "Expected 'in' after the loop variable",
                     )
+                    .with_help("range loops read `for item in items`; to count, use `for (let i: int = 0; i < n; i++)`")
                     .base,
                 );
             }
             None => {
-                return result.failure(
-                    InvalidSyntaxError::new(Self::dummy_pos(), Self::dummy_pos(), "Expected '='")
-                        .base,
-                );
-            }
-        }
-
-        let start_value = result.register(&self.expr());
-        if result.error.is_some() {
-            return result;
-        }
-
-        match self.current_token() {
-            Some(t) if t.matches(TokenType::Keyword, Some("to")) => {
-                self.advance();
-            }
-            Some(t) => {
                 return result.failure(
                     InvalidSyntaxError::new(
-                        t.position_start.clone(),
-                        t.position_end.clone(),
-                        "Expected 'to'",
+                        Self::dummy_pos(),
+                        Self::dummy_pos(),
+                        "Expected 'in' after the loop variable",
                     )
                     .base,
                 );
             }
-            None => {
-                return result.failure(
-                    InvalidSyntaxError::new(Self::dummy_pos(), Self::dummy_pos(), "Expected 'to'")
-                        .base,
-                );
-            }
         }
 
-        let end_value = result.register(&self.expr());
+        let collection_expr = result.register(&self.expr());
         if result.error.is_some() {
             return result;
         }
 
-        let mut step_value = None;
-        if let Some(t) = self.current_token() {
-            if t.matches(TokenType::Keyword, Some("step")) {
-                self.advance();
-                let step = result.register(&self.expr());
-                if result.error.is_some() {
-                    return result;
-                }
-                step_value = step.map(|s| Box::new(s));
-            }
-        }
-
-        let body = if let Some(t) = self.current_token() {
-            if t.kind == TokenType::LBrace {
-                result.register(&self.block())
-            } else {
-                result.register(&self.statement())
-            }
+        let body = if matches!(self.current_token(), Some(t) if t.kind == TokenType::LBrace) {
+            result.register(&self.block())
         } else {
             result.register(&self.statement())
         };
-
         if result.error.is_some() {
             return result;
         }
 
-        if let (Some(start), Some(end), Some(body_node)) = (start_value, end_value, body) {
-            let pos_end = body_node.position_end().clone();
-            result.success(Node::For(Box::new(ForNode {
-                variable_name_token: var_name_token,
-                start_value_node: Box::new(start),
-                end_value_node: Box::new(end),
-                step_value_node: step_value,
-                body_node: Box::new(body_node),
-                should_return_null: false,
-                position_start: pos_start,
-                position_end: pos_end,
-            })))
-        } else {
-            result
-        }
+        let (Some(collection), Some(body_node)) = (collection_expr, body) else {
+            return result.failure(
+                InvalidSyntaxError::new(
+                    Self::dummy_pos(),
+                    Self::dummy_pos(),
+                    "Invalid range loop",
+                )
+                .base,
+            );
+        };
+
+        let pos_end = body_node.position_end().clone();
+        result.success(Node::For(Box::new(ForNode {
+            variable_name_token: var_name_token,
+            iterable_node: Box::new(collection),
+            body_node: Box::new(body_node),
+            should_return_null: false,
+            position_start: pos_start,
+            position_end: pos_end,
+        })))
     }
+
 
     fn while_expr(&mut self) -> ParseResult {
         let mut result = ParseResult::new();
@@ -5017,7 +4475,7 @@ impl Parser {
 
         // Skip newlines before body
         while let Some(t) = self.current_token() {
-            if t.kind == TokenType::Newline {
+            if Self::is_line_break(t) {
                 self.advance();
             } else {
                 break;
@@ -5396,7 +4854,7 @@ impl Parser {
         loop {
             // Skip newlines
             while let Some(t) = self.current_token() {
-                if t.kind == TokenType::Newline {
+                if Self::is_line_break(t) {
                     self.advance();
                 } else {
                     break;
@@ -5535,178 +4993,6 @@ impl Parser {
         self.struct_registry.contains_key(name)
     }
 
-    // In parser.rs, update the impl_block() method
-    fn impl_block(&mut self) -> ParseResult {
-        let mut result = ParseResult::new();
-        let pos_start = self.current_token().unwrap().position_start.clone();
-
-        // Consume 'impl'
-        self.advance();
-
-        // Parse struct name
-        let struct_name = match self.current_token() {
-            Some(t) if t.kind == TokenType::Identifier => {
-                let name = t.clone();
-                self.advance();
-                name
-            }
-            Some(t) => {
-                return result.failure(
-                    InvalidSyntaxError::new(
-                        t.position_start.clone(),
-                        t.position_end.clone(),
-                        "Expected struct name after 'impl'",
-                    )
-                    .base,
-                );
-            }
-            None => {
-                return result.failure(
-                    InvalidSyntaxError::new(
-                        Self::dummy_pos(),
-                        Self::dummy_pos(),
-                        "Expected struct name after 'impl'",
-                    )
-                    .base,
-                );
-            }
-        };
-
-        let struct_name_str = struct_name.value.as_ref().unwrap().to_string();
-
-        // Check if struct exists (immutable borrow only)
-        if !self.struct_exists(&struct_name_str) {
-            return result.failure(
-                InvalidSyntaxError::new(
-                    struct_name.position_start.clone(),
-                    struct_name.position_end.clone(),
-                    &format!("Struct '{}' not defined before impl block", struct_name_str),
-                )
-                .base,
-            );
-        }
-
-        // Expect '{'
-        match self.current_token() {
-            Some(t) if t.kind == TokenType::LBrace => {
-                self.advance();
-            }
-            Some(t) => {
-                return result.failure(
-                    InvalidSyntaxError::new(
-                        t.position_start.clone(),
-                        t.position_end.clone(),
-                        "Expected '{'",
-                    )
-                    .base,
-                );
-            }
-            None => {
-                return result.failure(
-                    InvalidSyntaxError::new(Self::dummy_pos(), Self::dummy_pos(), "Expected '{'")
-                        .base,
-                );
-            }
-        }
-
-        let mut methods = Vec::new();
-
-        // Parse methods inside the impl block
-        loop {
-            // Skip newlines
-            while let Some(t) = self.current_token() {
-                if t.kind == TokenType::Newline {
-                    self.advance();
-                } else {
-                    break;
-                }
-            }
-
-            // Check for closing brace
-            if let Some(t) = self.current_token() {
-                if t.kind == TokenType::RBrace {
-                    self.advance();
-                    break;
-                }
-            }
-
-            // Check for 'export' keyword before method
-            let is_export = if let Some(tok) = self.current_token() {
-                tok.matches(TokenType::Keyword, Some("export"))
-            } else {
-                false
-            };
-
-            if is_export {
-                self.advance(); // consume 'export'
-            }
-
-            // Parse method definition (reuse func_def)
-            let method_result = self.func_def();
-            if method_result.error.is_some() {
-                return method_result;
-            }
-
-            if let Some(method_node) = method_result.node {
-                // Extract the FuncDefNode from the Node enum
-                if let Node::FuncDef(func_def) = method_node {
-                    if !func_def.param_names.is_empty() {
-                        let first_param = &func_def.param_names[0];
-                        let first_param_name = first_param.value.as_ref().unwrap();
-
-                        if first_param_name != "self" {
-                            return result.failure(
-                                InvalidSyntaxError::new(
-                                    first_param.position_start.clone(),
-                                    first_param.position_end.clone(),
-                                    "First parameter of impl method must be 'self'",
-                                )
-                                .base,
-                            );
-                        }
-
-                        if func_def.param_types.is_empty() {
-                            return result.failure(
-                                InvalidSyntaxError::new(
-                                    first_param.position_start.clone(),
-                                    first_param.position_end.clone(),
-                                    "Parameter 'self' must have type annotation",
-                                )
-                                .base,
-                            );
-                        }
-                    }
-
-                    // Store the method - get mutable borrow just for this operation
-                    if let Some(struct_info) = self.struct_registry.get_mut(&struct_name_str) {
-                        struct_info.add_method((*func_def).clone());
-                    }
-                    methods.push(func_def);
-                }
-            }
-
-            // After parsing the method, check if we need to skip a semicolon or newline
-            while let Some(t) = self.current_token() {
-                if t.kind == TokenType::Newline || t.kind == TokenType::Semicolon {
-                    self.advance();
-                } else {
-                    break;
-                }
-            }
-        }
-
-        let pos_end = self
-            .current_token()
-            .map(|t| t.position_end.clone())
-            .unwrap_or(pos_start.clone());
-
-        result.success(Node::Impl(Box::new(ImplNode {
-            struct_name,
-            methods,
-            position_start: pos_start,
-            position_end: pos_end,
-        })))
-    }
 }
 
 // Struct registry for tracking struct definitions and their methods

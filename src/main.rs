@@ -42,15 +42,29 @@ fn run_file(filename: &str) {
     }
 }
 
+/// The interpreter recurses on the Rust stack, so Xenith recursion depth is
+/// bounded by it. The default 8 MB main-thread stack runs out at roughly 1,200
+/// frames; running on a dedicated large stack leaves plenty of headroom under
+/// `MAX_CALL_DEPTH`, which reports a clean error rather than aborting.
+const INTERPRETER_STACK_SIZE: usize = 256 * 1024 * 1024;
+
 fn main() {
     let args: Vec<String> = env::args().collect();
 
-    if args.len() > 1 {
-        run_file(&args[1]);
-    } else {
-        if let Err(e) = run_repl() {
-            eprintln!("REPL error: {}", e);
-            std::process::exit(1);
-        }
+    let worker = std::thread::Builder::new()
+        .name("xenith".to_string())
+        .stack_size(INTERPRETER_STACK_SIZE)
+        .spawn(move || {
+            if args.len() > 1 {
+                run_file(&args[1]);
+            } else if let Err(e) = run_repl() {
+                eprintln!("REPL error: {}", e);
+                std::process::exit(1);
+            }
+        })
+        .expect("failed to start interpreter thread");
+
+    if worker.join().is_err() {
+        std::process::exit(1);
     }
 }

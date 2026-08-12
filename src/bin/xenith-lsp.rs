@@ -280,22 +280,16 @@ impl LanguageServer for XenithLanguageServer {
             "or",
             "otherwise",
             "for",
-            "to",
-            "step",
             "while",
             "skip",
             "stop",
-            "match",
             "in",
-            "try",
-            "catch",
             "panic",
             "grab",
             "export",
             "as",
             "from",
             "struct",
-            "impl",
             "type",
             "true",
             "false",
@@ -313,7 +307,7 @@ impl LanguageServer for XenithLanguageServer {
         }
 
         // Built-in types
-        let types = vec!["int", "float", "string", "bool", "list", "map", "json"];
+        let types = vec!["int", "float", "string", "bool", "list", "map"];
         for typ in types {
             items.push(CompletionItem {
                 label: typ.to_string(),
