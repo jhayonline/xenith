@@ -16,7 +16,7 @@ use crate::nodes::{
 use crate::parser::Parser;
 use crate::position::Position;
 use crate::runtime_result::RuntimeResult;
-use crate::symbol_table::SymbolTable;
+use crate::symbol_table::{AssignOutcome, SymbolTable};
 use crate::types::{FunctionType, Type};
 use crate::utils::{value_to_interpolated_string, value_to_string};
 use crate::values::{
@@ -266,7 +266,7 @@ impl Interpreter {
             }
         }
 
-        result.success(Value::Struct(struct_instance))
+        result.success(Value::Struct(Box::new(struct_instance)))
     }
 
 
@@ -418,7 +418,7 @@ impl Interpreter {
                 }
                 context
                     .symbol_table
-                    .set(alias.clone(), Value::Map(namespace_map));
+                    .set(alias.clone(), Value::Map(Box::new(namespace_map)));
             }
         } else {
             // Import specific items
@@ -571,7 +571,7 @@ impl Interpreter {
             map.set(key_str, value);
         }
 
-        result.success(Value::Map(map))
+        result.success(Value::Map(Box::new(map)))
     }
 
     fn visit_ternary(
@@ -606,12 +606,22 @@ impl Interpreter {
     ) -> RuntimeResult {
         let var_name = node.variable_name_token.value.as_ref().unwrap();
 
-        if let Some(value) = context.symbol_table.get(var_name) {
-            return RuntimeResult::new().success(value.clone());
+        // Go straight to where this name was last found. The name at that slot
+        // is checked, so a stale position misses and falls through to a proper
+        // lookup rather than reading the wrong variable.
+        if let Some((hops, slot)) = node.cache.get().get() {
+            if let Some(value) = context.symbol_table.get_slot(hops, slot, var_name) {
+                return RuntimeResult::new().success(value);
+            }
+        }
+
+        if let Some((hops, slot, value)) = context.symbol_table.locate(var_name) {
+            node.cache.set(crate::nodes::SlotCache::set(hops, slot));
+            return RuntimeResult::new().success(value);
         }
 
         match self.global_symbol_table.get(var_name) {
-            Some(value) => RuntimeResult::new().success(value.clone()),
+            Some(value) => RuntimeResult::new().success(value),
             None => RuntimeResult::new().failure(Error::undefined_variable(
                 var_name,
                 node.position_start.clone(),
@@ -662,9 +672,51 @@ impl Interpreter {
         }
 
         // `x = v` -- updates an existing binding rather than shadowing it.
-        // One scope-chain walk answers declared/constant/declared-type.
-        let Some(binding) = context.symbol_table.resolve_for_assign(var_name) else {
-            return RuntimeResult::new().failure(
+        //
+        // Find, check and store in one walk of the scope chain. This is the
+        // hottest statement in most programs, so nothing here clones what it
+        // does not have to: the value is moved into the table, and the declared
+        // type is cloned only to build an error message.
+        // `get_type_name` is only wanted for an error message, so it is taken
+        // from the outcome rather than computed on every assignment.
+        let matches = |value: &Value, declared: &Type| self.value_matches_type(value, declared);
+
+        // Straight to the remembered slot, exactly as reads do. The name there
+        // is verified, so a stale position falls through to a full walk.
+        let mut value = value;
+        if let Some((hops, slot)) = node.cache.get().get() {
+            match context
+                .symbol_table
+                .assign_slot(hops, slot, var_name, value, &matches)
+            {
+                Ok(outcome) => return Self::assignment_result(outcome, node, var_name, context),
+                // Stale position; the value comes back untouched.
+                Err(returned) => value = returned,
+            }
+        }
+
+        let outcome = context.symbol_table.assign_checked(var_name, value, &matches);
+        if matches!(outcome, AssignOutcome::Stored) {
+            if let Some((hops, slot)) = context.symbol_table.locate_binding(var_name) {
+                node.cache.set(crate::nodes::SlotCache::set(hops, slot));
+            }
+        }
+        return Self::assignment_result(outcome, node, var_name, context);
+    }
+
+    /// Turns an assignment outcome into the result the interpreter returns.
+    fn assignment_result(
+        outcome: AssignOutcome,
+        node: &crate::nodes::VarAssignNode,
+        var_name: &str,
+        context: &Context,
+    ) -> RuntimeResult {
+        let result = RuntimeResult::new();
+
+        match outcome {
+            AssignOutcome::Stored => result.success(Value::Null),
+
+            AssignOutcome::NotDeclared => RuntimeResult::new().failure(
                 RuntimeError::new(
                     node.position_start.clone(),
                     node.position_end.clone(),
@@ -675,11 +727,9 @@ impl Interpreter {
                 .with_name("Undefined Variable")
                 .with_help(&format!("declare it first: `let {} = ...`", var_name))
                 .base,
-            );
-        };
+            ),
 
-        if binding.is_constant {
-            return RuntimeResult::new().failure(
+            AssignOutcome::Constant => RuntimeResult::new().failure(
                 RuntimeError::new(
                     node.position_start.clone(),
                     node.position_end.clone(),
@@ -690,23 +740,17 @@ impl Interpreter {
                 .with_name("Constant Reassignment")
                 .with_help("declare it with `let` instead of `const let` if it needs to change")
                 .base,
-            );
-        }
+            ),
 
-        // Reassignment must respect the type the variable was declared with
-        if let Some(declared) = &binding.declared_type {
-            if *declared != Type::Unknown && !self.value_matches_type(&value, declared) {
-                return RuntimeResult::new().failure(Error::type_mismatch(
-                    &declared.to_string(),
-                    &Self::get_type_name(&value),
+            AssignOutcome::TypeMismatch { expected, found } => {
+                RuntimeResult::new().failure(Error::type_mismatch(
+                    &expected.to_string(),
+                    &found,
                     node.position_start.clone(),
                     node.position_end.clone(),
-                ));
+                ))
             }
         }
-
-        context.symbol_table.assign_existing(var_name, value.clone());
-        result.success(value)
     }
 
 
@@ -747,8 +791,32 @@ impl Interpreter {
 
     /// Check if a value matches an expected type
     pub fn value_matches_type(&self, value: &Value, expected_type: &Type) -> bool {
+        // `resolve_type_alias` rebuilds the type, which allocates for anything
+        // compound. Most annotations contain no alias at all, and this runs on
+        // every assignment, so the common case avoids it entirely.
+        if !Self::contains_alias(expected_type) {
+            return Value::value_matches_type(value, expected_type);
+        }
         let resolved_type = self.resolve_type_alias(expected_type);
         Value::value_matches_type(value, &resolved_type)
+    }
+
+    /// Is there an alias anywhere inside this type that needs resolving?
+    fn contains_alias(typ: &Type) -> bool {
+        match typ {
+            Type::Alias(_, _) => true,
+            Type::List(inner) => Self::contains_alias(inner),
+            Type::Map(k, v) => Self::contains_alias(k) || Self::contains_alias(v),
+            Type::Tuple(types) => types.iter().any(Self::contains_alias),
+            Type::Function(f) => {
+                f.param_types.iter().any(Self::contains_alias)
+                    || Self::contains_alias(&f.return_type)
+            }
+            Type::Struct(_, fields) => {
+                fields.iter().any(|field| Self::contains_alias(&field.field_type))
+            }
+            _ => false,
+        }
     }
 
     // Helper function to resolve type aliases
@@ -1104,7 +1172,7 @@ impl Interpreter {
                         .base,
                     );
                 };
-                context.symbol_table.set_existing(var_name, right.clone());
+                context.symbol_table.set_existing(&var_name, right.clone());
                 return result.success(right);
             }
         }
@@ -1616,7 +1684,11 @@ impl Interpreter {
                             result.loop_should_break = false;
                             break;
                         }
-                        elements.push(value);
+                        // Same as the other loops: the collected values are
+                        // discarded unless the loop's own value is wanted.
+                        if !node.should_return_null {
+                            elements.push(value);
+                        }
                     }
                 }
             }
@@ -1796,7 +1868,12 @@ impl Interpreter {
                 break;
             }
 
-            elements.push(value);
+            // Only worth keeping if the loop's value is actually wanted. A
+            // three million iteration loop was collecting three million values
+            // into a Vec and then throwing the whole thing away.
+            if !node.should_return_null {
+                elements.push(value);
+            }
         }
 
         if node.should_return_null {

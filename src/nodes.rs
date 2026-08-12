@@ -192,10 +192,52 @@ pub struct TernaryNode {
     pub position_end: Position,
 }
 
+/// Where a name was last found, remembered on the node that reads it.
+///
+/// Looking a variable up means walking out through the scope chain hashing the
+/// name in each scope until one has it. The answer is almost always the same
+/// every time that particular line runs, so each reference remembers it: how
+/// many scopes out, and which slot.
+///
+/// A remembered position is never trusted blindly. The name at that slot is
+/// compared before the value is used, so a hit in a differently shaped scope
+/// simply misses and is looked up properly. That matters because Xenith
+/// resolves names against the caller's scope, and the same method body can run
+/// against different chains. Getting it wrong costs a lookup, not a wrong
+/// answer.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SlotCache {
+    pub hops: u16,
+    pub slot: u32,
+    pub valid: bool,
+}
+
+impl SlotCache {
+    pub const EMPTY: Self = Self {
+        hops: 0,
+        slot: 0,
+        valid: false,
+    };
+
+    pub fn get(&self) -> Option<(u16, u32)> {
+        self.valid.then_some((self.hops, self.slot))
+    }
+
+    pub fn set(hops: u16, slot: u32) -> Self {
+        Self {
+            hops,
+            slot,
+            valid: true,
+        }
+    }
+}
+
 /// Variable access node
 #[derive(Debug, Clone)]
 pub struct VarAccessNode {
     pub variable_name_token: Token,
+    /// Where this name was found last time. See [`SlotCache`].
+    pub cache: std::cell::Cell<SlotCache>,
     pub position_start: Position,
     pub position_end: Position,
 }
@@ -204,6 +246,10 @@ pub struct VarAccessNode {
 #[derive(Debug, Clone)]
 pub struct VarAssignNode {
     pub variable_name_token: Token,
+    /// Where this name was found last time, for reassignment. See
+    /// [`SlotCache`]. Unused for a declaration, which always writes to the
+    /// current scope.
+    pub cache: std::cell::Cell<SlotCache>,
     pub var_type: Option<Type>,
     pub value_node: Box<Node>,
     pub is_constant: bool,

@@ -158,12 +158,16 @@ The full list, with what to do instead in each case, is
 ## Performance
 
 A tree walking interpreter, so not fast in absolute terms, but nothing in the hot
-path is doing invisible work. On the machine this was written on, naive `fib(25)`
-runs in about 355 ms and a three million iteration counting loop in about 1.8 s.
+path is doing invisible work. On an idle machine, naive `fib(25)` runs in roughly
+a third of a second and a three million iteration counting loop in under two.
 
-Getting there meant fixing four things, none of them where profiling was expected
-to point. [Performance](docs/internals/10-performance.md) describes each, since
-they are all easy to reintroduce.
+Getting there meant fixing seven things, none of them where profiling was
+expected to point: a function body being deep copied on every reference, the
+whole source file being copied with every position, a 392 byte struct returned
+from every step, an interpolated string re-parsed on every evaluation, an
+allocation on every assignment, and a `Value` twice the size it needed to be.
+[Performance](docs/internals/10-performance.md) describes each, since they are
+all easy to reintroduce.
 
 ## Contributing
 

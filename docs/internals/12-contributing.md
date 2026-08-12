@@ -153,18 +153,12 @@ stops that.
 
 In the order it should probably be done:
 
-**1. A resolver pass.** Give every variable reference a scope depth and slot
-index, so lookup is a vector index rather than a hashed walk. Most of the
-machinery it needs already exists in [the checker](06-checker.md), which walks
-the same scopes. This also gives the language server real scope information,
-which is what its rename needs.
-
-**2. Lexical scoping.** Record the defining context in `Function` and use it in
+**1. Lexical scoping.** Record the defining context in `Function` and use it in
 `execute` instead of the caller's. That gives the language closures and lets a
 module's exports call its private helpers. It changes what existing programs do,
 so it wants a decision rather than a patch.
 
-**3. A standard library.** Strings first, since they are the most obviously
+**2. A standard library.** Strings first, since they are the most obviously
 missing. Written in Xenith where possible, so the language gets exercised, with
 Rust builtins only where it has to be.
 
@@ -179,5 +173,8 @@ Rust builtins only where it has to be.
   nested failure does not arrive as a pre-rendered string.
 - Store the two variable `for k, v` names as a proper field instead of the
   literal text `(k,v)` in one token.
+- Give the language server real scope information. Its rename is still by name
+  and file local. A resolver pass would fix that, and would share machinery with
+  [the checker](06-checker.md).
 
 Back to [the internals index](README.md)

@@ -1067,6 +1067,7 @@ impl Parser {
         // Create a proper function call node
         let call_node = Node::Call(Box::new(CallNode {
             node_to_call: Box::new(Node::VarAccess(VarAccessNode {
+                        cache: std::cell::Cell::new(crate::nodes::SlotCache::EMPTY),
                 variable_name_token: Token::new(
                     TokenType::Identifier,
                     Some("echo".to_string()),
@@ -1255,6 +1256,7 @@ impl Parser {
         let object = match self.current_token() {
             Some(tok) if tok.kind == TokenType::Identifier => {
                 let obj_node = Node::VarAccess(VarAccessNode {
+                        cache: std::cell::Cell::new(crate::nodes::SlotCache::EMPTY),
                     variable_name_token: tok.clone(),
                     position_start: tok.position_start.clone(),
                     position_end: tok.position_end.clone(),
@@ -2086,6 +2088,7 @@ impl Parser {
 
             // Create a binary operation: var = var + value or var = var - value
             let left_node = Node::VarAccess(VarAccessNode {
+                        cache: std::cell::Cell::new(crate::nodes::SlotCache::EMPTY),
                 variable_name_token: var_name.clone(),
                 position_start: pos_start.clone(),
                 position_end: pos_start.clone(),
@@ -2111,6 +2114,7 @@ impl Parser {
                 .unwrap_or_else(|| pos_start.clone());
 
             return result.success(Node::VarAssign(Box::new(VarAssignNode {
+                cache: std::cell::Cell::new(crate::nodes::SlotCache::EMPTY),
                 variable_name_token: var_name,
                 var_type: None,
                 value_node: Box::new(bin_op_node),
@@ -2173,6 +2177,7 @@ impl Parser {
 
         // Create: var = var + 1 or var = var - 1
         let left_node = Node::VarAccess(VarAccessNode {
+                        cache: std::cell::Cell::new(crate::nodes::SlotCache::EMPTY),
             variable_name_token: var_name.clone(),
             position_start: pos_start.clone(),
             position_end: pos_start.clone(),
@@ -2205,6 +2210,7 @@ impl Parser {
             .unwrap_or_else(|| pos_start.clone());
 
         result.success(Node::VarAssign(Box::new(VarAssignNode {
+                cache: std::cell::Cell::new(crate::nodes::SlotCache::EMPTY),
             variable_name_token: var_name,
             var_type: None,
             value_node: Box::new(bin_op_node),
@@ -2370,6 +2376,7 @@ impl Parser {
             .unwrap_or_else(|| pos_start.clone());
 
         result.success(Node::VarAssign(Box::new(VarAssignNode {
+                cache: std::cell::Cell::new(crate::nodes::SlotCache::EMPTY),
             variable_name_token: var_name,
             var_type,
             value_node: Box::new(value.unwrap()),
@@ -2434,6 +2441,7 @@ impl Parser {
                 .unwrap_or_else(|| pos_start.clone());
 
             return result.success(Node::VarAssign(Box::new(VarAssignNode {
+                cache: std::cell::Cell::new(crate::nodes::SlotCache::EMPTY),
                 variable_name_token: var_name,
                 var_type: None,
                 value_node: Box::new(val_node),
@@ -3401,6 +3409,7 @@ impl Parser {
                     );
 
                     let field_node = Node::VarAccess(VarAccessNode {
+                        cache: std::cell::Cell::new(crate::nodes::SlotCache::EMPTY),
                         variable_name_token: field_token,
                         position_start: field_or_method_name.position_start.clone(),
                         position_end: field_or_method_name.position_end.clone(),
@@ -3614,6 +3623,7 @@ impl Parser {
 
                             let combined = format!("{}::{}", struct_name, method_name);
                             let node = Node::VarAccess(VarAccessNode {
+                        cache: std::cell::Cell::new(crate::nodes::SlotCache::EMPTY),
                                 variable_name_token: Token::new(
                                     TokenType::Identifier,
                                     Some(combined),
@@ -3676,6 +3686,7 @@ impl Parser {
 
                     // Not a struct instantiation, create variable access node
                     let node = Node::VarAccess(VarAccessNode {
+                        cache: std::cell::Cell::new(crate::nodes::SlotCache::EMPTY),
                         variable_name_token: Token::new(
                             TokenType::Identifier,
                             Some(struct_name.clone()),
@@ -3771,6 +3782,7 @@ impl Parser {
                     // Treat echo as an identifier when it's used as a function call
                     // The actual function call will be handled by call()
                     let node = Node::VarAccess(VarAccessNode {
+                        cache: std::cell::Cell::new(crate::nodes::SlotCache::EMPTY),
                         variable_name_token: Token::new(
                             TokenType::Identifier,
                             Some("echo".to_string()),
@@ -4601,7 +4613,10 @@ impl Parser {
             variable_name_token: var_name_token,
             iterable_node: Box::new(collection),
             body_node: Box::new(body_node),
-            should_return_null: false,
+            // A loop is a statement: nothing in the language can read the list
+            // of per-iteration values, and building one made memory grow with
+            // the iteration count.
+            should_return_null: true,
             position_start: pos_start,
             position_end: pos_end,
         })))
@@ -4669,7 +4684,8 @@ impl Parser {
             result.success(Node::While(Box::new(WhileNode {
                 condition_node: Box::new(cond),
                 body_node: Box::new(body_node),
-                should_return_null: false,
+                // See the `for` loop above: the collected values are unreachable.
+                should_return_null: true,
                 position_start: pos_start,
                 position_end: pos_end,
             })))

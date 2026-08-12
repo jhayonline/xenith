@@ -27,8 +27,11 @@ pub enum Value {
     List(List),
     Function(Box<Function>),
     BuiltInFunction(BuiltInFunction),
-    Map(Map),
-    Struct(Struct),
+    /// Boxed: a `Map` holds a `HashMap`, which is 48 bytes inline and made
+    /// every `Value` that size whether or not it was a map.
+    Map(Box<Map>),
+    /// Boxed for the same reason: a `String` plus a `HashMap` is 72 bytes.
+    Struct(Box<Struct>),
     Bool(bool),
     Tuple(Vec<Value>),
     Null,

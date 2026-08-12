@@ -63,11 +63,27 @@ current node's span before returning it.
 
 ## Nodes worth a closer look
 
-### VarAssignNode
+### VarAccessNode and VarAssignNode
+
+Both carry a `SlotCache`, which is where the name was found the last time that
+line ran:
+
+```rust
+pub struct SlotCache {
+    pub hops: u16,   // scopes out
+    pub slot: u32,   // position within that scope
+    pub valid: bool,
+}
+```
+
+It is a `Cell`, so a shared tree can still update it. The name at that position
+is verified before the value is used, which is what makes it safe under dynamic
+scoping. [Performance](10-performance.md) explains why.
 
 ```rust
 pub struct VarAssignNode {
     pub variable_name_token: Token,
+    pub cache: Cell<SlotCache>,
     pub var_type: Option<Type>,
     pub value_node: Box<Node>,
     pub is_constant: bool,
@@ -135,15 +151,21 @@ pub struct InterpolatedStringNode {
 pub struct InterpolationPart {
     pub is_expression: bool,
     pub content: String,
+    pub parsed: Option<Box<Node>>,
 }
 ```
 
-The content of an expression part is *source text*, not a parsed node. The
-interpreter lexes and parses it every time the string is evaluated. That is both
-slow and the reason interpolated expressions have their own quirks. Parsing them
-at parse time, into `Vec<Node>`, is a worthwhile change.
+An expression part keeps both its source text and the node it parses to.
+`InterpolatedStringNode::new` unpacks the delimited string the lexer produced and
+parses each expression there and then, using `Lexer::new_at` so the tokens are
+numbered from the enclosing string's position.
 
-`InterpolatedStringNode::new` unpacks the delimited string the lexer produced.
+The text used to be all that was kept, and the interpreter lexed and parsed it
+afresh on every evaluation. That cost a parse per loop iteration and hid those
+expressions from the static checker entirely.
+
+`parsed` is `None` when the text does not parse, and the interpreter falls back
+to its old path so the error surfaces where it always did.
 `escape_interpolation_part` and `unescape_interpolation_part` live here too.
 
 ### DestructurePattern

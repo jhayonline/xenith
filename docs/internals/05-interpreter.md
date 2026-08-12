@@ -99,37 +99,47 @@ chain.
 
 ```rust
 pub struct SymbolTable {
-    symbols: Rc<RefCell<FxHashMap<String, Value>>>,
-    types: Rc<RefCell<FxHashMap<String, Type>>>,
-    constants: Rc<RefCell<FxHashSet<String>>>,
+    entries: Rc<RefCell<Vec<Entry>>>,
+    index: Rc<RefCell<FxHashMap<Rc<str>, u32>>>,
     parent: Option<Rc<SymbolTable>>,
+}
+
+pub struct Entry {
+    pub name: Rc<str>,
+    pub value: Value,
+    pub declared_type: Option<Type>,
+    pub is_constant: bool,
 }
 ```
 
-Three maps: the values, the declared types for checking reassignment, and the
-set of names declared `const let`.
+Bindings sit in a `Vec` with a map beside it from name to position. A binding's
+value, declared type and constness live together in one entry, so an assignment
+touches one structure rather than three separate maps.
 
 The important methods:
 
 | Method | Does |
 | --- | --- |
 | `get(name)` | walk out through parents, return a clone |
+| `locate(name)` | the same, and say how many hops and which position |
+| `get_slot(hops, slot, name)` | go straight there, verifying the name |
+| `assign_slot(...)` | the same for a write, handing the value back on a miss |
 | `set(name, v)` | write to this scope only, used by declarations |
-| `assign_existing(name, v)` | walk out to the scope that declared it |
-| `resolve_for_assign(name)` | one walk returning constness and declared type |
+| `assign_checked(name, v, ..)` | find, check constness and type, and store, in one walk |
 | `clear_local()` | drop everything in this scope, keep parents |
 
-`resolve_for_assign` exists because checking "declared?", "constant?" and
-"declared type?" as three separate calls walked the chain three times on every
-assignment.
+Nothing is ever removed from a table, only overwritten or cleared wholesale.
+That is what makes a position stable, and it is what the slot cache on each
+variable reference depends on; see [Performance](10-performance.md).
 
 `get` returns a clone of the value. That is the single most important fact about
 this file, and the reason `Function` holds its body in an `Rc`; see
 [Values](07-values.md).
 
 `FxHashMap` is a `HashMap` with the hasher from `src/fxhash.rs`, a small
-non cryptographic hash lifted from rustc's design. Variable lookup is hot enough
-that SipHash showed up in profiles.
+non cryptographic hash lifted from rustc's design. Variable lookup was hot enough
+that SipHash showed up in profiles, before the slot cache took most lookups off
+the hashed path entirely.
 
 ## Name resolution is dynamic
 
