@@ -1,0 +1,2 @@
+export method a() -> int { release "x" }
+export method b() -> bool { release 1 }

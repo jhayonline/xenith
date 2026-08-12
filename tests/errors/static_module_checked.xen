@@ -1,0 +1,2 @@
+grab { bad } from "module_support_typed"
+echo("{bad()}")

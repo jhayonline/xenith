@@ -13,13 +13,20 @@ reported at once rather than the first one.
 pub fn check(ast: &Node, aliases: &HashMap<String, Type>) -> Vec<Error>
 ```
 
-Called from three places:
+Called from four places:
 
 - `lib.rs::run`, which returns the first error, so embedding `run` stays a
   simple `Result`.
 - `lib.rs::check_source`, which returns all of them. This is what `main.rs` uses
   so the CLI can print every error and a count.
 - `bin/xenith-lsp.rs`, so the editor reports exactly what the command line will.
+- `ModuleRegistry::load_module`, so an imported file is checked before it runs.
+
+The module case matters more than it sounds. Without it an exported method could
+return the wrong type and every importing program would use the result without a
+word, which is exactly where the guarantee is worth most. A module is checked
+when it is loaded rather than when the importing file is checked, so the error
+arrives at the `grab` rather than alongside the importing file's own errors.
 
 ## The rule it lives by
 
@@ -91,8 +98,6 @@ the checker gets considerably stronger for free.
 - **Builtins.** `len`, `append` and the rest accept several argument types in
   ways `Type` cannot describe, so they are `Unknown` and their calls pass.
 - **Anything typed by the caller's scope**, as above.
-- **Modules.** `grab` is not followed, so a module's contents are checked when it
-  is the file being run and not when it is imported.
 - **Method values.** Calling a method held in a variable is not checked against
   its `method(A) -> B` type.
 

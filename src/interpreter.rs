@@ -8,7 +8,7 @@
 use crate::context::Context;
 use crate::error::{Error, RuntimeError};
 use crate::lexer::Lexer;
-use crate::modules::{Module, ModuleRegistry};
+use crate::modules::{Module, ModuleError, ModuleRegistry};
 use crate::nodes::{
     BoolLiteralNode, DestructureNode, DestructurePattern, Node, NullLiteralNode, PanicNode,
     StructDefNode, TupleLiteralNode, TypeAliasNode,
@@ -79,7 +79,7 @@ impl Interpreter {
         module_path: &str,
         pos: &Position,
         context: &Context,
-    ) -> Result<Module, String> {
+    ) -> Result<Module, ModuleError> {
         // Refuse a cycle rather than recursing until the process runs out of
         // stack. The list lives here rather than on the registry because
         // loading a module hands the registry out and back again, so a nested
@@ -87,14 +87,7 @@ impl Interpreter {
         if self.loading_modules.iter().any(|name| name == module_path) {
             let mut chain = self.loading_modules.clone();
             chain.push(module_path.to_string());
-            return Err(format!(
-                "circular import: {}",
-                chain
-                    .iter()
-                    .map(|name| format!("'{}'", name))
-                    .collect::<Vec<_>>()
-                    .join(" imports ")
-            ));
+            return Err(ModuleError::Circular(chain));
         }
 
         // Initialize module registry if needed
@@ -357,6 +350,78 @@ impl Interpreter {
         inner_result
     }
 
+    /// Turns a module load failure into the error the user sees.
+    ///
+    /// Each kind gets its own code. A failure *inside* a module is reported as
+    /// itself, with its own position in the module's file, rather than being
+    /// flattened into "module not found": a type error in an imported file is
+    /// not a missing file, and saying so sends people looking in the wrong
+    /// place.
+    fn module_failure(
+        failure: ModuleError,
+        node: &crate::nodes::GrabNode,
+        context: &Context,
+    ) -> Error {
+        match failure {
+            ModuleError::NotFound(module) => RuntimeError::new(
+                node.position_start.clone(),
+                node.position_end.clone(),
+                &format!("Module '{}' not found", module),
+                Some(context.clone()),
+            )
+            .with_code("XEN012")
+            .with_name("Module Not Found")
+            .with_help("check the path is relative to this file, and that the file exists")
+            .base,
+
+            ModuleError::Unreadable(module, reason) => RuntimeError::new(
+                node.position_start.clone(),
+                node.position_end.clone(),
+                &format!("could not read module '{}': {}", module, reason),
+                Some(context.clone()),
+            )
+            .with_code("XEN012")
+            .with_name("Module Not Found")
+            .base,
+
+            ModuleError::Circular(chain) => RuntimeError::new(
+                node.position_start.clone(),
+                node.position_end.clone(),
+                &format!(
+                    "circular import: {}",
+                    chain
+                        .iter()
+                        .map(|name| format!("'{}'", name))
+                        .collect::<Vec<_>>()
+                        .join(" imports ")
+                ),
+                Some(context.clone()),
+            )
+            .with_code("XEN021")
+            .with_name("Circular Import")
+            .with_help("break the cycle by moving the shared definitions into a third module")
+            .base,
+
+            // The module's own errors already carry its file and line. Only the
+            // first is returned, because a `RuntimeResult` holds one, but the
+            // count is worth saying so nobody fixes one and assumes it is done.
+            ModuleError::Failed { module, mut errors } => {
+                let count = errors.len();
+                let mut first = errors.remove(0);
+                let note = if count == 1 {
+                    format!("from module '{}'", module)
+                } else {
+                    format!("from module '{}', which has {} errors", module, count)
+                };
+                first.note = Some(match first.note.take() {
+                    Some(existing) => format!("{}; {}", note, existing),
+                    None => note,
+                });
+                first
+            }
+        }
+    }
+
     fn visit_grab(
         &mut self,
         node: &crate::nodes::GrabNode,
@@ -371,42 +436,7 @@ impl Interpreter {
         // Load the module
         let module = match self.load_module(&module_path, &node.position_start, context) {
             Ok(m) => m,
-            Err(err) => {
-                // `load_module` reports failures as strings, so the two cases
-                // are told apart by prefix. A cycle deserves its own name and
-                // hint; anything else is a missing or broken module.
-                // A nested failure arrives already rendered, so the innermost
-                // "circular import" text is buried inside it rather than at the
-                // front. Stringly typed module errors are why this has to look
-                // for the text at all; a real error type would carry the code.
-                let is_cycle = err.contains("circular import") || err.contains("Circular Import");
-                let (code, name, help) = if is_cycle {
-                    (
-                        "XEN021",
-                        "Circular Import",
-                        "break the cycle by moving the shared definitions into a third module",
-                    )
-                } else {
-                    (
-                        "XEN012",
-                        "Module Not Found",
-                        "check the path is relative to this file, and that the file exists",
-                    )
-                };
-
-                return result.failure(
-                    RuntimeError::new(
-                        node.position_start.clone(),
-                        node.position_end.clone(),
-                        &err,
-                        Some(context.clone()),
-                    )
-                    .with_code(code)
-                    .with_name(name)
-                    .with_help(help)
-                    .base,
-                );
-            }
+            Err(failure) => return result.failure(Self::module_failure(failure, node, context)),
         };
 
         if node.is_namespace_import {

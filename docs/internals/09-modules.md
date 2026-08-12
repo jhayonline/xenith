@@ -47,10 +47,33 @@ the `grab`.
 
 1. If the module is already in the cache, return it.
 2. Read the file.
-3. Lex and parse it. A syntax error in the module surfaces at the `grab`.
-4. Run its top level in a fresh context.
-5. Collect its exports.
-6. Cache and return.
+3. Lex and parse it.
+4. Run [the static checker](06-checker.md) over it. A module gets the same
+   checking as a file run directly.
+5. Run its top level in a fresh context.
+6. Collect its exports.
+7. Cache and return.
+
+A failure at any of steps 2 to 5 comes back as a `ModuleError`:
+
+```rust
+pub enum ModuleError {
+    NotFound(String),
+    Unreadable(String, String),
+    Failed { module: String, errors: Vec<Error> },
+    Circular(Vec<String>),
+}
+```
+
+`Interpreter::module_failure` turns each into the error the user sees, with its
+own code. `Failed` carries the module's own errors, so a type error inside an
+imported file is reported as a type error at its own line in its own file, not
+flattened into "module not found". The note says which module it came from, and
+how many errors that module has if there is more than one.
+
+This used to be a `Result<Module, String>` holding an already-rendered
+diagnostic, which meant the caller had to search the text for the words
+"circular import" to work out what had happened.
 
 Because the module's top level runs, a module with statements outside a
 definition performs them on import. Caching means that happens once no matter how
@@ -92,8 +115,6 @@ exports have to stand alone.
 
 ## What is missing
 
-- No circular import detection. Two modules importing each other will recurse
-  until the depth limit.
 - No versioning or namespacing beyond the file path.
 - `resolve_stdlib` still exists and searches for a directory that was deleted.
 - The duplicated third candidate in `resolve_local`.

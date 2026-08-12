@@ -7,6 +7,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use crate::context::Context;
+use crate::error::Error;
 use crate::interpreter::Interpreter;
 use crate::lexer::Lexer;
 use crate::nodes::Node;
@@ -123,44 +124,64 @@ impl ModuleRegistry {
         &mut self,
         module_path: &str,
         interpreter: &mut Interpreter,
-    ) -> Result<Module, String> {
+    ) -> Result<Module, ModuleError> {
         // Check cache first
         if let Some(module) = self.modules.get(module_path) {
             return Ok(module.clone());
         }
 
         // Resolve file path
-        let file_path = self
-            .resolve_path(module_path)
-            .ok_or_else(|| format!("Module '{}' not found", module_path))?;
+        let Some(file_path) = self.resolve_path(module_path) else {
+            return Err(ModuleError::NotFound(module_path.to_string()));
+        };
+
+        let name = file_path.to_string_lossy().to_string();
+        let failed = |errors: Vec<Error>| ModuleError::Failed {
+            module: module_path.to_string(),
+            errors,
+        };
 
         // Read and parse file
-        let source = fs::read_to_string(&file_path)
-            .map_err(|e| format!("Failed to read module '{}': {}", module_path, e))?;
+        let source = match fs::read_to_string(&file_path) {
+            Ok(source) => source,
+            Err(e) => return Err(ModuleError::Unreadable(module_path.to_string(), e.to_string())),
+        };
 
-        let mut lexer = Lexer::new(file_path.to_string_lossy().to_string(), source);
-        let tokens = lexer.make_tokens().map_err(|e| e.base.as_string())?;
+        let mut lexer = Lexer::new(name, source);
+        let tokens = match lexer.make_tokens() {
+            Ok(tokens) => tokens,
+            Err(e) => return Err(failed(vec![e.base])),
+        };
 
         let mut parser = Parser::new(tokens);
         let parse_result = parser.parse();
 
         if let Some(error) = parse_result.error {
-            return Err(error.as_string());
+            return Err(failed(vec![error]));
         }
 
         let ast = parse_result.node.unwrap();
+
+        // A module gets the same static checking as a file run directly.
+        // Without this an imported method could return the wrong type and the
+        // importing program would use the result without a word, which is
+        // exactly where the guarantee is worth most.
+        let static_errors = crate::checker::check(&ast, &parser.type_aliases);
+        if !static_errors.is_empty() {
+            return Err(failed(static_errors));
+        }
 
         // Transfer type aliases from parser to interpreter for this module
         interpreter.type_aliases.extend(parser.type_aliases);
 
         // Create module context and execute
-        let mut module_context = Context::new(&module_path, None, None);
+        let mut module_context = Context::new(module_path, None, None);
 
         // Track exports during execution
         let exec_result = interpreter.visit(&ast, &mut module_context);
 
         if let Some(error) = exec_result.error {
-            return Err(error.as_string());
+            return Err(failed(vec![*error]));
         }
         // Collect exports from the module's symbol table
         let exports = module_context.get_exports().clone();
@@ -176,4 +197,22 @@ impl ModuleRegistry {
 
         Ok(module)
     }
+}
+
+/// Why a module could not be loaded.
+///
+/// This used to be a `String`, which meant a nested failure arrived already
+/// rendered and the caller had to search it for text to work out what kind of
+/// error it was. Keeping the errors themselves lets the caller report them with
+/// their own codes and positions.
+#[derive(Debug)]
+pub enum ModuleError {
+    /// No file matched the path.
+    NotFound(String),
+    /// The file exists but could not be read.
+    Unreadable(String, String),
+    /// The module was found but lexing, parsing, checking or running it failed.
+    Failed { module: String, errors: Vec<Error> },
+    /// Modules importing each other, innermost last.
+    Circular(Vec<String>),
 }

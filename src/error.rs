@@ -461,6 +461,14 @@ impl Error {
             }
         }
 
+        // Note explaining the rule, then the suggested fix.
+        //
+        // Notes used to be collected and never printed, so every `with_note` in
+        // this file was writing text nobody could read.
+        if let Some(note) = &self.note {
+            result.push_str(&format!("  {} {}\n", "note:".bright_blue(), note));
+        }
+
         // Help with emoji
         if let Some(help) = &self.help {
             result.push_str(&format!("  {} {}\n", "💡".bright_green(), help));

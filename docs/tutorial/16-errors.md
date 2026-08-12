@@ -15,19 +15,19 @@ Every error looks like this:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 error XEN001: Type Mismatch
   expected `int`, found `string`
-  → program.xen:3:14
+  → program.xen:3:1
 
      3 │ let count: int = "many"
          ^^^^^^^^^^^^^^^^^^^^^^^
-
-  = note: the declared type and the value disagree
-  = help: use type conversion: `value as int`
+  note: cannot assign `string` to variable of type `int`
+  💡 use type conversion: `value as int`
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ```
 
 The parts, in order: the code and category, what went wrong, the file with line
-and column, the offending source with the span underlined, and where available a
-note explaining the rule and a help line suggesting a fix.
+and column, the offending source with the span underlined, a note explaining the
+rule, and a line suggesting a fix. The last two appear where they are useful,
+which is most of the time.
 
 ## Error codes
 
@@ -164,6 +164,17 @@ error XEN015: Too Many Arguments
 ```
 
 An error in a branch that never executes is still reported.
+
+Imported modules are checked too, when they are loaded. An error inside one is
+reported at its own line in its own file, with a note saying which module it came
+from:
+
+```
+error XEN001: Type Mismatch
+  expected `int`, found `string`
+  → textstats.xen:4:5
+  note: from module 'textstats'
+```
 
 What the checker cannot prove ahead of time is caught as it runs, which stops the
 program at that point. The main thing it cannot see is a value a method reads

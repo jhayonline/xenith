@@ -112,11 +112,17 @@ error XEN001: Type Mismatch
 The source line is pulled out of `position_start.file_text`, which is why every
 position carries the whole source. `as_string` is the same without colour.
 
-Two things here were once broken and are easy to break again:
+Three things here were once broken and are easy to break again:
 
 - `details` was rendered nowhere, so every error showed only its category.
+- `note` was rendered nowhere either, so every `with_note` in this file was
+  writing text no user could read.
 - The caret row double counted its indentation. `get_arrow` returns only the
   carets, and the caller supplies the leading spaces. Keep that split.
+
+If you add a field to `Error`, check that both `as_string` and
+`as_string_colored` print it. Twice now a field has been collected carefully and
+then dropped on the floor.
 
 ## Positions
 
