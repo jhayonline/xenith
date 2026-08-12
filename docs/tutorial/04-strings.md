@@ -190,11 +190,90 @@ true
 Comparison is case sensitive and exact. There is no built in case folding or
 trimming yet.
 
+## Reaching into a string
+
+Index with brackets, the same as a list. You get back a one character string,
+counted in characters rather than bytes:
+
+```xenith
+let word: string = "hello"
+
+echo(word[0])
+echo(word[4])
+echo("{"héllo"[1]}")
+```
+
+```
+h
+o
+é
+```
+
+`substring(text, start, end)` takes the characters from `start` up to but not
+including `end`. Both ends are clamped, so it never fails and callers need no
+bounds check:
+
+```xenith
+let word: string = "hello"
+
+echo(substring(word, 1, 3))
+echo(substring(word, 0, 99))
+echo("[{substring(word, 3, 1)}]")
+```
+
+```
+el
+hello
+[]
+```
+
+`code_at(text, index)` gives the Unicode code point of a character, and
+`from_code(n)` turns one back into a string. Together they are how case
+conversion and classification get written:
+
+```xenith
+echo("{code_at("A", 0)}")
+echo(from_code(97))
+echo(from_code(code_at("A", 0) + 32))
+```
+
+```
+65
+a
+a
+```
+
 ## What strings cannot do yet
 
-There is no indexing (`text[0]`), no slicing, no `split`, `trim`, `upper` or
-`replace`. The string type is deliberately small right now. When a standard
-library arrives those will live in it rather than being wired into the
-interpreter.
+There is no `split`, `trim`, `upper`, `replace` or `contains` built in. Those
+belong in a standard library, and the four operations above are deliberately the
+whole primitive set they need: everything else about strings is meant to be
+written in Xenith rather than wired into the interpreter.
+
+`trim` is about twenty lines and needs nothing further:
+
+```xenith
+method is_space(c: string) -> bool {
+    release c == " " || c == "\t" || c == "\n" || c == "\r"
+}
+
+method trim(text: string) -> string {
+    let start: int = 0
+    while start < text.len() && is_space(text[start]) {
+        start = start + 1
+    }
+    let last: int = text.len()
+    while last > start && is_space(text[last - 1]) {
+        last = last - 1
+    }
+    release substring(text, start, last)
+}
+
+echo("[{trim("   padded   ")}]")
+```
+
+```
+[padded]
+```
 
 Next: [Booleans and operators](05-booleans-and-operators.md)

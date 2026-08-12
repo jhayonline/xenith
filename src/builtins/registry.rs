@@ -94,6 +94,23 @@ pub const BUILTIN_FUNCTIONS: &[BuiltinFn] = &[
         signature: "is_fun(value) -> bool",
         doc: "True when the value is a function.",
     },
+    // The string primitives. Everything else about strings is meant to be
+    // written in Xenith on top of these, so think hard before adding a fourth.
+    BuiltinFn {
+        name: "substring",
+        signature: "substring(text, start, end) -> string",
+        doc: "The characters from `start` up to but not including `end`. Clamped to the ends of the string, so it never fails.",
+    },
+    BuiltinFn {
+        name: "code_at",
+        signature: "code_at(text, index) -> int",
+        doc: "The Unicode code point of the character at an index, for classifying and converting case.",
+    },
+    BuiltinFn {
+        name: "from_code",
+        signature: "from_code(code) -> string",
+        doc: "The one character string for a Unicode code point. The inverse of `code_at`.",
+    },
     BuiltinFn {
         name: "run",
         signature: "run(path) -> value",

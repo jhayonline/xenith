@@ -1,0 +1,45 @@
+# The primitives a string library is built on. Everything above these is meant
+# to be written in Xenith.
+
+let s: string = "hello"
+
+# Indexing gives a one character string, counted in characters.
+echo(s[0])
+echo(s[4])
+echo("{s.len()}")
+
+# Characters, not bytes, so an accent lands where a reader expects.
+let accented: string = "héllo"
+echo(accented[1])
+echo("{accented.len()}")
+
+# substring clamps rather than failing, so callers need no bounds check.
+echo(substring(s, 1, 3))
+echo("[{substring(s, 0, 99)}]")
+echo("[{substring(s, 3, 1)}]")
+echo("[{substring(s, 99, 100)}]")
+
+# Code points, for classifying and converting case in the language.
+echo("{code_at(s, 0)}")
+echo(from_code(72))
+echo(from_code(code_at("A", 0) + 32))
+
+# Which is enough to write trim without any more Rust.
+method is_space(c: string) -> bool {
+    release c == " " || c == "\t" || c == "\n" || c == "\r"
+}
+method trim(text: string) -> string {
+    let start: int = 0
+    while start < text.len() && is_space(text[start]) {
+        start = start + 1
+    }
+    let last: int = text.len()
+    while last > start && is_space(text[last - 1]) {
+        last = last - 1
+    }
+    release substring(text, start, last)
+}
+
+echo("[{trim("  hello  ")}]")
+echo("[{trim("   ")}]")
+echo("[{trim("")}]")

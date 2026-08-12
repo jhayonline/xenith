@@ -1272,11 +1272,40 @@ impl Interpreter {
             }
         }
 
-        // All non-assignment operators: evaluate both sides first
         let left = result.register(self.visit(&node.left_node, context));
         if result.should_return() {
             return result;
         }
+
+        // `&&` and `||` settle on the left where they can, and must not touch
+        // the right side otherwise. Guards depend on it:
+        //
+        //     while i > 0 && is_space(text[i - 1]) { ... }
+        //
+        // Evaluating both sides first made that index out of bounds the moment
+        // `i` reached 0, which is the shape of every loop that walks backwards
+        // through a string.
+        let is_and = node
+            .operator_token
+            .matches(crate::tokens::TokenType::Keyword, Some("&&"));
+        let is_or = node
+            .operator_token
+            .matches(crate::tokens::TokenType::Keyword, Some("||"));
+
+        if is_and || is_or {
+            let decided_by_left = if is_and { !left.is_true() } else { left.is_true() };
+            if decided_by_left {
+                return result.success(Value::Bool(is_or));
+            }
+
+            let right = result.register(self.visit(&node.right_node, context));
+            if result.should_return() {
+                return result;
+            }
+            return result.success(Value::Bool(right.is_true()));
+        }
+
+        // Everything else needs both sides.
         let right = result.register(self.visit(&node.right_node, context));
         if result.should_return() {
             return result;
@@ -1344,12 +1373,52 @@ impl Interpreter {
                         .base)
                     }
                 }
+
+                // `text[i]` gives the character at a position, as a one
+                // character string. Counted in characters rather than bytes, to
+                // agree with `.len()`, so indexing text with an accent in it
+                // lands where a reader expects.
+                //
+                // Without this there is no way to reach into a string at all,
+                // and every string function has to be written in Rust.
+                (Value::String(text), Value::Number(idx)) => {
+                    let Some(position) = idx.as_index() else {
+                        return RuntimeResult::new().failure(
+                            RuntimeError::new(
+                                node.position_start.clone(),
+                                node.position_end.clone(),
+                                "a string index must be a non-negative int",
+                                None,
+                            )
+                            .with_code("XEN004")
+                            .with_name("Index Out of Bounds")
+                            .base,
+                        );
+                    };
+                    match text.value.chars().nth(position) {
+                        Some(character) => Ok(Value::String(XenithString::new(character.to_string()))),
+                        None => Err(Error::index_out_of_bounds(
+                            position,
+                            text.value.chars().count(),
+                            node.position_start.clone(),
+                            node.position_end.clone(),
+                        )),
+                    }
+                }
+
                 _ => Err(RuntimeError::new(
                     node.position_start.clone(),
                     node.position_end.clone(),
-                    "Cannot index non-list/non-map with non-number/non-string",
+                    &format!(
+                        "cannot index {} with {}",
+                        Value::get_type_name(&left),
+                        Value::get_type_name(&right)
+                    ),
                     Some(context.clone()),
                 )
+                .with_code("XEN004")
+                .with_name("Index Out of Bounds")
+                .with_help("a list takes an int, a map takes a string, and a string takes an int")
                 .base),
             },
             _ if op.matches(crate::tokens::TokenType::Keyword, Some("&&")) => left.anded_by(&right),

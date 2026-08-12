@@ -836,6 +836,9 @@ impl BuiltInFunction {
             "extend" => self.extend(args, call_pos),
             "len" => self.len(args, call_pos),
             "run" => self.run(args, interpreter, call_pos),
+            "substring" => self.substring(args, call_pos),
+            "code_at" => self.code_at(args, call_pos),
+            "from_code" => self.from_code(args, call_pos),
             "format" => crate::builtins::format::format(args, interpreter, call_pos, context),
             // =================================================================================
             _ => RuntimeResult::new().failure(
@@ -1084,6 +1087,116 @@ impl BuiltInFunction {
                     .base,
             ),
         }
+    }
+
+    /// The characters of `text` from `start` up to but not including `end`.
+    ///
+    /// Both ends are clamped, and a start past the end gives an empty string,
+    /// so this never fails. Slicing is used constantly when writing string code
+    /// in the language, and a version that could error would mean a bounds
+    /// check at every call site.
+    fn substring(&self, args: Vec<Value>, call_pos: Position) -> RuntimeResult {
+        let fail = |detail: &str| {
+            RuntimeResult::new().failure(
+                RuntimeError::new(call_pos.clone(), call_pos.clone(), detail, None)
+                    .with_code("XEN001")
+                    .with_name("Type Mismatch")
+                    .base,
+            )
+        };
+
+        if args.len() != 3 {
+            return fail("substring expects 3 arguments (string, start, end)");
+        }
+        let Value::String(text) = &args[0] else {
+            return fail("substring expects a string as its first argument");
+        };
+        let (Value::Number(start), Value::Number(end)) = (&args[1], &args[2]) else {
+            return fail("substring expects int positions");
+        };
+
+        let characters: Vec<char> = text.value.chars().collect();
+        let length = characters.len() as i64;
+
+        let (Some(start), Some(end)) = (start.to_i64(), end.to_i64()) else {
+            return fail("substring positions must be whole numbers");
+        };
+        let from = start.clamp(0, length) as usize;
+        let to = end.clamp(0, length) as usize;
+
+        let slice: String = if from >= to {
+            String::new()
+        } else {
+            characters[from..to].iter().collect()
+        };
+
+        RuntimeResult::new().success(Value::String(XenithString::new(slice)))
+    }
+
+    /// The Unicode code point at an index, which is what lets classification
+    /// and case conversion be written in the language.
+    fn code_at(&self, args: Vec<Value>, call_pos: Position) -> RuntimeResult {
+        let fail = |detail: &str| {
+            RuntimeResult::new().failure(
+                RuntimeError::new(call_pos.clone(), call_pos.clone(), detail, None)
+                    .with_code("XEN001")
+                    .with_name("Type Mismatch")
+                    .base,
+            )
+        };
+
+        if args.len() != 2 {
+            return fail("code_at expects 2 arguments (string, index)");
+        }
+        let Value::String(text) = &args[0] else {
+            return fail("code_at expects a string as its first argument");
+        };
+        let Value::Number(index) = &args[1] else {
+            return fail("code_at expects an int index");
+        };
+
+        let Some(position) = index.as_index() else {
+            return fail("a string index must be a non-negative int");
+        };
+
+        match text.value.chars().nth(position) {
+            Some(character) => RuntimeResult::new().success(Value::int(character as i64)),
+            None => RuntimeResult::new().failure(Error::index_out_of_bounds(
+                position,
+                text.value.chars().count(),
+                call_pos.clone(),
+                call_pos,
+            )),
+        }
+    }
+
+    /// The inverse of `code_at`.
+    fn from_code(&self, args: Vec<Value>, call_pos: Position) -> RuntimeResult {
+        let fail = |detail: &str| {
+            RuntimeResult::new().failure(
+                RuntimeError::new(call_pos.clone(), call_pos.clone(), detail, None)
+                    .with_code("XEN001")
+                    .with_name("Type Mismatch")
+                    .base,
+            )
+        };
+
+        if args.len() != 1 {
+            return fail("from_code expects 1 argument (int)");
+        }
+        let Value::Number(code) = &args[0] else {
+            return fail("from_code expects an int");
+        };
+
+        let Some(value) = code.to_i64() else {
+            return fail("from_code expects a whole number");
+        };
+        let Some(character) = u32::try_from(value).ok().and_then(char::from_u32) else {
+            return fail(&format!("{} is not a Unicode code point", value));
+        };
+
+        RuntimeResult::new()
+            .success(Value::String(XenithString::new(character.to_string())))
     }
 
     fn len(&self, args: Vec<Value>, call_pos: Position) -> RuntimeResult {

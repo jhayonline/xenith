@@ -71,8 +71,26 @@ false
 true
 ```
 
-`&&` and `||` short circuit. If the left side settles the answer, the right side
-is never evaluated.
+`&&` and `||` short circuit: if the left side settles the answer, the right side
+is never evaluated at all. That is what makes a guard work.
+
+```xenith
+let text: string = "abc   "
+let last: int = text.len()
+
+while last > 0 && text[last - 1] == " " {
+    last = last - 1
+}
+
+echo("{last}")
+```
+
+```
+3
+```
+
+When `last` reaches 0 the left side is false, so `text[last - 1]` is never
+reached. Without short circuiting that would index position -1.
 
 ## Precedence
 

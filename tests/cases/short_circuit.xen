@@ -1,0 +1,27 @@
+# `&&` and `||` must not evaluate the side that cannot change the answer.
+# Guards depend on it, and a backwards walk through a string is the common case.
+
+method boom(n: int) -> int {
+    release 100 / n
+}
+
+# Neither of these may reach boom(0), which would be a division by zero.
+echo("{false && boom(0) > 0}")
+echo("{true || boom(0) > 0}")
+
+# The shape it matters for.
+method last_non_space(text: string) -> int {
+    let last: int = text.len()
+    while last > 0 && text[last - 1] == " " {
+        last = last - 1
+    }
+    release last
+}
+
+echo("{last_non_space("abc   ")}")
+echo("{last_non_space("   ")}")
+echo("{last_non_space("")}")
+
+# The side that does decide still runs.
+echo("{true && boom(4) > 0}")
+echo("{false || boom(4) > 0}")
