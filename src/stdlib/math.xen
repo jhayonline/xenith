@@ -1,0 +1,250 @@
+# std::math
+#
+# Written in Xenith. The only things it cannot do in the language are the
+# transcendental functions, and those are language primitives available without
+# an import: `sin`, `cos`, `tan`, `atan2`, `log`, `log10` and `exp`. Everything
+# here is built from arithmetic, `^` and `as`.
+#
+# On the duplication below: without generics there is no way to write one `abs`
+# that takes an int and a float both, so the int version has the plain name and
+# the float version carries a `_float` suffix. That is a tax the language is
+# currently charging, and this module is the clearest evidence of what it costs.
+
+# ---------------------------------------------------------------------------
+# Constants
+#
+# `MATH_PI` is built in. These are the ones that are not.
+# ---------------------------------------------------------------------------
+
+export const let E: float = 2.718281828459045
+export const let TAU: float = 6.283185307179586
+export const let INT_MAX: int = 9223372036854775807
+export const let INT_MIN: int = -9223372036854775808
+
+# ---------------------------------------------------------------------------
+# Whole numbers
+# ---------------------------------------------------------------------------
+
+export method abs(n: int) -> int {
+    when n < 0 {
+        release -n
+    }
+    release n
+}
+
+export method min(a: int, b: int) -> int {
+    when a < b {
+        release a
+    }
+    release b
+}
+
+export method max(a: int, b: int) -> int {
+    when a > b {
+        release a
+    }
+    release b
+}
+
+export method clamp(n: int, low: int, high: int) -> int {
+    when low > high {
+        panic("clamp needs a low bound no greater than the high one")
+    }
+    release min(max(n, low), high)
+}
+
+# -1, 0 or 1.
+export method sign(n: int) -> int {
+    when n < 0 {
+        release -1
+    }
+    when n > 0 {
+        release 1
+    }
+    release 0
+}
+
+export method is_even(n: int) -> bool {
+    release n % 2 == 0
+}
+
+export method is_odd(n: int) -> bool {
+    release n % 2 != 0
+}
+
+# Greatest common divisor, by Euclid. Always positive.
+export method gcd(a: int, b: int) -> int {
+    let x: int = abs(a)
+    let y: int = abs(b)
+    while y != 0 {
+        let remainder: int = x % y
+        x = y
+        y = remainder
+    }
+    release x
+}
+
+# Lowest common multiple. Zero if either side is zero.
+export method lcm(a: int, b: int) -> int {
+    when a == 0 || b == 0 {
+        release 0
+    }
+    # Divide before multiplying, so the intermediate result stays smaller and
+    # is less likely to overflow.
+    release abs(a / gcd(a, b) * b)
+}
+
+export method factorial(n: int) -> int {
+    when n < 0 {
+        panic("factorial is not defined for negative numbers")
+    }
+    let total: int = 1
+    for (let i: int = 2; i <= n; i++) {
+        total = total * i
+    }
+    release total
+}
+
+# `base` to the power of `exponent`, as a whole number.
+export method pow(base: int, exponent: int) -> int {
+    when exponent < 0 {
+        panic("pow needs an exponent of zero or more; use pow_float for negative ones")
+    }
+    release base ^ exponent
+}
+
+# ---------------------------------------------------------------------------
+# Floats
+# ---------------------------------------------------------------------------
+
+export method abs_float(x: float) -> float {
+    when x < 0.0 {
+        release -x
+    }
+    release x
+}
+
+export method min_float(a: float, b: float) -> float {
+    when a < b {
+        release a
+    }
+    release b
+}
+
+export method max_float(a: float, b: float) -> float {
+    when a > b {
+        release a
+    }
+    release b
+}
+
+export method clamp_float(x: float, low: float, high: float) -> float {
+    when low > high {
+        panic("clamp_float needs a low bound no greater than the high one")
+    }
+    release min_float(max_float(x, low), high)
+}
+
+export method sign_float(x: float) -> float {
+    when x < 0.0 {
+        release -1.0
+    }
+    when x > 0.0 {
+        release 1.0
+    }
+    release 0.0
+}
+
+export method sqrt(x: float) -> float {
+    when x < 0.0 {
+        panic("sqrt is not defined for negative numbers")
+    }
+    release x ^ 0.5
+}
+
+export method pow_float(base: float, exponent: float) -> float {
+    release base ^ exponent
+}
+
+# ---------------------------------------------------------------------------
+# Rounding
+#
+# `as int` truncates towards zero, so the negative cases need care: truncating
+# -2.7 gives -2, which is the ceiling rather than the floor.
+# ---------------------------------------------------------------------------
+
+# Towards zero.
+export method trunc(x: float) -> int {
+    release x as int
+}
+
+# Towards negative infinity.
+export method floor(x: float) -> int {
+    let cut: int = x as int
+    when x < 0.0 && (cut as float) != x {
+        release cut - 1
+    }
+    release cut
+}
+
+# Towards positive infinity.
+export method ceil(x: float) -> int {
+    let cut: int = x as int
+    when x > 0.0 && (cut as float) != x {
+        release cut + 1
+    }
+    release cut
+}
+
+# To the nearest whole number, with halves going away from zero, so 2.5 rounds
+# to 3 and -2.5 rounds to -3.
+export method round(x: float) -> int {
+    when x < 0.0 {
+        release -(floor(-x + 0.5))
+    }
+    release floor(x + 0.5)
+}
+
+# ---------------------------------------------------------------------------
+# Over a list
+# ---------------------------------------------------------------------------
+
+export method sum(values: list<int>) -> int {
+    let total: int = 0
+    for value in values {
+        total = total + value
+    }
+    release total
+}
+
+export method product(values: list<int>) -> int {
+    let total: int = 1
+    for value in values {
+        total = total * value
+    }
+    release total
+}
+
+# The smallest value, and whether there was one. An empty list has no minimum,
+# and saying so beats inventing an answer.
+export method min_of(values: list<int>) -> (int, bool) {
+    when values.len() == 0 {
+        release (0, false)
+    }
+    let smallest: int = values[0]
+    for value in values {
+        smallest = min(smallest, value)
+    }
+    release (smallest, true)
+}
+
+export method max_of(values: list<int>) -> (int, bool) {
+    when values.len() == 0 {
+        release (0, false)
+    }
+    let largest: int = values[0]
+    for value in values {
+        largest = max(largest, value)
+    }
+    release (largest, true)
+}

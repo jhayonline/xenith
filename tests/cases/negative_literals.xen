@@ -1,0 +1,24 @@
+# The most negative int is only writable because a minus in front of a number
+# literal belongs to the literal rather than being an operator applied after.
+
+let lowest: int = -9223372036854775808
+let highest: int = 9223372036854775807
+echo("{lowest}")
+echo("{highest}")
+
+# Ordinary subtraction is untouched.
+echo("{5 - 3} {0 - 5} {-5} {5 + -3} {5 - -3}")
+
+# Negating a variable is still an operator.
+let n: int = 7
+echo("{-n}")
+
+let f: float = -2.5
+echo("{f} {-f}")
+
+# In every position a literal can appear.
+let values: list<int> = [-1, 0, -3]
+echo("{ret(values)}")
+
+method negate(x: int) -> int => -x
+echo("{negate(-4)}")

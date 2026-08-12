@@ -250,12 +250,131 @@ echo(title_case("  the QUICK brown   fox  "))
 The Quick Brown Fox
 ```
 
+## std::math
+
+### Whole numbers
+
+| Function | |
+| --- | --- |
+| `abs(n)` | |
+| `min(a, b)`, `max(a, b)` | |
+| `clamp(n, low, high)` | |
+| `sign(n)` | -1, 0 or 1 |
+| `is_even(n)`, `is_odd(n)` | |
+| `gcd(a, b)`, `lcm(a, b)` | always positive |
+| `factorial(n)` | |
+| `pow(base, exponent)` | whole number result |
+
+```xenith
+grab { abs, clamp, gcd, lcm, factorial } from "std::math"
+
+echo("{abs(-5)} {clamp(10, 0, 5)}")
+echo("{gcd(12, 18)} {lcm(4, 6)}")
+echo("{factorial(20)}")
+```
+
+```
+5 5
+6 12
+2432902008176640000
+```
+
+### Floats
+
+The same shapes with a `_float` suffix: `abs_float`, `min_float`, `max_float`,
+`clamp_float`, `sign_float`. Plus `sqrt(x)` and `pow_float(base, exponent)`.
+
+The suffix is not a style choice. Without generics there is no way to write one
+`abs` that takes an `int` and a `float` both, so the int version has the plain
+name and the float version is spelled out. This module is the clearest evidence
+of what that costs.
+
+### Rounding
+
+All four take a float and give an int.
+
+| Function | Towards |
+| --- | --- |
+| `floor(x)` | negative infinity |
+| `ceil(x)` | positive infinity |
+| `trunc(x)` | zero |
+| `round(x)` | nearest, halves away from zero |
+
+```xenith
+grab { floor, ceil, trunc, round } from "std::math"
+
+echo("{floor(2.7)} {floor(-2.7)}")
+echo("{ceil(2.1)} {ceil(-2.1)}")
+echo("{trunc(2.7)} {trunc(-2.7)}")
+echo("{round(2.5)} {round(-2.5)}")
+```
+
+```
+2 -3
+3 -2
+2 -2
+3 -3
+```
+
+The negative cases are where these differ, and where a naive implementation goes
+wrong: `as int` truncates towards zero, so truncating -2.7 gives -2, which is the
+ceiling rather than the floor.
+
+### Over a list
+
+`sum(values)` and `product(values)` take a `list<int>`. `min_of` and `max_of`
+return `(value, found)`, because an empty list has no smallest element and
+saying so beats inventing one:
+
+```xenith
+grab { sum, product, max_of } from "std::math"
+
+echo("{sum([1, 2, 3, 4])} {product([2, 3, 4])}")
+
+let (largest, found) = max_of([5, 2, 8])
+when found {
+    echo("largest {largest}")
+}
+```
+
+```
+10 24
+largest 8
+```
+
+### Constants
+
+`MATH_PI` is built into the language. `std::math` adds `E`, `TAU`, `INT_MAX` and
+`INT_MIN`.
+
+### The transcendental functions
+
+`sin`, `cos`, `tan`, `atan2`, `log`, `log10` and `exp` are language primitives,
+so they need no import:
+
+```xenith
+echo("{cos(0.0)} {exp(0.0)} {log10(1000.0)}")
+```
+
+```
+1.0 1.0 3.0
+```
+
+They are primitives because a series expansion written in Xenith would give wrong
+answers away from zero, not because Rust is faster. `sqrt` is not among them:
+`x ^ 0.5` already is one. `log10` is, because `log(x) / log(10.0)` gives
+2.9999999999999996 for a thousand.
+
+They take floats, not ints. The language does not convert between the two
+anywhere else and this is not where it should start, so `sqrt(n as float)` says
+what it does.
+
 ## What is not here yet
 
-`std::string` is the only module so far. Maths, files, time and randomness are
-next, and collections are waiting on a decision about generics: without them
-there is no way to write one `map` or `filter` that works for a `list<int>` and
-a `list<string>` both.
+Files, time and randomness. Collections are waiting on a decision about generics:
+without them there is no way to write one `map` or `filter` that works for a
+`list<int>` and a `list<string>` both, and `std::math` already shows the cost in
+its `_float` suffixes.
 
 ## The cost of importing
 

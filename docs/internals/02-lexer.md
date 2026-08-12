@@ -88,7 +88,12 @@ one dot gives `TokenType::Float`. The text is kept as a string and parsed later
 by the interpreter, which is where the range check for `int` lives.
 
 There is no support for hex, binary, underscores as digit separators, or
-exponents.
+exponents, so `1.0e10` does not lex.
+
+The sign is not part of the token. `factor()` in the parser folds a minus
+directly in front of a number literal into it, which is what makes the most
+negative int writable at all: `-9223372036854775808` as an operator applied to a
+literal would overflow on the literal before the minus was ever reached.
 
 ## Strings
 

@@ -1,8 +1,10 @@
 # Built in Functions
 
-Everything on this page is available in every file with no import. There is no
-standard library beyond this yet, which is deliberate: the language is being
-settled before the library is built on top of it.
+Everything on this page is available in every file with no import.
+
+These are the primitives: the operations the language provides because they
+cannot be written in it. Anything that can be written in Xenith belongs in
+[the standard library](19-standard-library.md) instead.
 
 ## Output
 
@@ -232,9 +234,65 @@ true false null
 The lowercase literals `true`, `false` and `null` mean the same as the constants
 and are the ones to write.
 
+## String primitives
+
+`substring(text, start, end)`, `code_at(text, index)` and `from_code(code)`,
+along with indexing a string, are what a string library is built from. See
+[Strings](04-strings.md).
+
+## Float primitives
+
+`sin(x)`, `cos(x)`, `tan(x)`, `atan2(y, x)`, `log(x)`, `log10(x)` and `exp(x)`.
+
+Each takes a float and returns one. They are here because a series expansion
+written in Xenith would give wrong answers away from zero, not because Rust is
+faster. `sqrt` is not among them, because `x ^ 0.5` already is one.
+
+```xenith
+echo("{cos(0.0)} {exp(0.0)} {log10(1000.0)}")
+```
+
+```
+1.0 1.0 3.0
+```
+
+They will not take an int. The language does not convert between int and float
+anywhere else, so `sqrt(n as float)` says what it does.
+
+[std::math](19-standard-library.md) has `abs`, `floor`, `round`, `sqrt` and the
+rest, written in Xenith on top of these.
+
 ## format
 
-### format(text)
+### String primitives
+
+`substring(text, start, end)`, `code_at(text, index)` and `from_code(code)`,
+along with indexing a string, are what a string library is built from. See
+[Strings](04-strings.md).
+
+## Float primitives
+
+`sin(x)`, `cos(x)`, `tan(x)`, `atan2(y, x)`, `log(x)`, `log10(x)` and `exp(x)`.
+
+Each takes a float and returns one. They are here because a series expansion
+written in Xenith would give wrong answers away from zero, not because Rust is
+faster. `sqrt` is not among them, because `x ^ 0.5` already is one.
+
+```xenith
+echo("{cos(0.0)} {exp(0.0)} {log10(1000.0)}")
+```
+
+```
+1.0 1.0 3.0
+```
+
+They will not take an int. The language does not convert between int and float
+anywhere else, so `sqrt(n as float)` says what it does.
+
+[std::math](19-standard-library.md) has `abs`, `floor`, `round`, `sqrt` and the
+rest, written in Xenith on top of these.
+
+## format(text)
 
 Applies `{}` interpolation to a string and returns the result.
 

@@ -33,6 +33,7 @@ with `include_str!`:
 pub fn source(name: &str) -> Option<&'static str> {
     match name {
         "string" => Some(include_str!("string.xen")),
+        "math" => Some(include_str!("math.xen")),
         _ => None,
     }
 }

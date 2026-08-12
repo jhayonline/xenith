@@ -837,6 +837,13 @@ impl BuiltInFunction {
             "len" => self.len(args, call_pos),
             "run" => self.run(args, interpreter, call_pos),
             "substring" => self.substring(args, call_pos),
+            "sin" => self.float_fn("sin", args, call_pos, f64::sin),
+            "cos" => self.float_fn("cos", args, call_pos, f64::cos),
+            "tan" => self.float_fn("tan", args, call_pos, f64::tan),
+            "log" => self.float_fn("log", args, call_pos, f64::ln),
+            "log10" => self.float_fn("log10", args, call_pos, f64::log10),
+            "exp" => self.float_fn("exp", args, call_pos, f64::exp),
+            "atan2" => self.atan2(args, call_pos),
             "code_at" => self.code_at(args, call_pos),
             "from_code" => self.from_code(args, call_pos),
             "format" => crate::builtins::format::format(args, interpreter, call_pos, context),
@@ -1087,6 +1094,66 @@ impl BuiltInFunction {
                     .base,
             ),
         }
+    }
+
+    /// Applies a one argument float function.
+    ///
+    /// A float is required rather than accepted alongside int, because the
+    /// language does not convert between them anywhere else and this is not
+    /// where it should start. `sqrt(n as float)` says what it does.
+    fn float_fn(
+        &self,
+        name: &str,
+        args: Vec<Value>,
+        call_pos: Position,
+        f: fn(f64) -> f64,
+    ) -> RuntimeResult {
+        let fail = |detail: String| {
+            RuntimeResult::new().failure(
+                RuntimeError::new(call_pos.clone(), call_pos.clone(), &detail, None)
+                    .with_code("XEN001")
+                    .with_name("Type Mismatch")
+                    .with_help("convert first if you have an int, e.g. `n as float`")
+                    .base,
+            )
+        };
+
+        if args.len() != 1 {
+            return fail(format!("{} expects 1 argument", name));
+        }
+        let Value::Number(Number::Float(x)) = &args[0] else {
+            return fail(format!(
+                "{} expects a float, found {}",
+                name,
+                Value::get_type_name(&args[0])
+            ));
+        };
+
+        RuntimeResult::new().success(Value::float(f(*x)))
+    }
+
+    /// The angle to a point, correct in all four quadrants.
+    fn atan2(&self, args: Vec<Value>, call_pos: Position) -> RuntimeResult {
+        let fail = |detail: &str| {
+            RuntimeResult::new().failure(
+                RuntimeError::new(call_pos.clone(), call_pos.clone(), detail, None)
+                    .with_code("XEN001")
+                    .with_name("Type Mismatch")
+                    .with_help("convert first if you have an int, e.g. `n as float`")
+                    .base,
+            )
+        };
+
+        if args.len() != 2 {
+            return fail("atan2 expects 2 arguments (y, x)");
+        }
+        let (Value::Number(Number::Float(y)), Value::Number(Number::Float(x))) =
+            (&args[0], &args[1])
+        else {
+            return fail("atan2 expects two floats");
+        };
+
+        RuntimeResult::new().success(Value::float(y.atan2(*x)))
     }
 
     /// The characters of `text` from `start` up to but not including `end`.

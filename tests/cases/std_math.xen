@@ -1,0 +1,48 @@
+# std::math, written in Xenith on top of the float primitives.
+
+grab { abs, min, max, clamp, sign, is_even, is_odd } from "std::math"
+grab { gcd, lcm, factorial, pow } from "std::math"
+grab { abs_float, min_float, max_float, clamp_float, sign_float } from "std::math"
+grab { sqrt, pow_float } from "std::math"
+grab { floor, ceil, round, trunc } from "std::math"
+grab { sum, product, min_of, max_of } from "std::math"
+grab { E, TAU, INT_MAX, INT_MIN } from "std::math"
+
+# Whole numbers
+echo("{abs(-5)} {abs(5)} {abs(0)}")
+echo("{min(3, 7)} {max(3, 7)}")
+echo("{clamp(10, 0, 5)} {clamp(-1, 0, 5)} {clamp(3, 0, 5)}")
+echo("{sign(-9)} {sign(0)} {sign(9)}")
+echo("{is_even(4)} {is_odd(4)}")
+echo("{gcd(12, 18)} {gcd(-12, 18)} {gcd(7, 0)}")
+echo("{lcm(4, 6)} {lcm(0, 5)}")
+echo("{factorial(0)} {factorial(5)} {factorial(20)}")
+echo("{pow(2, 10)} {pow(5, 0)}")
+
+# Floats
+echo("{abs_float(-2.5)} {min_float(1.5, 2.5)} {max_float(1.5, 2.5)}")
+echo("{clamp_float(9.0, 0.0, 1.0)} {sign_float(-0.5)} {sign_float(0.0)}")
+echo("{sqrt(9.0)} {pow_float(2.0, 3.0)}")
+
+# Rounding, where the negative cases are the interesting ones
+echo("floor {floor(2.7)} {floor(-2.7)} {floor(2.0)} {floor(-2.0)}")
+echo("ceil {ceil(2.1)} {ceil(-2.1)} {ceil(2.0)} {ceil(-2.0)}")
+echo("round {round(2.4)} {round(2.5)} {round(-2.4)} {round(-2.5)}")
+echo("trunc {trunc(2.7)} {trunc(-2.7)}")
+
+# Over a list
+echo("{sum([1, 2, 3, 4])} {sum([])} {product([2, 3, 4])} {product([])}")
+let (lo, has_lo) = min_of([5, 2, 8])
+let (hi, has_hi) = max_of([5, 2, 8])
+let (nothing, has_nothing) = min_of([])
+echo("{lo} {has_lo} {hi} {has_hi} {nothing} {has_nothing}")
+
+# Constants, including the whole 64 bit range
+echo("{E}")
+echo("{TAU}")
+echo("{INT_MAX}")
+echo("{INT_MIN}")
+
+# The primitives need no import
+echo("{sin(0.0)} {cos(0.0)} {exp(0.0)} {log(1.0)}")
+echo("{log10(1000.0)} {atan2(1.0, 1.0)}")

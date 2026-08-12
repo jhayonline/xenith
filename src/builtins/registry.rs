@@ -111,6 +111,45 @@ pub const BUILTIN_FUNCTIONS: &[BuiltinFn] = &[
         signature: "from_code(code) -> string",
         doc: "The one character string for a Unicode code point. The inverse of `code_at`.",
     },
+    // The float primitives. `sqrt` is not among them because `x ^ 0.5` already
+    // is one, and these are here because a series expansion written in Xenith
+    // would give wrong answers away from zero, not because Rust is faster.
+    // Each takes a float and returns a float.
+    BuiltinFn {
+        name: "sin",
+        signature: "sin(x) -> float",
+        doc: "Sine of an angle in radians.",
+    },
+    BuiltinFn {
+        name: "cos",
+        signature: "cos(x) -> float",
+        doc: "Cosine of an angle in radians.",
+    },
+    BuiltinFn {
+        name: "tan",
+        signature: "tan(x) -> float",
+        doc: "Tangent of an angle in radians.",
+    },
+    BuiltinFn {
+        name: "atan2",
+        signature: "atan2(y, x) -> float",
+        doc: "The angle in radians from the x axis to the point (x, y), correct in all four quadrants.",
+    },
+    BuiltinFn {
+        name: "log",
+        signature: "log(x) -> float",
+        doc: "Natural logarithm. Negative input gives a not-a-number result, and zero gives negative infinity.",
+    },
+    BuiltinFn {
+        name: "log10",
+        signature: "log10(x) -> float",
+        doc: "Logarithm base ten. A primitive rather than `log(x) / log(10.0)`, which loses precision: that identity gives 2.9999999999999996 for 1000.",
+    },
+    BuiltinFn {
+        name: "exp",
+        signature: "exp(x) -> float",
+        doc: "e raised to the power of x, the inverse of `log`.",
+    },
     BuiltinFn {
         name: "run",
         signature: "run(path) -> value",

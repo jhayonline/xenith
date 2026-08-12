@@ -19,9 +19,10 @@
 pub fn source(name: &str) -> Option<&'static str> {
     match name {
         "string" => Some(include_str!("string.xen")),
+        "math" => Some(include_str!("math.xen")),
         _ => None,
     }
 }
 
 /// Every module name the standard library provides, for error messages.
-pub const MODULE_NAMES: &[&str] = &["string"];
+pub const MODULE_NAMES: &[&str] = &["string", "math"];

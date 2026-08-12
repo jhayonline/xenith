@@ -3188,10 +3188,59 @@ impl Parser {
         let mut result = ParseResult::new();
 
         if let Some(tok) = self.current_token().cloned() {
+            // A minus directly in front of a number literal belongs to the
+            // literal, not to an operator applied afterwards.
+            //
+            // Without this the most negative int cannot be written at all:
+            // `-9223372036854775808` parses as a negation of a positive literal
+            // that is itself one past the top of the range, so it overflows
+            // before the minus is ever applied.
+            if tok.kind == TokenType::Minus {
+                if let Some(number) = self.peek_token().cloned() {
+                    if matches!(number.kind, TokenType::Int | TokenType::Float) {
+                        self.advance();
+                        self.advance();
+
+                        let text = format!("-{}", number.value.unwrap_or_default());
+                        return result.success(Node::Number(NumberNode::new(Token::new(
+                            number.kind,
+                            Some(text),
+                            tok.position_start.clone(),
+                            Some(number.position_end.clone()),
+                        ))));
+                    }
+                }
+            }
+
             // Handle unary plus, minus, and NOT (!)
             if tok.kind == TokenType::Plus || tok.kind == TokenType::Minus {
                 let op = tok.clone();
                 self.advance();
+
+                // A sign directly on a number literal is folded into the
+                // literal rather than left as an operation on it. Otherwise the
+                // most negative int cannot be written at all: `-9223372036854775808`
+                // would negate a positive literal that does not fit, and
+                // overflow before the minus was ever applied.
+                if let Some(number) = self.current_token().cloned() {
+                    let is_number =
+                        number.kind == TokenType::Int || number.kind == TokenType::Float;
+
+                    if is_number && op.kind == TokenType::Minus {
+                        self.advance();
+                        let text = format!("-{}", number.value.clone().unwrap_or_default());
+                        return result.success(Node::Number(NumberNode::new(Token::new(
+                            number.kind.clone(),
+                            Some(text),
+                            op.position_start.clone(),
+                            Some(number.position_end.clone()),
+                        ))));
+                    }
+                    if is_number && op.kind == TokenType::Plus {
+                        self.advance();
+                        return result.success(Node::Number(NumberNode::new(number)));
+                    }
+                }
 
                 let node = result.register(&self.factor());
                 if result.error.is_some() {

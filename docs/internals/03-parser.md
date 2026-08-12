@@ -72,6 +72,11 @@ That made `a > 1 && b < 2` parse as `((a > 1) && b) < 2`, and put `as` below
 multiplication so `n as float / 2.0` never reached the division. If you add an
 operator, add it at the right level rather than to an existing one.
 
+`factor` folds a minus in front of a number literal into the literal rather than
+building a `UnaryOp`. Without that the most negative int cannot be written: the
+literal overflows before the negation is applied. Only a literal is folded, so
+`-x` is still an operator on a variable.
+
 `call` is where postfix forms are handled. Indexing builds a `BinaryOperator`
 node with a synthetic `TokenType::Index` operator, so `xs[0]` and `xs + 1` have
 the same node shape and the interpreter tells them apart by operator kind.
