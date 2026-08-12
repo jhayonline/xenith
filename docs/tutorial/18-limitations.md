@@ -60,22 +60,16 @@ echo(ret([5, 6]))
 [5, 6]
 ```
 
-## Strings are minimal
+## The standard library is one module
 
-No indexing, no slicing, no `split`, `trim`, `upper`, `replace` or `contains`.
-The only operations are `+`, `.len()` and comparison.
+`std::string` exists; see [The standard library](19-standard-library.md). There
+is no file system, no networking, no JSON, no time, no random, and no maths
+beyond the operators and `MATH_PI`.
 
-**What to do:** these belong in a standard library, which has not been written
-yet. The old one was removed because it was a thin wrapper over Rust rather than
-a designed library.
-
-## No standard library
-
-There is no file system, no networking, no JSON, no time, no random, no maths
-beyond the operators and `MATH_PI`. The [builtins](15-builtins.md) are the whole
-surface.
-
-This is deliberate for now. The language is being settled first.
+Collections are the interesting gap. Without generics there is no way to write
+one `map` or `filter` that works for a `list<int>` and a `list<string>` both, so
+higher order collection functions are waiting on that decision. Everything else
+is just not written yet.
 
 ## The language server's symbols are file local
 
@@ -104,4 +98,4 @@ Some absences are decisions rather than gaps:
   `list` or `map` would force the question.
 - **No inheritance or interfaces.**
 
-Back to [the tutorial index](README.md)
+Next: [The standard library](19-standard-library.md)

@@ -36,17 +36,25 @@ impl ModuleRegistry {
         }
     }
 
-    /// Resolve a module path to a file
+    /// Resolve a module path to a file.
+    ///
+    /// `std::` modules do not live on disk; see [`ModuleRegistry::locate`].
     pub fn resolve_path(&self, module_path: &str) -> Option<PathBuf> {
-        // Handle std:: prefix
-        if module_path.starts_with("std::") {
-            let stdlib_path = module_path.strip_prefix("std::").unwrap();
-            return self.resolve_stdlib(stdlib_path);
-        }
-
-        // Handle local modules (mod::math or just math)
         let clean_path = module_path.strip_prefix("mod::").unwrap_or(module_path);
         self.resolve_local(clean_path)
+    }
+
+    /// Where a module's source comes from.
+    fn locate(&self, module_path: &str) -> Option<(String, String)> {
+        // `std::` modules are built into the binary rather than found on disk.
+        if let Some(name) = module_path.strip_prefix("std::") {
+            let source = crate::stdlib::source(name)?;
+            return Some((format!("std::{}", name), source.to_string()));
+        }
+
+        let file_path = self.resolve_path(module_path)?;
+        let source = fs::read_to_string(&file_path).ok()?;
+        Some((file_path.to_string_lossy().to_string(), source))
     }
 
     fn resolve_local(&self, path: &str) -> Option<PathBuf> {
@@ -78,47 +86,6 @@ impl ModuleRegistry {
         None
     }
 
-    fn resolve_stdlib(&self, path: &str) -> Option<PathBuf> {
-        // Replace :: with path separator
-        let file_path = path.replace("::", "/");
-        let filename = file_path + ".xen";
-
-        // Try multiple locations:
-        // 1. Relative to current file's parent (project root) - most common
-        if let Some(current_dir) = self.current_file.parent() {
-            if let Some(project_root) = current_dir.parent() {
-                let project_stdlib = project_root.join("stdlib").join(&filename);
-                if project_stdlib.exists() {
-                    return Some(project_stdlib);
-                }
-            }
-
-            // 2. stdlib in current directory
-            let current_stdlib = current_dir.join("stdlib").join(&filename);
-            if current_stdlib.exists() {
-                return Some(current_stdlib);
-            }
-        }
-
-        // 3. Relative to executable (for installed version)
-        if let Ok(exe_path) = std::env::current_exe() {
-            if let Some(exe_dir) = exe_path.parent() {
-                let exe_stdlib = exe_dir.join("stdlib").join(&filename);
-                if exe_stdlib.exists() {
-                    return Some(exe_stdlib);
-                }
-            }
-        }
-
-        // 4. Try just the filename in current working directory
-        let cwd_stdlib = std::env::current_dir().ok()?.join("stdlib").join(&filename);
-        if cwd_stdlib.exists() {
-            return Some(cwd_stdlib);
-        }
-
-        None
-    }
-
     /// Load a module (with caching)
     pub fn load_module(
         &mut self,
@@ -130,21 +97,14 @@ impl ModuleRegistry {
             return Ok(module.clone());
         }
 
-        // Resolve file path
-        let Some(file_path) = self.resolve_path(module_path) else {
+        // Find the source, on disk or built in
+        let Some((name, source)) = self.locate(module_path) else {
             return Err(ModuleError::NotFound(module_path.to_string()));
         };
 
-        let name = file_path.to_string_lossy().to_string();
         let failed = |errors: Vec<Error>| ModuleError::Failed {
             module: module_path.to_string(),
             errors,
-        };
-
-        // Read and parse file
-        let source = match fs::read_to_string(&file_path) {
-            Ok(source) => source,
-            Err(e) => return Err(ModuleError::Unreadable(module_path.to_string(), e.to_string())),
         };
 
         let mut lexer = Lexer::new(name, source);

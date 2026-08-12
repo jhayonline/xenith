@@ -30,6 +30,7 @@ pub mod parser;
 pub mod position;
 pub mod repl;
 pub mod runtime_result;
+pub mod stdlib;
 pub mod symbol_table;
 pub mod tokens;
 pub mod types;

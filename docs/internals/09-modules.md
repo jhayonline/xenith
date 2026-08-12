@@ -24,22 +24,32 @@ work.
 
 ## Resolution
 
-`resolve_path` turns a module path into a file. `::` becomes a directory
-separator and `.xen` is appended, so `geometry::shapes` becomes
-`geometry/shapes.xen`.
+`ModuleRegistry::locate` answers where a module's source comes from.
 
-`resolve_local` tries three locations in order:
+A `std::` path is served from `src/stdlib/`, which is compiled into the binary
+with `include_str!`:
 
-1. Relative to the importing file's directory.
-2. Relative to that directory's parent.
-3. The same as 1 again.
+```rust
+pub fn source(name: &str) -> Option<&'static str> {
+    match name {
+        "string" => Some(include_str!("string.xen")),
+        _ => None,
+    }
+}
+```
 
-The third is a duplicate of the first and does nothing. Worth removing along with
-`resolve_stdlib`, which still looks for a `stdlib/` directory that no longer
-exists.
+The sources are ordinary `.xen` files sitting next to that `mod.rs`, so they are
+readable and editable like any other Xenith code, and the binary carries them.
+There is no install path to get wrong and no way for the library to fall out of
+step with the interpreter shipping it. Adding a module is one line in that match
+plus the file.
 
-Resolution stops at the first file that is present, and `None` becomes XEN012 at
-the `grab`.
+Everything else is a file on disk. `resolve_local` turns the path into one: `::`
+becomes a directory separator and `.xen` is appended, so `geometry::shapes`
+becomes `geometry/shapes.xen`. It tries the importing file's directory, then
+that directory's parent.
+
+Resolution failing becomes XEN012 at the `grab`.
 
 ## Loading
 
@@ -113,7 +123,9 @@ importing file's scope, and the module's own unexported names were unreachable.
 ## What is missing
 
 - No versioning or namespacing beyond the file path.
-- `resolve_stdlib` still exists and searches for a directory that was deleted.
-- The duplicated third candidate in `resolve_local`.
+- A `grab` from `std::` parses, checks and runs that module on every program
+  start, roughly ten milliseconds for `std::string`. It is per module and per
+  run. Splitting the library into smaller modules would mean paying only for
+  what a program actually uses.
 
 Next: [Performance](10-performance.md)

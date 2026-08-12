@@ -1,0 +1,37 @@
+[hello]
+[x]
+[]
+[]
+[left]
+[right]
+HELLO WORLD 123
+hello world 123
+fedcba
+[ababab]
+[]
+true false
+true false
+true false false
+true false
+true true
+true false
+true false
+true false
+2 2 0
+first 4 true
+last 7 true
+missing 0 false
+[a, b, c]
+[a, , b]
+[, lead]
+[trail, ]
+[a, b, c]
+[a, b, c]
+[a-b-c]
+[]
+[a+b+c]
+[bbbbbb]
+[007]
+[x...]
+[toolong]
+The Quick Brown Fox

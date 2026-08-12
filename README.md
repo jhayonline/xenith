@@ -86,7 +86,7 @@ to definition, references, rename, document symbols and completion. Any LSP capa
 
 ## Documentation
 
-- **[Tutorial](docs/tutorial/README.md)** to learn the language. Eighteen short
+- **[Tutorial](docs/tutorial/README.md)** to learn the language. Nineteen short
   pages covering all of it.
 - **[Internals](docs/internals/README.md)** to work on the interpreter. Eleven
   pages on how it is built and what to fix next.
@@ -148,9 +148,9 @@ methods including closures and passing them as values, modules, a static checker
 that reports every type error before anything runs, and diagnostics that point at
 the right code and suggest a fix.
 
-**Missing:** there is no standard library, so no files, no networking, no JSON,
-and strings have only `+`, `.len()` and comparison. That is now the single
-largest thing outstanding.
+**Missing:** the standard library is one module. `std::string` is there, written
+in Xenith; maths, files, time and randomness are not, and collections are waiting
+on a decision about generics.
 
 The full list, with what to do instead in each case, is
 [Known limitations](docs/tutorial/18-limitations.md).

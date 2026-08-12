@@ -1,0 +1,294 @@
+# std::string
+#
+# Written in Xenith, on top of four primitives the language provides because
+# they cannot be expressed in it: indexing, `substring`, `code_at` and
+# `from_code`. Everything here is ordinary Xenith you can read and change.
+#
+# Conventions used throughout the standard library:
+#
+#   - A function that can fail to find something returns `(value, bool)`. The
+#     caller has to name the flag to get at the value, so it cannot be ignored.
+#   - `panic` is for a mistake in the calling code, never for an expected miss.
+#   - Positions are character positions, counted the same way `len()` counts.
+
+# ---------------------------------------------------------------------------
+# Characters
+#
+# Case handling is ASCII only. Applying it to text outside ASCII returns that
+# text unchanged rather than guessing, because correct Unicode case folding
+# needs tables this library does not carry.
+# ---------------------------------------------------------------------------
+
+const let CODE_A_UPPER: int = 65
+const let CODE_Z_UPPER: int = 90
+const let CODE_A_LOWER: int = 97
+const let CODE_Z_LOWER: int = 122
+const let CODE_ZERO: int = 48
+const let CODE_NINE: int = 57
+const let CASE_GAP: int = 32
+
+export method is_space(c: string) -> bool {
+    release c == " " || c == "\t" || c == "\n" || c == "\r"
+}
+
+export method is_digit(c: string) -> bool {
+    when c.len() != 1 {
+        release false
+    }
+    let code: int = code_at(c, 0)
+    release code >= CODE_ZERO && code <= CODE_NINE
+}
+
+export method is_upper(c: string) -> bool {
+    when c.len() != 1 {
+        release false
+    }
+    let code: int = code_at(c, 0)
+    release code >= CODE_A_UPPER && code <= CODE_Z_UPPER
+}
+
+export method is_lower(c: string) -> bool {
+    when c.len() != 1 {
+        release false
+    }
+    let code: int = code_at(c, 0)
+    release code >= CODE_A_LOWER && code <= CODE_Z_LOWER
+}
+
+export method is_alpha(c: string) -> bool {
+    release is_upper(c) || is_lower(c)
+}
+
+# ---------------------------------------------------------------------------
+# Whole strings
+# ---------------------------------------------------------------------------
+
+export method is_empty(text: string) -> bool {
+    release text.len() == 0
+}
+
+export method upper(text: string) -> string {
+    let out: string = ""
+    for (let i: int = 0; i < text.len(); i++) {
+        let c: string = text[i]
+        when is_lower(c) {
+            out = out + from_code(code_at(c, 0) - CASE_GAP)
+        } otherwise {
+            out = out + c
+        }
+    }
+    release out
+}
+
+export method lower(text: string) -> string {
+    let out: string = ""
+    for (let i: int = 0; i < text.len(); i++) {
+        let c: string = text[i]
+        when is_upper(c) {
+            out = out + from_code(code_at(c, 0) + CASE_GAP)
+        } otherwise {
+            out = out + c
+        }
+    }
+    release out
+}
+
+export method reverse(text: string) -> string {
+    let out: string = ""
+    for (let i: int = text.len() - 1; i >= 0; i--) {
+        out = out + text[i]
+    }
+    release out
+}
+
+export method repeat(text: string, times: int) -> string {
+    when times < 0 {
+        panic("repeat needs a count of zero or more")
+    }
+    let out: string = ""
+    for (let i: int = 0; i < times; i++) {
+        out = out + text
+    }
+    release out
+}
+
+# ---------------------------------------------------------------------------
+# Trimming
+# ---------------------------------------------------------------------------
+
+export method trim_start(text: string) -> string {
+    let start: int = 0
+    while start < text.len() && is_space(text[start]) {
+        start = start + 1
+    }
+    release substring(text, start, text.len())
+}
+
+export method trim_end(text: string) -> string {
+    let last: int = text.len()
+    while last > 0 && is_space(text[last - 1]) {
+        last = last - 1
+    }
+    release substring(text, 0, last)
+}
+
+export method trim(text: string) -> string {
+    release trim_start(trim_end(text))
+}
+
+# ---------------------------------------------------------------------------
+# Searching
+# ---------------------------------------------------------------------------
+
+# Does `text` have `needle` starting at `at`?
+method matches_at(text: string, needle: string, at: int) -> bool {
+    when at + needle.len() > text.len() {
+        release false
+    }
+    for (let i: int = 0; i < needle.len(); i++) {
+        when text[at + i] != needle[i] {
+            release false
+        }
+    }
+    release true
+}
+
+export method starts_with(text: string, prefix: string) -> bool {
+    release matches_at(text, prefix, 0)
+}
+
+export method ends_with(text: string, suffix: string) -> bool {
+    when suffix.len() > text.len() {
+        release false
+    }
+    release matches_at(text, suffix, text.len() - suffix.len())
+}
+
+# Where `needle` first appears, and whether it appears at all.
+#
+# The empty needle is found at 0, which is what makes `split` on an empty
+# separator terminate rather than loop.
+export method index_of(text: string, needle: string) -> (int, bool) {
+    when needle.len() == 0 {
+        release (0, true)
+    }
+    for (let i: int = 0; i + needle.len() <= text.len(); i++) {
+        when matches_at(text, needle, i) {
+            release (i, true)
+        }
+    }
+    release (0, false)
+}
+
+# Where `needle` last appears.
+export method last_index_of(text: string, needle: string) -> (int, bool) {
+    when needle.len() == 0 {
+        release (text.len(), true)
+    }
+    for (let i: int = text.len() - needle.len(); i >= 0; i--) {
+        when matches_at(text, needle, i) {
+            release (i, true)
+        }
+    }
+    release (0, false)
+}
+
+export method contains(text: string, needle: string) -> bool {
+    let (_, found) = index_of(text, needle)
+    release found
+}
+
+export method count(text: string, needle: string) -> int {
+    when needle.len() == 0 {
+        release 0
+    }
+    let total: int = 0
+    let i: int = 0
+    while i + needle.len() <= text.len() {
+        when matches_at(text, needle, i) {
+            total = total + 1
+            i = i + needle.len()
+        } otherwise {
+            i = i + 1
+        }
+    }
+    release total
+}
+
+# ---------------------------------------------------------------------------
+# Splitting and joining
+# ---------------------------------------------------------------------------
+
+# Splits on every occurrence of `separator`.
+#
+# An empty separator splits into single characters, which is the useful reading
+# of it and avoids an infinite loop.
+export method split(text: string, separator: string) -> list<string> {
+    let parts: list<string> = []
+
+    when separator.len() == 0 {
+        for (let i: int = 0; i < text.len(); i++) {
+            parts.append(text[i])
+        }
+        release parts
+    }
+
+    let start: int = 0
+    let i: int = 0
+    while i + separator.len() <= text.len() {
+        when matches_at(text, separator, i) {
+            parts.append(substring(text, start, i))
+            i = i + separator.len()
+            start = i
+        } otherwise {
+            i = i + 1
+        }
+    }
+    parts.append(substring(text, start, text.len()))
+    release parts
+}
+
+export method join(parts: list<string>, separator: string) -> string {
+    let out: string = ""
+    for (let i: int = 0; i < parts.len(); i++) {
+        when i > 0 {
+            out = out + separator
+        }
+        out = out + parts[i]
+    }
+    release out
+}
+
+# `from` and `to` would read better here, but `from` is a keyword.
+export method replace(text: string, needle: string, replacement: string) -> string {
+    when needle.len() == 0 {
+        release text
+    }
+    release join(split(text, needle), replacement)
+}
+
+# ---------------------------------------------------------------------------
+# Padding
+# ---------------------------------------------------------------------------
+
+export method pad_start(text: string, width: int, fill: string) -> string {
+    when fill.len() == 0 {
+        panic("pad_start needs a fill of at least one character")
+    }
+    let out: string = text
+    while out.len() < width {
+        out = fill + out
+    }
+    release out
+}
+
+export method pad_end(text: string, width: int, fill: string) -> string {
+    when fill.len() == 0 {
+        panic("pad_end needs a fill of at least one character")
+    }
+    let out: string = text
+    while out.len() < width {
+        out = out + fill
+    }
+    release out
+}

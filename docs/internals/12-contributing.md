@@ -82,6 +82,20 @@ BuiltinFn {
 The registry entry alone registers the name and then fails at the call, so both
 are needed. The language server picks up the new entry with no further work.
 
+## Adding a standard library module
+
+Write it as a `.xen` file in `src/stdlib/`, then add one line to `source` in
+`src/stdlib/mod.rs` and one to `MODULE_NAMES`. `include_str!` picks it up at
+compile time, so there is nothing to install and nothing to find at run time.
+
+Write it in Xenith. Reach for a Rust builtin only when the language genuinely
+cannot express the thing, not when Rust would be faster; that question gets asked
+later, with measurements, and moving a function into the interpreter does not
+change its signature.
+
+The library is checked by the same static pass as any other module, so a type
+error in it fails at the `grab` rather than silently.
+
 ## Adding a keyword
 
 1. Add it to `KEYWORDS` in `src/tokens.rs`.
