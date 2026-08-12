@@ -56,9 +56,15 @@ result is:
    its value.
 4. Everything else is `TokenType::Identifier`.
 
-Note that `echo` and `format` are in `KEYWORDS`. That is why `format` cannot be
-used as an expression: the parser sees a `Keyword` where it wants a callable
-identifier. Moving `format` out of `KEYWORDS` is most of the fix.
+Note that `echo` is in `KEYWORDS`, because it has a form without parentheses
+that the parser handles specially. Every other builtin is an ordinary
+identifier, which is what lets it be called, assigned and passed around like any
+other value.
+
+`format` used to be in that list too, with no parser handling to justify it, and
+the only effect was that it could not be used as an expression: the parser saw a
+`Keyword` where it wanted a callable identifier. Do not add a name here unless
+the parser genuinely treats it specially.
 
 ### The `or when` special case
 
@@ -123,10 +129,10 @@ with `\p` on the way in, and `unescape_interpolation_part` reverses it on the wa
 out. Without that, `"{a || b}"` was silently truncated to `a`, since the encoded
 form split at the first pipe.
 
-Packing an AST into a string is not a good design. The right fix is for
-`InterpolatedStringNode` to hold the parts directly, and for the expression
-inside each `{}` to be lexed and parsed at that point rather than re-lexed later
-by the interpreter. It is on the list.
+Packing the parts into a string is not a good design, and it is worth replacing
+with a proper list on the token. What the encoding no longer costs is a parse per
+evaluation: `InterpolatedStringNode::new` unpacks this and parses each expression
+once, at parse time. See [The AST](04-ast.md).
 
 ## Operators
 

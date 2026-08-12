@@ -198,13 +198,10 @@ fn modules_resolve_across_files() {
 /// wholesale, not a correctness test.
 #[test]
 fn samples_still_run() {
-    // Known broken, with the reason. Remove an entry when its cause is fixed.
-    const KNOWN_FAILURES: &[(&str, &str)] = &[
-        (
-            "backtick_strings.xen",
-            "`format` lexes as a keyword, so it cannot be used as an expression",
-        ),
-    ];
+    // Known broken, with the reason. Remove an entry when its cause is fixed;
+    // the test says so if one starts passing, which is how this list stays
+    // honest rather than accumulating.
+    const KNOWN_FAILURES: &[(&str, &str)] = &[];
 
     let dir = repo_root().join("testies");
     let mut unexpected_failures = Vec::new();

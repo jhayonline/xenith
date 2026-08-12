@@ -66,29 +66,6 @@ helpers once an importing file calls it.
 **What to do:** pass everything a method needs as an argument, and write module
 exports so each one stands alone.
 
-## format cannot be used as an expression
-
-`format` is a keyword to the lexer rather than an identifier, so it cannot appear
-inside a larger expression. Both of these fail to parse:
-
-```xenith
-let s: string = format("{} and {}", 1, 2)
-```
-
-```
-error XEN013: Unexpected Token
-```
-
-**What to do:** use string interpolation, which does everything `format` would:
-
-```xenith
-echo("{1} and {2}")
-```
-
-```
-1 and 2
-```
-
 ## export struct is not supported
 
 Only methods and `let` bindings can be exported from a module. A struct needed in

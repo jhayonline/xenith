@@ -55,10 +55,9 @@ gets its two extra modules.
 
 ### Known failures
 
-`samples_still_run` carries a short list of `testies/` samples that are expected
-to fail, each with the reason. If one starts passing the test says so, so the
-list cannot rot. There is one entry today: `backtick_strings.xen`, which needs
-`format` to work as an expression.
+`samples_still_run` carries a list of `testies/` samples that are expected to
+fail, each with the reason. If one starts passing the test says so, so the list
+cannot quietly rot. It is empty today.
 
 ## Adding a builtin function
 
@@ -164,7 +163,6 @@ Rust builtins only where it has to be.
 
 ## Smaller things worth doing
 
-- Move `format` out of `KEYWORDS` so it can be used as an expression.
 - Make `export struct` work.
 - Give the parser error recovery, so a file yields more than one diagnostic.
 - Delete `resolve_stdlib` and the duplicated third candidate in `resolve_local`

@@ -786,11 +786,15 @@ impl BuiltInFunction {
         }
     }
 
+    /// `context` is the caller's scope. Only `format` uses it, to evaluate the
+    /// interpolation in the string it is given, but it is threaded through here
+    /// so any future builtin that needs to see the caller's variables can.
     pub fn execute(
         &self,
         args: Vec<Value>,
         interpreter: &mut Interpreter,
         call_pos: Position,
+        context: &mut Context,
     ) -> RuntimeResult {
         match self.name.as_str() {
             "echo" => self.echo(args, call_pos),
@@ -807,7 +811,7 @@ impl BuiltInFunction {
             "extend" => self.extend(args, call_pos),
             "len" => self.len(args, call_pos),
             "run" => self.run(args, interpreter, call_pos),
-            "format" => crate::builtins::format::format(args, interpreter, call_pos),
+            "format" => crate::builtins::format::format(args, interpreter, call_pos, context),
             // =================================================================================
             _ => RuntimeResult::new().failure(
                 RuntimeError::new(

@@ -232,14 +232,60 @@ true false null
 The lowercase literals `true`, `false` and `null` mean the same as the constants
 and are the ones to write.
 
-## A note on format
+## format
 
-There is a `format` builtin, but it cannot be used as an expression: `format` is
-a keyword to the lexer rather than an identifier, so
-`let s = format("{}", x)` and `echo(format(...))` both fail to parse. It only
-works as a statement on its own, where it prints directly.
+### format(text)
 
-String interpolation covers everything `format` would do:
+Applies `{}` interpolation to a string and returns the result.
+
+An ordinary double quoted string is interpolated as it is built, so `format` has
+nothing to do to one. Its use is a [backtick raw string](04-strings.md), which is
+not interpolated, so its braces survive until you ask for them to be filled in:
+
+```xenith
+let name: string = "Ada"
+let raw: string = `Hello {name}!`
+
+echo(raw)
+echo(format(raw))
+```
+
+```
+Hello {name}!
+Hello Ada!
+```
+
+That is the whole point of it: keep the text exactly as written, and decide later
+when to fill it in. It reads well for anything full of braces and backslashes:
+
+```xenith
+let table: string = "users"
+
+echo(format(`SELECT * FROM {table} WHERE active = 1`))
+```
+
+```
+SELECT * FROM users WHERE active = 1
+```
+
+It is an ordinary expression, so it can be assigned, nested and passed around,
+and it evaluates in the scope it was called from:
+
+```xenith
+method describe(who: string, age: int) -> string {
+    let suffix: string = " years old"
+    release format(`{who} is {age}{suffix}`)
+}
+
+echo(describe("Ada", 36))
+```
+
+```
+Ada is 36 years old
+```
+
+It takes exactly one string. For everything else, plain interpolation is
+shorter:
 
 ```xenith
 let name: string = "Ada"

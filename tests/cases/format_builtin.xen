@@ -1,0 +1,25 @@
+# `format` applies interpolation to a string that did not get it already,
+# which is what makes backtick raw strings useful.
+
+let name: string = "Ada"
+
+# A backtick string is raw, so its braces stay literal until format runs.
+let raw: string = `Hello {name}!`
+echo(raw)
+echo(format(raw))
+
+# It is an ordinary expression: assign it, nest it, pass it.
+let greeting: string = format(`Hi {name}`)
+echo(greeting)
+echo("nested: {format(`inner {name}`)}")
+
+# It sees the scope it was called from, including locals.
+method describe(who: string, age: int) -> string {
+    let suffix: string = " years old"
+    release format(`{who} is {age}{suffix}`)
+}
+echo(describe("Ada", 36))
+
+# Useful where the text is full of braces and backslashes.
+let table: string = "users"
+echo(format(`SELECT * FROM {table} WHERE active = 1`))

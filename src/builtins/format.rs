@@ -12,6 +12,7 @@ pub fn format(
     args: Vec<Value>,
     interpreter: &mut Interpreter,
     call_pos: Position,
+    context: &mut crate::context::Context,
 ) -> RuntimeResult {
     if args.len() != 1 {
         return RuntimeResult::new().failure(
@@ -47,9 +48,12 @@ pub fn format(
 
             match parse_result.node {
                 Some(node) => {
-                    // Create a temporary context
-                    let mut temp_context = crate::context::Context::new("<format>", None, None);
-                    let result = interpreter.visit(&node, &mut temp_context);
+                    // Evaluate in the caller's scope, so the interpolation
+                    // sees what the surrounding code sees. A fresh context was
+                    // used here, which meant `format` could only reach globals
+                    // and was blind to locals inside the very method that
+                    // called it.
+                    let result = interpreter.visit(&node, context);
 
                     if let Some(error) = result.error {
                         return RuntimeResult::new().failure(*error);

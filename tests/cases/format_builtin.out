@@ -1,0 +1,6 @@
+Hello {name}!
+Hello Ada!
+Hi Ada
+nested: inner Ada
+Ada is 36 years old
+SELECT * FROM users WHERE active = 1

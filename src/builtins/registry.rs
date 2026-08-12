@@ -31,8 +31,8 @@ pub const BUILTIN_FUNCTIONS: &[BuiltinFn] = &[
     },
     BuiltinFn {
         name: "format",
-        signature: "format(template, ...args) -> string",
-        doc: "Substitutes `{}` placeholders in the template with the given arguments.",
+        signature: "format(text) -> string",
+        doc: "Applies `{}` interpolation to a string that did not get it already, which is what makes a backtick raw string useful. Evaluated in the scope it is called from.",
     },
     BuiltinFn {
         name: "ret",

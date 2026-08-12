@@ -2064,7 +2064,7 @@ impl Interpreter {
                 // func.execute(args, context.clone(), self, node.position_start.clone())
             }
             Value::BuiltInFunction(builtin) => {
-                builtin.execute(args, self, node.position_start.clone())
+                builtin.execute(args, self, node.position_start.clone(), context)
             }
             _ => {
                 return result.failure(

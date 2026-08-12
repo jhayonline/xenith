@@ -145,5 +145,4 @@ pub const KEYWORDS: &[&str] = &[
     "true",
     "false",
     "echo",
-    "format",
 ];
