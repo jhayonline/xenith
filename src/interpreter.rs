@@ -10,8 +10,8 @@ use crate::error::{Error, RuntimeError};
 use crate::lexer::Lexer;
 use crate::modules::{Module, ModuleRegistry};
 use crate::nodes::{
-    BoolLiteralNode, DestructureNode, DestructurePattern, ImplNode, Node, NullLiteralNode,
-    PanicNode, StructDefNode, TryCatchNode, TupleLiteralNode, TypeAliasNode,
+    BoolLiteralNode, DestructureNode, DestructurePattern, Node, NullLiteralNode, PanicNode,
+    StructDefNode, TupleLiteralNode, TypeAliasNode,
 };
 use crate::parser::Parser;
 use crate::position::Position;
@@ -20,30 +20,10 @@ use crate::symbol_table::SymbolTable;
 use crate::types::{FunctionType, Type};
 use crate::utils::{value_to_interpolated_string, value_to_string};
 use crate::values::{
-    BuiltInFunction, CaughtError, Function, List, Map, Number, Value, XenithString,
+    BuiltInFunction, Function, List, Map, Number, Value, XenithString,
 };
 
 use std::collections::HashMap;
-
-// Struct info for method lookup
-#[derive(Debug, Clone)]
-pub struct StructMethodInfo {
-    pub name: String,
-    pub methods: HashMap<String, Box<crate::nodes::FuncDefNode>>,
-}
-
-impl StructMethodInfo {
-    pub fn new(name: String) -> Self {
-        Self {
-            name,
-            methods: HashMap::new(),
-        }
-    }
-
-    pub fn get_method(&self, name: &str) -> Option<&Box<crate::nodes::FuncDefNode>> {
-        self.methods.get(name)
-    }
-}
 
 /// Main interpreter that traverses and executes the AST
 pub struct Interpreter {
@@ -51,7 +31,7 @@ pub struct Interpreter {
     pub global_symbol_table: SymbolTable,
     /// Module registry for caching loaded modules
     pub module_registry: Option<ModuleRegistry>,
-    pub struct_registry: HashMap<String, StructMethodInfo>,
+    pub struct_names: std::collections::HashSet<String>,
     pub type_aliases: HashMap<String, Type>,
 }
 
@@ -128,524 +108,10 @@ impl Interpreter {
             Value::BuiltInFunction(BuiltInFunction::new("run")),
         );
 
-        // std::fs  File System
-        global.set(
-            "__fs_read".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__fs_read")),
-        );
-        global.set(
-            "__fs_write".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__fs_write")),
-        );
-        global.set(
-            "__fs_exists".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__fs_exists")),
-        );
-        global.set(
-            "__fs_append".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__fs_append")),
-        );
-        global.set(
-            "__fs_is_file".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__fs_is_file")),
-        );
-        global.set(
-            "__fs_is_dir".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__fs_is_dir")),
-        );
-        global.set(
-            "__fs_mkdir".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__fs_mkdir")),
-        );
-        global.set(
-            "__fs_mkdir_all".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__fs_mkdir_all")),
-        );
-        global.set(
-            "__fs_remove".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__fs_remove")),
-        );
-        global.set(
-            "__fs_remove_all".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__fs_remove_all")),
-        );
-        global.set(
-            "__fs_list_dir".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__fs_list_dir")),
-        );
-        global.set(
-            "__fs_copy".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__fs_copy")),
-        );
-
-        // std::path  Path
-        global.set(
-            "__path_join".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__path_join")),
-        );
-        global.set(
-            "__path_basename".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__path_basename")),
-        );
-        global.set(
-            "__path_dirname".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__path_dirname")),
-        );
-        global.set(
-            "__path_extension".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__path_extension")),
-        );
-        global.set(
-            "__path_stem".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__path_stem")),
-        );
-        global.set(
-            "__path_is_absolute".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__path_is_absolute")),
-        );
-        global.set(
-            "__path_is_relative".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__path_is_relative")),
-        );
-        global.set(
-            "__path_absolute".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__path_absolute")),
-        );
-        global.set(
-            "__path_normalize".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__path_normalize")),
-        );
-        global.set(
-            "__path_components".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__path_components")),
-        );
-        global.set(
-            "__path_parent".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__path_parent")),
-        );
-
-        // std::time  Time
-        global.set(
-            "__time_timestamp".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__time_timestamp")),
-        );
-        global.set(
-            "__time_timestamp_ms".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__time_timestamp_ms")),
-        );
-        global.set(
-            "__time_sleep".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__time_sleep")),
-        );
-        global.set(
-            "__time_sleep_sec".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__time_sleep_sec")),
-        );
-        global.set(
-            "__time_duration_secs".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__time_duration_secs")),
-        );
-        global.set(
-            "__time_duration_ms".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__time_duration_ms")),
-        );
-
-        // std::math  Math
-        global.set(
-            "__math_sqrt".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__math_sqrt")),
-        );
-        global.set(
-            "__math_pow".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__math_pow")),
-        );
-        global.set(
-            "__math_sin".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__math_sin")),
-        );
-        global.set(
-            "__math_cos".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__math_cos")),
-        );
-        global.set(
-            "__math_tan".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__math_tan")),
-        );
-        global.set(
-            "__math_asin".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__math_asin")),
-        );
-        global.set(
-            "__math_acos".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__math_acos")),
-        );
-        global.set(
-            "__math_atan".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__math_atan")),
-        );
-        global.set(
-            "__math_atan2".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__math_atan2")),
-        );
-        global.set(
-            "__math_log".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__math_log")),
-        );
-        global.set(
-            "__math_log10".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__math_log10")),
-        );
-        global.set(
-            "__math_abs".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__math_abs")),
-        );
-        global.set(
-            "__math_min".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__math_min")),
-        );
-        global.set(
-            "__math_max".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__math_max")),
-        );
-        global.set(
-            "__math_clamp".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__math_clamp")),
-        );
-        global.set(
-            "__math_round".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__math_round")),
-        );
-        global.set(
-            "__math_floor".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__math_floor")),
-        );
-        global.set(
-            "__math_ceil".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__math_ceil")),
-        );
-        global.set(
-            "__math_trunc".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__math_trunc")),
-        );
-        global.set(
-            "__math_fract".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__math_fract")),
-        );
-        global.set(
-            "__math_radians".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__math_radians")),
-        );
-        global.set(
-            "__math_degrees".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__math_degrees")),
-        );
-        global.set(
-            "__math_sum".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__math_sum")),
-        );
-        global.set(
-            "__math_average".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__math_average")),
-        );
-
-        // std::string  String
-        global.set(
-            "__string_split".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__string_split")),
-        );
-        global.set(
-            "__string_join".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__string_join")),
-        );
-        global.set(
-            "__string_trim".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__string_trim")),
-        );
-        global.set(
-            "__string_trim_start".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__string_trim_start")),
-        );
-        global.set(
-            "__string_trim_end".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__string_trim_end")),
-        );
-        global.set(
-            "__string_replace".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__string_replace")),
-        );
-        global.set(
-            "__string_contains".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__string_contains")),
-        );
-        global.set(
-            "__string_starts_with".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__string_starts_with")),
-        );
-        global.set(
-            "__string_ends_with".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__string_ends_with")),
-        );
-        global.set(
-            "__string_to_upper".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__string_to_upper")),
-        );
-        global.set(
-            "__string_to_lower".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__string_to_lower")),
-        );
-        global.set(
-            "__string_reverse".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__string_reverse")),
-        );
-
-        // src::random  Random
-        global.set(
-            "__rand_int".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__rand_int")),
-        );
-        global.set(
-            "__rand_int_range".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__rand_int_range")),
-        );
-        global.set(
-            "__rand_float".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__rand_float")),
-        );
-        global.set(
-            "__rand_float_range".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__rand_float_range")),
-        );
-        global.set(
-            "__rand_bool".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__rand_bool")),
-        );
-        global.set(
-            "__rand_choice".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__rand_choice")),
-        );
-        global.set(
-            "__rand_shuffle".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__rand_shuffle")),
-        );
-        global.set(
-            "__rand_uuid".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__rand_uuid")),
-        );
-
-        // std::json  JSON
-        global.set(
-            "__json_parse".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__json_parse")),
-        );
-        global.set(
-            "__json_stringify".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__json_stringify")),
-        );
-        global.set(
-            "__json_stringify_pretty".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__json_stringify_pretty")),
-        );
-        global.set(
-            "__json_get".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__json_get")),
-        );
-        global.set(
-            "__json_set".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__json_set")),
-        );
-        global.set(
-            "__json_has_key".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__json_has_key")),
-        );
-        global.set(
-            "__json_from_map".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__json_from_map")),
-        );
-        global.set(
-            "__json_null".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__json_null")),
-        );
-
-        // std::dotenv  Dot Env
-        global.set(
-            "__dotenv_load".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__dotenv_load")),
-        );
-        global.set(
-            "__dotenv_load_file".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__dotenv_load_file")),
-        );
-        global.set(
-            "__dotenv_get".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__dotenv_get")),
-        );
-        global.set(
-            "__dotenv_get_or_default".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__dotenv_get_or_default")),
-        );
-        global.set(
-            "__dotenv_has".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__dotenv_has")),
-        );
-        global.set(
-            "__dotenv_set".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__dotenv_set")),
-        );
-        global.set(
-            "__dotenv_unset".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__dotenv_unset")),
-        );
-        global.set(
-            "__dotenv_vars".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__dotenv_vars")),
-        );
-
-        // std::http  HTTP Client
-        global.set(
-            "__http_get".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__http_get")),
-        );
-        global.set(
-            "__http_post".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__http_post")),
-        );
-        global.set(
-            "__http_put".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__http_put")),
-        );
-        global.set(
-            "__http_delete".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__http_delete")),
-        );
-        global.set(
-            "__http_patch".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__http_patch")),
-        );
-        global.set(
-            "__http_set_timeout".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__http_set_timeout")),
-        );
-        global.set(
-            "__http_set_user_agent".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__http_set_user_agent")),
-        );
-
-        // std::process
-        global.set(
-            "__process_run".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__process_run")),
-        );
-        global.set(
-            "__process_exec".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__process_exec")),
-        );
-        global.set(
-            "__process_output".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__process_output")),
-        );
-        global.set(
-            "__process_current_dir".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__process_current_dir")),
-        );
-        global.set(
-            "__process_set_current_dir".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__process_set_current_dir")),
-        );
-        global.set(
-            "__process_env_var".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__process_env_var")),
-        );
-        global.set(
-            "__process_env_vars".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__process_env_vars")),
-        );
-        global.set(
-            "__process_set_env_var".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__process_set_env_var")),
-        );
-        global.set(
-            "__process_remove_env_var".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__process_remove_env_var")),
-        );
-        global.set(
-            "__process_exit".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__process_exit")),
-        );
-
-        // std::collections - Set
-        global.set(
-            "__set_new".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__set_new")),
-        );
-        global.set(
-            "__set_add".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__set_add")),
-        );
-        global.set(
-            "__set_contains".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__set_contains")),
-        );
-        global.set(
-            "__set_remove".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__set_remove")),
-        );
-        global.set(
-            "__set_len".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__set_len")),
-        );
-        global.set(
-            "__set_to_list".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__set_to_list")),
-        );
-
-        // std::collections - Stack
-        global.set(
-            "__stack_new".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__stack_new")),
-        );
-        global.set(
-            "__stack_push".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__stack_push")),
-        );
-        global.set(
-            "__stack_pop".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__stack_pop")),
-        );
-        global.set(
-            "__stack_peek".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__stack_peek")),
-        );
-        global.set(
-            "__stack_len".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__stack_len")),
-        );
-
-        // std::collections - Queue
-        global.set(
-            "__queue_new".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__queue_new")),
-        );
-        global.set(
-            "__queue_enqueue".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__queue_enqueue")),
-        );
-        global.set(
-            "__queue_dequeue".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__queue_dequeue")),
-        );
-        global.set(
-            "__queue_peek".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__queue_peek")),
-        );
-        global.set(
-            "__queue_len".to_string(),
-            Value::BuiltInFunction(BuiltInFunction::new("__queue_len")),
-        );
-
         Self {
             global_symbol_table: global,
             module_registry: None,
-            struct_registry: HashMap::new(),
+            struct_names: std::collections::HashSet::new(),
             type_aliases: HashMap::new(),
         }
     }
@@ -687,6 +153,7 @@ impl Interpreter {
             Node::UnaryOp(n) => self.visit_unary_op(n, context),
             Node::If(n) => self.visit_if(n, context),
             Node::For(n) => self.visit_for(n, context),
+            Node::ForClassic(n) => self.visit_for_classic(n, context),
             Node::While(n) => self.visit_while(n, context),
             Node::FuncDef(n) => self.visit_func_def(n, context),
             Node::Call(n) => self.visit_call(n, context),
@@ -695,14 +162,11 @@ impl Interpreter {
             Node::Break(n) => self.visit_break(n, context),
             Node::InterpolatedString(n) => self.visit_interpolated_string(n, context),
             Node::MethodAccess(n) => self.visit_method_access(n, context),
-            Node::Match(n) => self.visit_match(n, context),
             Node::Map(n) => self.visit_map(n, context),
-            Node::TryCatch(n) => self.visit_try_catch(n, context),
             Node::Panic(n) => self.visit_panic(n, context),
             Node::Grab(n) => self.visit_grab(n, context),
             Node::Export(n) => self.visit_export(n, context),
             Node::StructDef(n) => self.visit_struct_def(n, context),
-            Node::Impl(n) => self.visit_impl(n, context),
             Node::TypeAlias(n) => self.visit_type_alias(n, context),
             Node::BoolLiteral(n) => self.visit_bool_literal(n, context),
             Node::NullLiteral(n) => self.visit_null_literal(n, context),
@@ -727,8 +191,7 @@ impl Interpreter {
             field_types.push((field_name, field.field_type.clone()));
         }
 
-        // Store the struct definition (we'll need a separate struct registry)
-        // For now, just store a marker in the symbol table
+        self.struct_names.insert(struct_name.clone());
         context.symbol_table.set(
             struct_name.clone(),
             Value::String(XenithString::new(format!("__struct__{}", struct_name))),
@@ -757,27 +220,6 @@ impl Interpreter {
         result.success(Value::Struct(struct_instance))
     }
 
-    fn visit_impl(&mut self, node: &ImplNode, context: &mut Context) -> RuntimeResult {
-        let struct_name = node.struct_name.value.as_ref().unwrap().clone();
-
-        // Get or create StructMethodInfo for this struct
-        let struct_info = self
-            .struct_registry
-            .entry(struct_name.clone())
-            .or_insert_with(|| StructMethodInfo::new(struct_name.clone()));
-
-        for method in &node.methods {
-            if let Some(name) = &method.variable_name_token {
-                if let Some(method_name) = &name.value {
-                    struct_info
-                        .methods
-                        .insert(method_name.clone(), method.clone());
-                }
-            }
-        }
-
-        RuntimeResult::new().success(Value::Null)
-    }
 
     fn visit_type_alias(&mut self, node: &TypeAliasNode, context: &mut Context) -> RuntimeResult {
         let alias_name = node.name.value.as_ref().unwrap().clone();
@@ -912,7 +354,7 @@ impl Interpreter {
 
                 if let Some(value) = module.exports.get(original_name) {
                     context.symbol_table.set(target_name.clone(), value.clone());
-                } else if self.struct_registry.contains_key(original_name.as_str()) {
+                } else if self.struct_names.contains(original_name.as_str()) {
                     // It's a struct — just register the marker in the symbol table
                     context.symbol_table.set(
                         target_name.clone(),
@@ -943,13 +385,40 @@ impl Interpreter {
         node: &crate::nodes::NumberNode,
         _context: &mut Context,
     ) -> RuntimeResult {
-        let value = node.token.value.as_ref().unwrap();
-        let num = if value.contains('.') {
-            Number::new(value.parse::<f64>().unwrap())
+        let text = node.token.value.as_ref().unwrap();
+        if text.contains('.') || text.contains('e') || text.contains('E') {
+            match text.parse::<f64>() {
+                Ok(f) => RuntimeResult::new().success(Value::float(f)),
+                Err(_) => RuntimeResult::new().failure(
+                    RuntimeError::new(
+                        node.position_start.clone(),
+                        node.position_end.clone(),
+                        &format!("`{}` is not a valid float", text),
+                        None,
+                    )
+                    .base,
+                ),
+            }
         } else {
-            Number::new(value.parse::<i64>().unwrap() as f64)
-        };
-        RuntimeResult::new().success(Value::Number(num))
+            match text.parse::<i64>() {
+                Ok(i) => RuntimeResult::new().success(Value::int(i)),
+                Err(_) => RuntimeResult::new().failure(
+                    RuntimeError::new(
+                        node.position_start.clone(),
+                        node.position_end.clone(),
+                        &format!(
+                            "`{}` does not fit in an int (range {} to {})",
+                            text,
+                            i64::MIN,
+                            i64::MAX
+                        ),
+                        None,
+                    )
+                    .with_code("XEN017")
+                    .base,
+                ),
+            }
+        }
     }
 
     fn visit_string(
@@ -973,7 +442,7 @@ impl Interpreter {
             let elem_result = self.visit(elem_node, context);
 
             // Check if this result has a caught error (panic)
-            if elem_result.caught_error.is_some() {
+            if false {
                 return elem_result;
             }
 
@@ -1085,150 +554,122 @@ impl Interpreter {
             return result;
         }
 
-        // Check if this is a new variable declaration (has type annotation)
-        if let Some(var_type) = &node.var_type {
-            // Resolve type alias before checking
-            let resolved_type = self.resolve_type_alias(var_type);
+        if node.is_declaration {
+            // `let x: T = v` / `let x = v` -- always binds in the current scope
+            let declared_type = match &node.var_type {
+                Some(t) => {
+                    let resolved = self.resolve_type_alias(t);
+                    if !self.value_matches_type(&value, &resolved) {
+                        return RuntimeResult::new().failure(Error::type_mismatch(
+                            &t.to_string(),
+                            &Self::get_type_name(&value),
+                            node.position_start.clone(),
+                            node.position_end.clone(),
+                        ));
+                    }
+                    resolved
+                }
+                // No annotation: infer from the value
+                None => Self::infer_type(&value),
+            };
 
-            // Check if the value type matches the resolved declared type
-            if !self.value_matches_type(&value, &resolved_type) {
+            context
+                .symbol_table
+                .set_with_type(var_name.clone(), value.clone(), declared_type);
+            if node.is_constant {
+                context.symbol_table.mark_constant(var_name.clone());
+            }
+            return result.success(value);
+        }
+
+        // `x = v` -- updates an existing binding rather than shadowing it.
+        // One scope-chain walk answers declared/constant/declared-type.
+        let Some(binding) = context.symbol_table.resolve_for_assign(var_name) else {
+            return RuntimeResult::new().failure(
+                RuntimeError::new(
+                    node.position_start.clone(),
+                    node.position_end.clone(),
+                    &format!("`{}` is not declared", var_name),
+                    Some(context.clone()),
+                )
+                .with_code("XEN002")
+                .with_name("Undefined Variable")
+                .with_help(&format!("declare it first: `let {} = ...`", var_name))
+                .base,
+            );
+        };
+
+        if binding.is_constant {
+            return RuntimeResult::new().failure(
+                RuntimeError::new(
+                    node.position_start.clone(),
+                    node.position_end.clone(),
+                    &format!("cannot reassign constant `{}`", var_name),
+                    Some(context.clone()),
+                )
+                .with_code("XEN018")
+                .with_name("Constant Reassignment")
+                .with_help("declare it with `let` instead of `const let` if it needs to change")
+                .base,
+            );
+        }
+
+        // Reassignment must respect the type the variable was declared with
+        if let Some(declared) = &binding.declared_type {
+            if *declared != Type::Unknown && !self.value_matches_type(&value, declared) {
                 return RuntimeResult::new().failure(Error::type_mismatch(
-                    &var_type.to_string(),
+                    &declared.to_string(),
                     &Self::get_type_name(&value),
                     node.position_start.clone(),
                     node.position_end.clone(),
                 ));
             }
-            // Store with the original type (or resolved? both work)
-            context.symbol_table.set_with_type(
-                var_name.clone(),
-                value.clone(),
-                resolved_type.clone(),
-            );
-        } else {
-            // Type inference - store without explicit type
-            let inferred_type = Self::infer_type(&value);
-            context
-                .symbol_table
-                .set_with_type(var_name.clone(), value.clone(), inferred_type);
         }
 
+        context.symbol_table.assign_existing(var_name, value.clone());
         result.success(value)
     }
 
-    // Helper to infer type from value
+
+    /// Infer a value's type
     fn infer_type(value: &Value) -> Type {
         match value {
-            Value::Number(n) => {
-                if n.value.fract() == 0.0 {
-                    Type::Int
-                } else {
-                    Type::Float
-                }
-            }
+            Value::Number(Number::Int(_)) => Type::Int,
+            Value::Number(Number::Float(_)) => Type::Float,
             Value::String(_) => Type::String,
             Value::Bool(_) => Type::Bool,
             Value::Null => Type::Null,
-            Value::List(l) => {
-                if let Some(first) = l.elements.first() {
-                    Type::List(Box::new(Self::infer_type(first)))
-                } else {
-                    Type::List(Box::new(Type::Unknown))
-                }
-            }
-            Value::Map(m) => {
-                if let Some((_, first_val)) = m.pairs.iter().next() {
-                    Type::Map(
-                        Box::new(Type::String),
-                        Box::new(Self::infer_type(first_val)),
-                    )
-                } else {
-                    Type::Map(Box::new(Type::String), Box::new(Type::Unknown))
-                }
-            }
-            Value::Json(_) => Type::Json,
-            Value::Function(f) => {
-                // Create function type from parameters
-                let param_types = f.param_types.clone();
-                Type::Function(crate::types::FunctionType {
-                    param_types,
-                    return_type: Box::new(Type::Unknown),
-                })
-            }
-            Value::Tuple(elements) => {
-                let types: Vec<Type> = elements.iter().map(|e| Self::infer_type(e)).collect();
-                Type::Tuple(types)
-            }
+            Value::List(l) => Type::List(Box::new(
+                l.elements
+                    .first()
+                    .map(Self::infer_type)
+                    .unwrap_or(Type::Unknown),
+            )),
+            Value::Map(m) => Type::Map(
+                Box::new(Type::String),
+                Box::new(
+                    m.pairs
+                        .values()
+                        .next()
+                        .map(Self::infer_type)
+                        .unwrap_or(Type::Unknown),
+                ),
+            ),
+            Value::Tuple(t) => Type::Tuple(t.iter().map(Self::infer_type).collect()),
+            Value::Struct(st) => Type::Struct(st.name.clone(), Vec::new()),
             _ => Type::Unknown,
         }
     }
 
+    /// Get a string name for a value's type
+    fn get_type_name(value: &Value) -> String {
+        Value::get_type_name(value)
+    }
+
     /// Check if a value matches an expected type
     pub fn value_matches_type(&self, value: &Value, expected_type: &Type) -> bool {
-        // Resolve type aliases first
         let resolved_type = self.resolve_type_alias(expected_type);
-
-        match &resolved_type {
-            Type::Union(types) => {
-                // Union support
-                types.iter().any(|t| self.value_matches_type(value, t))
-            }
-            Type::Int => matches!(value, Value::Number(n) if n.value.fract() == 0.0),
-            Type::Float => matches!(value, Value::Number(_)),
-            Type::String => matches!(value, Value::String(_)),
-            Type::Bool => matches!(value, Value::Bool(_)),
-            Type::Null => matches!(value, Value::Null),
-            Type::List(inner) => {
-                if let Value::List(list) = value {
-                    // Check each element type if list not empty
-                    if list.elements.is_empty() {
-                        true
-                    } else {
-                        list.elements
-                            .iter()
-                            .all(|elem| self.value_matches_type(elem, inner))
-                    }
-                } else {
-                    false
-                }
-            }
-            Type::Map(key_type, value_type) => {
-                if let Value::Map(map) = value {
-                    map.pairs.iter().all(|(k, v)| {
-                        self.value_matches_type(
-                            &Value::String(XenithString::new(k.clone())),
-                            &key_type, // Add & to dereference Box
-                        ) && self.value_matches_type(v, &value_type)
-                    })
-                } else {
-                    false
-                }
-            }
-            Type::Struct(name, _) => {
-                if let Value::Struct(s) = value {
-                    s.name == *name
-                } else {
-                    false
-                }
-            }
-            Type::Tuple(expected_types) => {
-                if let Value::Tuple(values) = value {
-                    if values.len() != expected_types.len() {
-                        return false;
-                    }
-                    // Check each element type
-                    for (val, exp_type) in values.iter().zip(expected_types.iter()) {
-                        if !self.value_matches_type(val, exp_type) {
-                            return false;
-                        }
-                    }
-                    true
-                } else {
-                    false
-                }
-            }
-            _ => true, // fallback for unknown/any types
-        }
+        Value::value_matches_type(value, &resolved_type)
     }
 
     // Helper function to resolve type aliases
@@ -1263,32 +704,6 @@ impl Interpreter {
         }
     }
 
-    /// Get a string name for a value's type
-    fn get_type_name(value: &Value) -> String {
-        match value {
-            Value::Number(n) => {
-                if n.value.fract() == 0.0 {
-                    "int".to_string()
-                } else {
-                    "float".to_string()
-                }
-            }
-            Value::String(_) => "string".to_string(),
-            Value::Bool(_) => "bool".to_string(),
-            Value::List(_) => "list".to_string(),
-            Value::Map(_) => "map".to_string(),
-            Value::Struct(s) => format!("struct {}", s.name),
-            Value::Function(_) => "function".to_string(),
-            Value::BuiltInFunction(_) => "builtin".to_string(),
-            Value::Json(_) => "json".to_string(),
-            Value::Null => "null".to_string(),
-            // Value::Tuple(_) => "tuple".to_string(),
-            Value::Tuple(elements) => {
-                let types: Vec<String> = elements.iter().map(|e| Self::get_type_name(e)).collect();
-                format!("({})", types.join(", "))
-            }
-        }
-    }
 
     fn visit_binary_op(
         &mut self,
@@ -1527,9 +942,10 @@ impl Interpreter {
             crate::tokens::TokenType::Plus => left.add(&right),
             crate::tokens::TokenType::Minus => left.subtract(&right),
             crate::tokens::TokenType::Mul => left.multiply(&right),
+            crate::tokens::TokenType::Mod => left.modulo(&right),
             crate::tokens::TokenType::Div => {
-                if let (Value::Number(a), Value::Number(b)) = (&left, &right) {
-                    if b.value == 0.0 {
+                if let (Value::Number(_a), Value::Number(b)) = (&left, &right) {
+                    if b.is_zero() {
                         return RuntimeResult::new().failure(Error::division_by_zero(
                             node.position_start.clone(),
                             node.position_end.clone(),
@@ -1547,7 +963,18 @@ impl Interpreter {
             crate::tokens::TokenType::Gte => left.greater_than_or_equal(&right),
             crate::tokens::TokenType::Index => match (&left, &right) {
                 (Value::List(list), Value::Number(idx)) => {
-                    let idx_usize = idx.value as usize;
+                    let Some(idx_usize) = idx.as_index() else {
+                        return RuntimeResult::new().failure(
+                            RuntimeError::new(
+                                node.position_start.clone(),
+                                node.position_end.clone(),
+                                "list index must be a non-negative int",
+                                None,
+                            )
+                            .with_code("XEN004")
+                            .base,
+                        );
+                    };
                     if idx_usize >= list.elements.len() {
                         return RuntimeResult::new().failure(Error::index_out_of_bounds(
                             idx_usize,
@@ -1582,88 +1009,75 @@ impl Interpreter {
             _ if op.matches(crate::tokens::TokenType::Keyword, Some("&&")) => left.anded_by(&right),
             _ if op.matches(crate::tokens::TokenType::Keyword, Some("||")) => left.ored_by(&right),
             _ if op.matches(crate::tokens::TokenType::Keyword, Some("as")) => {
-                // Type conversion
-                match (&left, &right) {
-                    // int/float -> float
-                    (Value::Number(n), Value::String(s)) if s.value == "float" => {
-                        Ok(Value::Number(Number::new(n.value)))
-                    }
-                    // int/float -> int (truncates)
-                    (Value::Number(n), Value::String(s)) if s.value == "int" => {
-                        Ok(Value::Number(Number::new(n.value.trunc())))
-                    }
-                    // number -> string
-                    (Value::Number(n), Value::String(s)) if s.value == "string" => {
-                        Ok(Value::String(XenithString::new(n.value.to_string())))
-                    }
-                    // number -> bool
-                    (Value::Number(n), Value::String(s)) if s.value == "bool" => {
-                        Ok(Value::Bool(n.value != 0.0))
-                    }
-                    // string -> int
-                    (Value::String(s), Value::String(target)) if target.value == "int" => {
-                        match s.value.parse::<i64>() {
-                            Ok(num) => Ok(Value::Number(Number::new(num as f64))),
-                            Err(_) => Err(RuntimeError::new(
-                                node.position_start.clone(),
-                                node.position_end.clone(),
-                                &format!("Cannot convert string '{}' to int", s.value),
-                                Some(context.clone()),
-                            )
-                            .base),
-                        }
-                    }
-                    // string -> float
-                    (Value::String(s), Value::String(target)) if target.value == "float" => {
-                        match s.value.parse::<f64>() {
-                            Ok(num) => Ok(Value::Number(Number::new(num))),
-                            Err(_) => Err(RuntimeError::new(
-                                node.position_start.clone(),
-                                node.position_end.clone(),
-                                &format!("Cannot convert string '{}' to float", s.value),
-                                Some(context.clone()),
-                            )
-                            .base),
-                        }
-                    }
-                    // string -> bool
-                    (Value::String(s), Value::String(target)) if target.value == "bool" => {
-                        let lower = s.value.to_lowercase();
-                        if lower == "true" || lower == "1" {
-                            Ok(Value::Bool(true))
-                        } else if lower == "false" || lower == "0" {
-                            Ok(Value::Bool(false))
-                        } else {
-                            Err(RuntimeError::new(
-                                node.position_start.clone(),
-                                node.position_end.clone(),
-                                &format!("Cannot convert string '{}' to bool", s.value),
-                                Some(context.clone()),
-                            )
-                            .base)
-                        }
-                    }
-                    // bool -> int
-                    (Value::Bool(b), Value::String(target)) if target.value == "int" => {
-                        Ok(Value::Number(Number::new(if *b { 1.0 } else { 0.0 })))
-                    }
-                    // bool -> float
-                    (Value::Bool(b), Value::String(target)) if target.value == "float" => {
-                        Ok(Value::Number(Number::new(if *b { 1.0 } else { 0.0 })))
-                    }
-                    // bool -> string
-                    (Value::Bool(b), Value::String(target)) if target.value == "string" => {
-                        Ok(Value::String(XenithString::new(
-                            if *b { "true" } else { "false" }.to_string(),
-                        )))
-                    }
-                    _ => Err(RuntimeError::new(
+                let target = match &right {
+                    Value::String(s) => s.value.clone(),
+                    _ => String::new(),
+                };
+                let convert_err = |detail: String| {
+                    RuntimeError::new(
                         node.position_start.clone(),
                         node.position_end.clone(),
-                        &format!("Cannot convert {:?} to {:?}", left, right),
+                        &detail,
                         Some(context.clone()),
                     )
-                    .base),
+                    .with_code("XEN011")
+                    .base
+                };
+
+                match (&left, target.as_str()) {
+                    // ---- numeric conversions ----
+                    (Value::Number(n), "float") => Ok(Value::float(n.to_f64())),
+                    (Value::Number(n), "int") => match n {
+                        Number::Int(i) => Ok(Value::int(*i)),
+                        Number::Float(_) => n.to_i64().map(Value::int).ok_or_else(|| {
+                            convert_err(format!("float {} does not fit in an int", n))
+                        }),
+                    },
+                    (Value::Number(n), "string") => {
+                        Ok(Value::String(XenithString::new(n.to_string())))
+                    }
+                    (Value::Number(n), "bool") => Ok(Value::Bool(!n.is_zero())),
+
+                    // ---- string conversions ----
+                    (Value::String(s), "int") => s
+                        .value
+                        .trim()
+                        .parse::<i64>()
+                        .map(Value::int)
+                        .map_err(|_| {
+                            convert_err(format!("cannot convert string \"{}\" to int", s.value))
+                        }),
+                    (Value::String(s), "float") => s
+                        .value
+                        .trim()
+                        .parse::<f64>()
+                        .map(Value::float)
+                        .map_err(|_| {
+                            convert_err(format!("cannot convert string \"{}\" to float", s.value))
+                        }),
+                    (Value::String(s), "bool") => match s.value.trim() {
+                        "true" => Ok(Value::Bool(true)),
+                        "false" => Ok(Value::Bool(false)),
+                        other => Err(convert_err(format!(
+                            "cannot convert string \"{}\" to bool -- expected \"true\" or \"false\"",
+                            other
+                        ))),
+                    },
+                    (Value::String(s), "string") => Ok(Value::String(s.clone())),
+
+                    // ---- bool conversions ----
+                    (Value::Bool(b), "int") => Ok(Value::int(if *b { 1 } else { 0 })),
+                    (Value::Bool(b), "float") => Ok(Value::float(if *b { 1.0 } else { 0.0 })),
+                    (Value::Bool(b), "string") => Ok(Value::String(XenithString::new(
+                        if *b { "true" } else { "false" }.to_string(),
+                    ))),
+                    (Value::Bool(b), "bool") => Ok(Value::Bool(*b)),
+
+                    _ => Err(convert_err(format!(
+                        "cannot convert {} to {}",
+                        Value::get_type_name(&left),
+                        if target.is_empty() { "that type" } else { &target }
+                    ))),
                 }
             }
             _ => {
@@ -1681,48 +1095,16 @@ impl Interpreter {
 
         match result_value {
             Ok(v) => result.success(v),
-            Err(e) => RuntimeResult::new().failure(e),
+            Err(mut e) => {
+                // Value-level ops build errors without positions; attach the
+                // operator's real span so the diagnostic points at the source.
+                if e.position_start.index == 0 && e.position_end.index == 0 {
+                    e.position_start = node.position_start.clone();
+                    e.position_end = node.position_end.clone();
+                }
+                RuntimeResult::new().failure(e)
+            }
         }
-    }
-
-    fn visit_try_catch(&mut self, node: &TryCatchNode, context: &mut Context) -> RuntimeResult {
-        let mut result = RuntimeResult::new();
-
-        // Create a new context for the try block
-        let mut try_context = context.create_child("<try>", node.position_start.clone());
-
-        // Execute try block
-        let try_result = self.visit(&node.try_block, &mut try_context);
-
-        // Check if there was a caught error (from panic)
-        if let Some(caught) = try_result.caught_error {
-            // Execute catch block with error variable
-            let mut catch_context = context.create_child("<catch>", node.position_start.clone());
-            catch_context.symbol_table.set_local(
-                node.catch_var.value.as_ref().unwrap().clone(),
-                Value::String(XenithString::new(caught.message)),
-            );
-
-            return self.visit(&node.catch_block, &mut catch_context);
-        }
-
-        // Check if there was a runtime error
-        if let Some(error) = try_result.error {
-            // Create caught error with full error info
-            let caught_error = CaughtError::from_error(error);
-
-            // Execute catch block with error variable
-            let mut catch_context = context.create_child("<catch>", node.position_start.clone());
-            catch_context.symbol_table.set_local(
-                node.catch_var.value.as_ref().unwrap().clone(),
-                Value::String(XenithString::new(caught_error.message.clone())),
-            );
-
-            return self.visit(&node.catch_block, &mut catch_context);
-        }
-
-        // No error, return try block result
-        try_result
     }
 
     fn visit_panic(&mut self, node: &PanicNode, context: &mut Context) -> RuntimeResult {
@@ -1734,11 +1116,18 @@ impl Interpreter {
         }
 
         let message = value_to_string(&message_value);
-        let caught_error = CaughtError::from_message(message);
 
-        let mut panic_result = RuntimeResult::new();
-        panic_result.caught_error = Some(caught_error);
-        panic_result
+        result.failure(
+            RuntimeError::new(
+                node.position_start.clone(),
+                node.position_end.clone(),
+                &message,
+                Some(context.clone()),
+            )
+            .with_code("XEN300")
+            .with_name("Panic")
+            .base,
+        )
     }
 
     fn visit_interpolated_string(
@@ -1818,58 +1207,6 @@ impl Interpreter {
         result.success(Value::String(XenithString::new(final_string)))
     }
 
-    fn visit_match(
-        &mut self,
-        node: &crate::nodes::MatchNode,
-        context: &mut Context,
-    ) -> RuntimeResult {
-        let mut result = RuntimeResult::new();
-
-        let match_value = result.register(self.visit(&node.value_node, context));
-        if result.should_return() {
-            return result;
-        }
-
-        for arm in &node.arms {
-            let pattern_value = result.register(self.visit(&arm.pattern_node, context));
-            if result.should_return() {
-                return result;
-            }
-
-            let is_match = match (&match_value, &pattern_value) {
-                // Wildcard
-                (_, Value::String(s)) if s.value == "_" => true,
-
-                // Type patterns
-                (Value::String(_), Value::String(s)) if s.value == "string" => true,
-                (Value::Number(n), Value::String(s)) if s.value == "int" => n.value.fract() == 0.0,
-                (Value::Number(_), Value::String(s)) if s.value == "float" => true,
-                (Value::Bool(_), Value::String(s)) if s.value == "bool" => true,
-
-                // NULL pattern - this was the missing piece
-                (Value::Null, Value::String(s)) if s.value.eq_ignore_ascii_case("null") => true,
-                (Value::Null, Value::Null) => true,
-
-                // Literal value matches
-                (Value::String(a), Value::String(b)) => a.value == b.value,
-                (Value::Number(a), Value::Number(b)) => (a.value - b.value).abs() < 1e-10,
-                (Value::Bool(a), Value::Bool(b)) => a == b,
-
-                _ => false,
-            };
-
-            if is_match {
-                let value = result.register(self.visit(&arm.body_node, context));
-                if result.should_return() {
-                    return result;
-                }
-                return result.success(value);
-            }
-        }
-
-        // No match found
-        result.success(Value::Null)
-    }
 
     fn visit_unary_op(
         &mut self,
@@ -1943,7 +1280,7 @@ impl Interpreter {
         let raw_var_name = node.variable_name_token.value.as_ref().unwrap();
         let var_name = raw_var_name.trim_matches(|c| c == '(' || c == ')');
 
-        let iterable = result.register(self.visit(&node.start_value_node, context));
+        let iterable = result.register(self.visit(&node.iterable_node, context));
         if result.should_return() {
             return result;
         }
@@ -2058,92 +1395,22 @@ impl Interpreter {
                 }
             }
 
-            _ => {
-                let start = iterable;
-                let end = result.register(self.visit(&node.end_value_node, context));
-                if result.should_return() {
-                    return result;
-                }
-
-                let step = if let Some(step_node) = &node.step_value_node {
-                    result.register(self.visit(step_node, context))
-                } else {
-                    Value::Number(Number::new(1.0))
-                };
-
-                let start_val = match start.as_number() {
-                    Some(n) => n.value,
-                    None => {
-                        return result.failure(
-                            RuntimeError::new(
-                                node.position_start.clone(),
-                                node.position_end.clone(),
-                                "For loop start must be a number",
-                                Some(context.clone()),
-                            )
-                            .base,
-                        );
-                    }
-                };
-                let end_val = match end.as_number() {
-                    Some(n) => n.value,
-                    None => {
-                        return result.failure(
-                            RuntimeError::new(
-                                node.position_start.clone(),
-                                node.position_end.clone(),
-                                "For loop end must be a number",
-                                Some(context.clone()),
-                            )
-                            .base,
-                        );
-                    }
-                };
-                let step_val = match step.as_number() {
-                    Some(n) => n.value,
-                    None => {
-                        return result.failure(
-                            RuntimeError::new(
-                                node.position_start.clone(),
-                                node.position_end.clone(),
-                                "For loop step must be a number",
-                                Some(context.clone()),
-                            )
-                            .base,
-                        );
-                    }
-                };
-
-                let mut i = start_val;
-                while if step_val >= 0.0 {
-                    i < end_val
-                } else {
-                    i > end_val
-                } {
-                    let mut loop_ctx = context.create_child("<for>", Self::dummy_pos());
-                    loop_ctx
-                        .symbol_table
-                        .set(var_name.to_string(), Value::Number(Number::new(i)));
-
-                    let value = result.register(self.visit(&node.body_node, &mut loop_ctx));
-                    if result.should_return()
-                        && !result.loop_should_continue
-                        && !result.loop_should_break
-                    {
-                        return result;
-                    }
-                    if result.loop_should_continue {
-                        result.loop_should_continue = false;
-                        i += step_val;
-                        continue;
-                    }
-                    if result.loop_should_break {
-                        result.loop_should_break = false;
-                        break;
-                    }
-                    elements.push(value);
-                    i += step_val;
-                }
+            other => {
+                return result.failure(
+                    RuntimeError::new(
+                        node.position_start.clone(),
+                        node.position_end.clone(),
+                        &format!(
+                            "cannot iterate over {}",
+                            Value::get_type_name(other)
+                        ),
+                        Some(context.clone()),
+                    )
+                    .with_code("XEN001")
+                    .with_name("Type Mismatch")
+                    .with_help("`for x in ...` iterates a list or map; to count, use `for (let i: int = 0; i < n; i++)`")
+                    .base,
+                );
             }
         }
 
@@ -2152,6 +1419,66 @@ impl Interpreter {
         } else {
             result.success(Value::List(List::new(elements)))
         }
+    }
+
+    /// `for (init; condition; step) { ... }`
+    ///
+    /// The three clauses share one scope so the counter stays visible to all of
+    /// them; the body runs in a nested scope so its `let`s do not leak between
+    /// iterations.
+    fn visit_for_classic(
+        &mut self,
+        node: &crate::nodes::ForClassicNode,
+        context: &mut Context,
+    ) -> RuntimeResult {
+        let mut result = RuntimeResult::new();
+        let mut loop_ctx = context.create_child("<for>", node.position_start.clone());
+
+        if let Some(init) = &node.init_node {
+            result.register(self.visit(init, &mut loop_ctx));
+            if result.should_return() {
+                return result;
+            }
+        }
+
+        // One scope reused across iterations: cleared each time so `let`s in
+        // the body cannot leak between iterations, without reallocating.
+        let mut body_ctx = loop_ctx.create_child("<for body>", node.position_start.clone());
+
+        loop {
+            // An absent condition means loop forever, as in C.
+            if let Some(cond) = &node.condition_node {
+                let cond_value = result.register(self.visit(cond, &mut loop_ctx));
+                if result.should_return() {
+                    return result;
+                }
+                if !cond_value.is_true() {
+                    break;
+                }
+            }
+
+            body_ctx.symbol_table.clear_local();
+            result.register(self.visit(&node.body_node, &mut body_ctx));
+
+            if result.loop_should_break {
+                result.loop_should_break = false;
+                break;
+            }
+            if result.loop_should_continue {
+                result.loop_should_continue = false;
+            } else if result.should_return() {
+                return result;
+            }
+
+            if let Some(step) = &node.step_node {
+                result.register(self.visit(step, &mut loop_ctx));
+                if result.should_return() {
+                    return result;
+                }
+            }
+        }
+
+        result.success(Value::Null)
     }
 
     fn visit_while(
@@ -2261,131 +1588,7 @@ impl Interpreter {
     ) -> RuntimeResult {
         let mut result = RuntimeResult::new();
 
-        // Check if this is a static method call (format: "StructName::methodName")
-        if let Node::VarAccess(var_node) = &*node.node_to_call {
-            let call_name = var_node.variable_name_token.value.as_ref().unwrap();
-            if call_name.contains("::") {
-                let parts: Vec<&str> = call_name.split("::").collect();
-                if parts.len() == 2 {
-                    let struct_name = parts[0].to_string();
-                    let method_name = parts[1].to_string();
-
-                    // Clone the method before borrowing self again
-                    let method_clone = {
-                        if let Some(struct_info) = self.struct_registry.get(&struct_name) {
-                            if let Some(method) = struct_info.get_method(&method_name) {
-                                Some(method.clone())
-                            } else {
-                                None
-                            }
-                        } else {
-                            None
-                        }
-                    };
-
-                    if let Some(method) = method_clone {
-                        // Evaluate arguments
-                        let mut args = Vec::new();
-                        for arg_node in &node.argument_nodes {
-                            let arg = result.register(self.visit(arg_node, context));
-                            if result.should_return() {
-                                return result;
-                            }
-                            args.push(arg);
-                        }
-
-                        let has_self = method.param_names.first().and_then(|t| t.value.as_deref())
-                            == Some("self");
-
-                        let mut method_context = context.create_child(
-                            &format!("{}::{}", struct_name, method_name),
-                            node.position_start.clone(),
-                        );
-
-                        if has_self {
-                            if args.is_empty() {
-                                return result.failure(
-                                    RuntimeError::new(
-                                        node.position_start.clone(),
-                                        node.position_end.clone(),
-                                        &format!("Method '{}' requires self argument", method_name),
-                                        Some(context.clone()),
-                                    )
-                                    .base,
-                                );
-                            }
-                            let instance = args[0].clone();
-                            method_context
-                                .symbol_table
-                                .set_local("self".to_string(), instance);
-
-                            // Bind remaining parameters (skip self)
-                            for (i, param_name) in method.param_names.iter().enumerate() {
-                                if i == 0 {
-                                    continue;
-                                }
-                                let param_name_str = param_name.value.as_ref().unwrap();
-                                if i - 1 < args.len() - 1 {
-                                    method_context
-                                        .symbol_table
-                                        .set_local(param_name_str.clone(), args[i].clone());
-                                }
-                            }
-                        } else {
-                            // Static method - bind all params directly
-                            for (i, param_name) in method.param_names.iter().enumerate() {
-                                let param_name_str = param_name.value.as_ref().unwrap();
-                                if i < args.len() {
-                                    method_context
-                                        .symbol_table
-                                        .set_local(param_name_str.clone(), args[i].clone());
-                                }
-                            }
-                        }
-
-                        // Execute the method body
-                        let exec_result = self.visit(&method.body_node, &mut method_context);
-
-                        if let Some(err) = exec_result.error {
-                            return RuntimeResult::new().failure(err);
-                        }
-
-                        // Write mutated self back to the caller's variable
-                        if let Some(arg_node) = node.argument_nodes.get(0) {
-                            if let Node::VarAccess(var_node) = arg_node.as_ref() {
-                                let var_name =
-                                    var_node.variable_name_token.value.as_ref().unwrap().clone();
-                                if let Some(updated_self) = method_context.symbol_table.get("self")
-                                {
-                                    context
-                                        .symbol_table
-                                        .set_existing(var_name, updated_self.clone());
-                                }
-                            }
-                        }
-
-                        if let Some(ret_val) = exec_result.func_return_value {
-                            return RuntimeResult::new().success(ret_val);
-                        }
-
-                        if let Some(val) = exec_result.value {
-                            return RuntimeResult::new().success(val);
-                        }
-
-                        return RuntimeResult::new().success(Value::Null);
-                    } else {
-                        return result.failure(Error::method_not_found(
-                            &struct_name,
-                            &method_name,
-                            node.position_start.clone(),
-                            node.position_end.clone(),
-                        ));
-                    }
-                }
-            }
-        }
-
-        // Check if this is a method call (node_to_call is a MethodAccess)
+// Check if this is a method call (node_to_call is a MethodAccess)
         if let Node::MethodAccess(method_node) = &*node.node_to_call {
             // Check if the object is a variable access (so we can update it)
             let var_name = if let Node::VarAccess(var_node) = &*method_node.object {
@@ -2518,7 +1721,7 @@ impl Interpreter {
             (Value::List(mut list), "pop") => {
                 let index = if args.len() >= 1 {
                     match &args[0] {
-                        Value::Number(n) => Some(n.value as usize),
+                        Value::Number(n) => n.as_index(),
                         _ => None,
                     }
                 } else {
@@ -2541,13 +1744,13 @@ impl Interpreter {
                 }
             }
             (Value::List(list), "len") => {
-                RuntimeResult::new().success(Value::Number(Number::new(list.len() as f64)))
+                RuntimeResult::new().success(Value::int(list.len() as i64))
             }
             (Value::Map(map), "items") => RuntimeResult::new().success(Value::List(map.items())),
             (Value::Map(map), "keys") => RuntimeResult::new().success(Value::List(map.keys())),
             (Value::Map(map), "values") => RuntimeResult::new().success(Value::List(map.values())),
             (Value::Map(map), "len") => {
-                RuntimeResult::new().success(Value::Number(Number::new(map.len() as f64)))
+                RuntimeResult::new().success(Value::int(map.len() as i64))
             }
             (Value::Map(map), "has_key") => {
                 if args.len() != 1 {
@@ -2575,84 +1778,9 @@ impl Interpreter {
                         );
                     }
                 };
-                let result = map.contains_key(key);
-                RuntimeResult::new().success(Value::Number(Number::new(if result {
-                    1.0
-                } else {
-                    0.0
-                })))
+                RuntimeResult::new().success(Value::Bool(map.contains_key(key)))
             }
-            (Value::Struct(instance), method) => {
-                let struct_name = instance.name.clone();
-                let method_clone = self
-                    .struct_registry
-                    .get(&struct_name)
-                    .and_then(|info| info.get_method(method))
-                    .cloned();
-
-                match method_clone {
-                    Some(func_def) => {
-                        let has_self = func_def
-                            .param_names
-                            .first()
-                            .and_then(|t| t.value.as_deref())
-                            == Some("self");
-
-                        let mut method_context = context.create_child(
-                            &format!("{}::{}", struct_name, method),
-                            Self::dummy_pos(),
-                        );
-
-                        if has_self {
-                            method_context
-                                .symbol_table
-                                .set_local("self".to_string(), Value::Struct(instance));
-                            for (i, param_name) in func_def.param_names.iter().enumerate() {
-                                if i == 0 {
-                                    continue;
-                                }
-                                let param_name_str = param_name.value.as_ref().unwrap();
-                                if i - 1 < args.len() {
-                                    method_context
-                                        .symbol_table
-                                        .set_local(param_name_str.clone(), args[i - 1].clone());
-                                }
-                            }
-                        } else {
-                            for (i, param_name) in func_def.param_names.iter().enumerate() {
-                                let param_name_str = param_name.value.as_ref().unwrap();
-                                if i < args.len() {
-                                    method_context
-                                        .symbol_table
-                                        .set_local(param_name_str.clone(), args[i].clone());
-                                }
-                            }
-                        }
-
-                        let exec_result = self.visit(&func_def.body_node, &mut method_context);
-                        if let Some(err) = exec_result.error {
-                            return RuntimeResult::new().failure(err);
-                        }
-                        if let Some(ret_val) = exec_result.func_return_value {
-                            return RuntimeResult::new().success(ret_val);
-                        }
-                        if let Some(val) = exec_result.value {
-                            return RuntimeResult::new().success(val);
-                        }
-                        RuntimeResult::new().success(Value::Null)
-                    }
-                    None => RuntimeResult::new().failure(
-                        RuntimeError::new(
-                            Self::dummy_pos(),
-                            Self::dummy_pos(),
-                            &format!("Method '{}' not found on struct '{}'", method, struct_name),
-                            Some(context.clone()),
-                        )
-                        .base,
-                    ),
-                }
-            }
-            _ => RuntimeResult::new().failure(
+_ => RuntimeResult::new().failure(
                 RuntimeError::new(
                     Self::dummy_pos(),
                     Self::dummy_pos(),
@@ -2841,9 +1969,3 @@ impl Default for Interpreter {
     }
 }
 
-fn convert_legacy_null(value: &Value) -> Value {
-    match value {
-        Value::Number(n) if n.value == 0.0 => Value::Null,
-        _ => value.clone(),
-    }
-}

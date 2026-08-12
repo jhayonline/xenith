@@ -52,7 +52,7 @@ pub fn format(
                     let result = interpreter.visit(&node, &mut temp_context);
 
                     if let Some(error) = result.error {
-                        return RuntimeResult::new().failure(error);
+                        return RuntimeResult::new().failure(*error);
                     }
 
                     if let Some(value) = result.value {

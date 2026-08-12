@@ -26,6 +26,7 @@ pub enum TokenType {
     MinusMinus, // --
     MinusEqual, // -=
     Mul,
+    Mod,
     Div,
     Pow,
     Eq,  // =
@@ -44,12 +45,9 @@ pub enum TokenType {
     TypeList,
     TypeMap,
     TypeStruct,
-    TypeImpl,
     TypeAlias,
     BoolTrue,
     BoolFalse,
-    TypeJson,
-    TypeAny,
 
     // Delimiters
     LParen,
@@ -124,17 +122,12 @@ pub const KEYWORDS: &[&str] = &[
     "or when",
     "otherwise",
     "for",
-    "to",
-    "step",
     "while",
     "method",
     "release",
     "skip",
     "stop",
-    "match",
     "in",
-    "try",
-    "catch",
     "panic",
     "grab",
     "export",
@@ -148,12 +141,9 @@ pub const KEYWORDS: &[&str] = &[
     "list",
     "map",
     "struct",
-    "impl",
     "type",
     "true",
     "false",
-    "json",
-    "any",
     "echo",
     "format",
 ];

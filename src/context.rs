@@ -10,13 +10,23 @@ use crate::values::Value;
 use std::collections::HashMap;
 use std::rc::Rc;
 
+/// Maximum nesting depth before we stop and report a clean error.
+///
+/// The interpreter recurses on the Rust stack, so unbounded Xenith recursion
+/// would abort the process with a stack overflow instead of a diagnostic.
+pub const MAX_CALL_DEPTH: usize = 10_000;
+
 #[derive(Debug, Clone)]
 pub struct Context {
     pub display_name: String,
-    pub parent: Option<Box<Context>>,
+    /// Shared, never deep-copied. Cloning a Context must stay O(1): it happens
+    /// on every call and every block, and a Box here made calls O(depth^2).
+    pub parent: Option<Rc<Context>>,
     pub parent_entry_position: Option<Position>,
     pub symbol_table: Rc<SymbolTable>,
     pub exports: HashMap<String, Value>,
+    /// Nesting depth of this context, counted from the program root.
+    pub depth: usize,
 }
 
 impl Context {
@@ -30,24 +40,32 @@ impl Context {
         } else {
             Rc::new(SymbolTable::new())
         };
+        let depth = parent.as_ref().map(|p| p.depth + 1).unwrap_or(0);
 
         Self {
             display_name: display_name.to_string(),
-            parent: parent.map(Box::new),
+            parent: parent.map(Rc::new),
             parent_entry_position,
             symbol_table,
             exports: HashMap::new(),
+            depth,
         }
     }
 
     pub fn create_child(&self, display_name: &str, entry_pos: Position) -> Self {
         Self {
             display_name: display_name.to_string(),
-            parent: Some(Box::new(self.clone())),
+            parent: Some(Rc::new(self.clone())),
             parent_entry_position: Some(entry_pos),
             symbol_table: Rc::new(SymbolTable::with_parent(self.symbol_table.clone())),
             exports: HashMap::new(),
+            depth: self.depth + 1,
         }
+    }
+
+    /// Has nesting gone past the point where the Rust stack is at risk?
+    pub fn depth_exceeded(&self) -> bool {
+        self.depth >= MAX_CALL_DEPTH
     }
 
     pub fn add_export(&mut self, name: String, value: Value) {

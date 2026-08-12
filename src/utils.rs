@@ -95,13 +95,7 @@ pub fn string_with_arrows(
 /// Converts a Value to its string representation
 pub fn value_to_string(value: &Value) -> String {
     match value {
-        Value::Number(n) => {
-            if n.value.fract() == 0.0 {
-                format!("{}", n.value as i64)
-            } else {
-                n.value.to_string()
-            }
-        }
+        Value::Number(n) => n.to_string(),
         Value::String(s) => s.value.clone(),
         Value::List(l) => {
             if l.elements.len() == 1 {
@@ -158,7 +152,6 @@ pub fn value_to_string(value: &Value) -> String {
             }
         }
         Value::Null => "null".to_string(),
-        Value::Json(j) => j.to_string(),
         Value::Tuple(elements) => {
             let mut result = String::from("(");
             for (i, elem) in elements.iter().enumerate() {
@@ -176,10 +169,7 @@ pub fn value_to_string(value: &Value) -> String {
 /// Converts a Value to its string representation for interpolation
 pub fn value_to_interpolated_string(value: &Value) -> String {
     match value {
-        Value::Number(n) => {
-            // Don't convert to boolean - show actual number
-            n.value.to_string()
-        }
+        Value::Number(n) => n.to_string(),
         Value::String(s) => s.value.clone(),
         Value::List(l) => {
             let mut result = String::from("[");
@@ -236,7 +226,6 @@ pub fn value_to_interpolated_string(value: &Value) -> String {
             }
         }
         Value::Null => "null".to_string(),
-        Value::Json(j) => j.to_string(),
         Value::Tuple(elements) => {
             let mut result = String::from("(");
             for (i, elem) in elements.iter().enumerate() {

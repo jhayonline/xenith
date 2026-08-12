@@ -427,6 +427,10 @@ impl Error {
             self.error_name.bright_red()
         ));
 
+        if !self.details.is_empty() {
+            result.push_str(&format!("  {}\n", self.details.bold()));
+        }
+
         result.push_str(&format!(
             "  {} {}:{}:{}\n",
             "→".bright_cyan(),
@@ -445,12 +449,13 @@ impl Error {
                 line_content
             ));
 
-            // Create arrow pointing to the error
+            // Caret, aligned under the offending span.
+            // The gutter above is "  NNNN │ " -- 9 columns wide.
             let arrow = self.get_arrow();
             if !arrow.is_empty() {
                 result.push_str(&format!(
-                    "      {} {}\n",
-                    " ".repeat(self.position_start.column),
+                    "{}{}\n",
+                    " ".repeat(9 + self.position_start.column),
                     arrow.bright_red()
                 ));
             }
@@ -489,19 +494,13 @@ impl Error {
         }
     }
 
+    /// The `^^^` run alone. Leading indentation is the caller's job, so that
+    /// the caret width and its offset are never counted twice.
     fn get_arrow(&self) -> String {
-        let line = self.get_line_content();
-        let start = self.position_start.column;
-        let end = self.position_end.column;
-        let mut arrow = String::new();
-        for i in 0..line.len() {
-            if i >= start && i < end {
-                arrow.push('^');
-            } else if i < start {
-                arrow.push(' ');
-            }
-        }
-        arrow
+        let line_len = self.get_line_content().chars().count();
+        let start = self.position_start.column.min(line_len);
+        let end = self.position_end.column.clamp(start, line_len);
+        "^".repeat((end - start).max(1))
     }
 }
 
@@ -554,6 +553,12 @@ impl InvalidSyntaxError {
                 .with_help("review the syntax near this location"),
         }
     }
+
+    /// Replaces the generic hint with something specific to this error
+    pub fn with_help(mut self, help: &str) -> Self {
+        self.base = self.base.with_help(help);
+        self
+    }
 }
 
 /// Runtime error with execution context traceback
@@ -579,6 +584,12 @@ impl RuntimeError {
 
     pub fn with_code(mut self, code: &str) -> Self {
         self.base = self.base.with_code(code);
+        self
+    }
+
+    /// Overrides the displayed error name (e.g. "Panic" instead of "Runtime Error")
+    pub fn with_name(mut self, name: &str) -> Self {
+        self.base.error_name = name.to_string();
         self
     }
 

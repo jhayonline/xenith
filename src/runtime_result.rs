@@ -5,17 +5,19 @@
 //! control flow at runtime.
 
 use crate::error::Error;
-use crate::values::{CaughtError, Value};
+use crate::values::Value;
 
 /// Result of runtime execution with control flow tracking
 #[derive(Debug, Clone)]
 pub struct RuntimeResult {
     pub value: Option<Value>,
-    pub error: Option<Error>,
+    /// Boxed: `RuntimeResult` is returned by value from every `visit` call,
+    /// and an inline `Error` made it 392 bytes -- the resulting memcpy traffic
+    /// was the single largest cost in tight loops.
+    pub error: Option<Box<Error>>,
     pub func_return_value: Option<Value>,
     pub loop_should_continue: bool,
     pub loop_should_break: bool,
-    pub caught_error: Option<CaughtError>,
 }
 
 impl RuntimeResult {
@@ -27,7 +29,6 @@ impl RuntimeResult {
             func_return_value: None,
             loop_should_continue: false,
             loop_should_break: false,
-            caught_error: None,
         }
     }
 
@@ -37,10 +38,9 @@ impl RuntimeResult {
         self.func_return_value = res.func_return_value.take();
         self.loop_should_continue = res.loop_should_continue;
         self.loop_should_break = res.loop_should_break;
-        self.caught_error = res.caught_error.take(); // Add this line!
 
         // If there's an error, return value, or panic, we shouldn't try to get the value
-        if self.error.is_some() || self.func_return_value.is_some() || self.caught_error.is_some() {
+        if self.error.is_some() || self.func_return_value.is_some() {
             return Value::Null;
         }
 
@@ -73,7 +73,7 @@ impl RuntimeResult {
 
     /// Creates a failure result
     pub fn failure(mut self, error: Error) -> Self {
-        self.error = Some(error);
+        self.error = Some(Box::new(error));
         self
     }
 
@@ -85,14 +85,7 @@ impl RuntimeResult {
             || self.loop_should_break
     }
 
-    pub fn success_catch(mut self, error: CaughtError) -> Self {
-        self.caught_error = Some(error);
-        self
-    }
 
-    pub fn is_panic(&self) -> bool {
-        self.caught_error.is_some()
-    }
 }
 
 impl Default for RuntimeResult {

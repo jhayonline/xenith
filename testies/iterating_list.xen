@@ -12,7 +12,7 @@ for fruit in fruits {
 let numbers: list<int> = [10, 20, 30, 40, 50]
 
 echo("\n=== List with Index ===")
-for i = 0 to numbers.len() {
+for (let i: int = 0; i < numbers.len(); i++) {
     echo("numbers[{i}] = {numbers[i]}")
 }
 

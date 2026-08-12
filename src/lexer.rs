@@ -76,7 +76,16 @@ impl Lexer {
                     '#' => {
                         self.skip_comment();
                     }
-                    ';' | '\n' => {
+                    ';' => {
+                        tokens.push(Token::new(
+                            TokenType::Semicolon,
+                            None,
+                            self.position.clone(),
+                            None,
+                        ));
+                        self.advance();
+                    }
+                    '\n' => {
                         tokens.push(Token::new(
                             TokenType::Newline,
                             None,
@@ -161,6 +170,15 @@ impl Lexer {
                             ));
                             self.advance();
                         }
+                    }
+                    '%' => {
+                        tokens.push(Token::new(
+                            TokenType::Mod,
+                            None,
+                            self.position.clone(),
+                            None,
+                        ));
+                        self.advance();
                     }
                     '*' => {
                         tokens.push(Token::new(
@@ -531,12 +549,9 @@ impl Lexer {
             "list" => TokenType::TypeList,
             "map" => TokenType::TypeMap,
             "struct" => TokenType::TypeStruct,
-            "impl" => TokenType::TypeImpl,
             "type" => TokenType::TypeAlias,
             "true" => TokenType::BoolTrue,
             "false" => TokenType::BoolFalse,
-            "json" => TokenType::TypeJson,
-            "any" => TokenType::TypeAny,
             _ => {
                 if KEYWORDS.contains(&id_str.as_str()) {
                     TokenType::Keyword
