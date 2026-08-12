@@ -238,6 +238,18 @@ fn analyze(uri: &str, doc: &mut Document) -> Vec<Diagnostic> {
         diagnostics.push(to_diagnostic(doc, error));
     }
 
+    // Type errors, from the same static pass the interpreter runs before
+    // executing, so the editor reports exactly what the command line will.
+    // Only run it on a file that parsed cleanly: checking a partial tree
+    // produces errors about code the user is still in the middle of writing.
+    if parse_result.error.is_none() {
+        if let Some(node) = &parse_result.node {
+            for error in xenith::checker::check(node, &parser.type_aliases) {
+                diagnostics.push(to_diagnostic(doc, &error));
+            }
+        }
+    }
+
     // A parse error still leaves a partial tree; index whatever survived so
     // completion and hover keep working while the file is mid-edit.
     let mut symbols = Vec::new();

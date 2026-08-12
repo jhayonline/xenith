@@ -1389,7 +1389,20 @@ impl Interpreter {
 
         for part in &node.parts {
             if part.is_expression {
-                // Parse and evaluate the expression
+                // Parsed once, at parse time. Re-lexing and re-parsing here
+                // meant a loop printing an interpolated string paid for a parse
+                // on every iteration.
+                if let Some(expression) = &part.parsed {
+                    let value = result.register(self.visit(expression, context));
+                    if result.should_return() {
+                        return result;
+                    }
+                    final_string.push_str(&value_to_interpolated_string(&value));
+                    continue;
+                }
+
+                // Did not parse at parse time; fall through so the error is
+                // raised here, the way it always was.
                 let mut lexer = Lexer::new("<interpolated>".to_string(), part.content.clone());
                 let tokens = match lexer.make_tokens() {
                     Ok(t) => t,

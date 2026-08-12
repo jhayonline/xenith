@@ -1,0 +1,4 @@
+method wrong() -> int {
+ release "not an int"
+}
+echo("{wrong()}")

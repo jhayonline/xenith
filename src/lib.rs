@@ -17,6 +17,7 @@
 //! ```
 
 pub mod builtins;
+pub mod checker;
 pub mod context;
 pub mod error;
 pub mod fxhash;
@@ -81,6 +82,14 @@ pub fn run(filename: &str, source: &str) -> Result<Value, Error> {
         }
     };
 
+    // Static checking, before anything runs. Callers that want every error at
+    // once should use `check_source` first; this only surfaces the first, so
+    // that embedding `run` stays a simple Result.
+    let static_errors = crate::checker::check(&ast, &parser.type_aliases);
+    if let Some(first) = static_errors.into_iter().next() {
+        return Err(first);
+    }
+
     // Interpretation
     let mut interpreter = Interpreter::new();
 
@@ -98,6 +107,32 @@ pub fn run(filename: &str, source: &str) -> Result<Value, Error> {
         Ok(value)
     } else {
         Ok(Value::Null)
+    }
+}
+
+/// Lexes, parses and statically checks a program without running it.
+///
+/// `Err` is a lexing or parsing failure, which stops analysis at the first one.
+/// `Ok` is every static error the checker found, which may be empty. This is
+/// what the CLI and the language server use, so a file with three type errors
+/// reports three rather than one.
+pub fn check_source(filename: &str, source: &str) -> Result<Vec<Error>, Error> {
+    let mut lexer = Lexer::new(filename.to_string(), source.to_string());
+    let tokens = match lexer.make_tokens() {
+        Ok(tokens) => tokens,
+        Err(e) => return Err(e.base),
+    };
+
+    let mut parser = Parser::new(tokens);
+    let parse_result = parser.parse();
+
+    if let Some(error) = parse_result.error {
+        return Err(error);
+    }
+
+    match parse_result.node {
+        Some(ast) => Ok(crate::checker::check(&ast, &parser.type_aliases)),
+        None => Ok(Vec::new()),
     }
 }
 

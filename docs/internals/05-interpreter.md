@@ -125,7 +125,7 @@ assignment.
 
 `get` returns a clone of the value. That is the single most important fact about
 this file, and the reason `Function` holds its body in an `Rc`; see
-[Values](06-values.md).
+[Values](07-values.md).
 
 `FxHashMap` is a `HashMap` with the hasher from `src/fxhash.rs`, a small
 non cryptographic hash lifted from rustc's design. Variable lookup is hot enough
@@ -213,18 +213,15 @@ read.
 
 ## Where type checking happens
 
-Scattered through the visitors, at the moment each operation runs:
+The interpreter checks as it runs, at the moment each operation is reached:
 
 - `visit_var_assign` checks declarations and reassignments
 - `Function::execute` checks argument count and types
 - `visit_struct_instantiation` checks struct literals
 - `Value::add` and friends refuse mixed `int` and `float`
 
-Nothing checks return values against the declared result type, and nothing looks
-at code that does not execute.
+[The static checker](06-checker.md) runs before any of this and reports what it
+can prove ahead of time. It does not replace these; it is conservative and gives
+up on anything it cannot type, so these are what make the guarantee complete.
 
-A `type_check` method exists on `Interpreter` but is not called from the run
-path. A real checking pass would be a new module between parse and interpret;
-see [Contributing](11-contributing.md).
-
-Next: [Values](06-values.md)
+Next: [The static checker](06-checker.md)

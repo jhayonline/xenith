@@ -35,8 +35,8 @@ flow across statements or work out a type from later use.
 
 ## Where checking happens
 
-Type checks run while the program executes, at the moment each operation is
-reached. So an error in a branch that never runs is never reported:
+Before anything runs. A static pass walks the whole file first, so an error in a
+branch that never executes is still reported, and no output appears before it:
 
 ```xenith
 let n: int = 1
@@ -49,13 +49,30 @@ echo("finished")
 ```
 
 ```
-finished
+error XEN001: Type Mismatch
+  expected `int`, found `string`
 ```
 
-That is the significant limitation of the current implementation. A static
-checking pass that walks the whole program before it starts is the planned fix.
-Until then, run your code to type check it, and lean on the editor for the parts
-it can see.
+Every error in the file is reported at once, rather than one per run:
+
+```xenith
+let a: int = "one"
+let b: string = 2
+method f(n: int) -> int => n
+let c = f(1, 2)
+```
+
+```
+error XEN001: Type Mismatch
+```
+
+That program reports three errors and a count, then stops without running.
+
+The checker is deliberately cautious. Where it cannot work out a type it says
+nothing rather than guessing, so a reported error is a real one. The main thing
+it cannot see through is a name that comes from the caller's scope, which
+[Methods](11-methods.md) explains. The interpreter still checks as it runs, so
+anything the static pass misses is caught at the point it happens.
 
 ## What is checked
 
@@ -131,10 +148,7 @@ let ns: list<int> = [1, 2, "three"]
 error XEN001: Type Mismatch
 ```
 
-## What is not checked yet
-
-Return values are not checked against the declared result type. A method that
-says `-> int` and releases a string will do so:
+Return values, against the declared result type:
 
 ```xenith
 method wrong() -> int {
@@ -145,11 +159,31 @@ echo(wrong())
 ```
 
 ```
-not an int
+error XEN001: Type Mismatch
+  expected `int`, found `string`
 ```
 
-Treat the return type as documentation for now. It is a real gap and it is on the
-list.
+The short arrow form is checked the same way:
+
+```xenith
+method also_wrong(n: int) -> string => n * 2
+```
+
+```
+error XEN001: Type Mismatch
+  expected `string`, found `int`
+```
+
+## What is not checked
+
+A value that reaches a method from its caller's scope rather than from a
+parameter has no type the checker can see, so anything computed from it goes
+unchecked until it runs. That is a consequence of how names resolve; see
+[Methods](11-methods.md).
+
+Interpolated expressions, index and field access are all checked. Built in
+functions are not, because most of them accept more than one type of argument in
+a way the type system cannot yet describe.
 
 ## Conversions
 

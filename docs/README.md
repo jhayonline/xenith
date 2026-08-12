@@ -21,7 +21,7 @@ Worth reading early:
 
 How the interpreter is built. Eleven pages on the lexer, parser, AST,
 interpreter, values, errors, modules, performance and the language server, plus
-[Contributing](internals/11-contributing.md) for what to work on and how.
+[Contributing](internals/12-contributing.md) for what to work on and how.
 
 Written for someone reading the codebase for the first time. It says why things
 are the way they are, including the parts that are wrong and known to be.

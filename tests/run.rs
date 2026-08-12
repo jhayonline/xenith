@@ -134,20 +134,36 @@ fn errors_report_the_expected_code() {
         let Ok(expected) = fs::read_to_string(&expected_path) else {
             continue;
         };
-        let expected = expected.trim();
+        // One code per line. Every one has to appear, which is how a program
+        // that should report several errors at once is tested.
+        let codes: Vec<&str> = expected
+            .lines()
+            .map(|line| line.trim())
+            .filter(|line| !line.is_empty())
+            .collect();
 
         let result = run(&program);
         checked += 1;
         let name = program.file_name().unwrap().to_string_lossy().to_string();
 
         if result.success {
-            failures.push(format!("{name}: expected {expected} but the program succeeded"));
+            failures.push(format!(
+                "{name}: expected {} but the program succeeded",
+                codes.join(", ")
+            ));
             continue;
         }
-        if !result.stderr.contains(expected) {
+
+        let missing: Vec<&&str> = codes
+            .iter()
+            .filter(|code| !result.stderr.contains(**code))
+            .collect();
+
+        if !missing.is_empty() {
             failures.push(format!(
-                "{name}: expected {expected}, got:\n{}",
-                result.stderr.lines().take(4).collect::<Vec<_>>().join("\n")
+                "{name}: did not report {:?}, got:\n{}",
+                missing,
+                result.stderr.lines().take(6).collect::<Vec<_>>().join("\n")
             ));
         }
     }

@@ -9,9 +9,8 @@ store. Those three dependencies exist only for this binary.
 ## What it does not do
 
 It never runs the interpreter. Analysing a file must not execute it, so the
-server calls the lexer and parser and stops there. That is also why it reports no
-type errors: type checking happens during execution, and there is no separate
-checking pass to call.
+server calls the lexer, the parser and [the checker](06-checker.md), and stops
+there.
 
 ## The document model
 
@@ -71,9 +70,15 @@ one non-ASCII character earlier in a line shifts every diagnostic on it.
 fn analyze(uri: &str, doc: &mut Document) -> Vec<Diagnostic>
 ```
 
-Lex, then parse, converting whatever error comes back into a `Diagnostic`. Both
-stages stop at the first error, so a file usually yields one diagnostic rather
-than a list. Parser error recovery would change that.
+Lex, then parse, then check, converting whatever comes back into `Diagnostic`s.
+
+Lexing and parsing stop at the first error, so a file with a syntax error yields
+one diagnostic rather than a list. Parser error recovery would change that. The
+checker reports everything it finds, so a file that parses cleanly can produce
+several type errors at once.
+
+The checker only runs when parsing succeeded. Checking a partial tree produces
+errors about code the user is still in the middle of writing.
 
 The tree is indexed even when parsing failed, since a partial tree still has
 useful symbols in it and the file is nearly always mid-edit.
@@ -152,4 +157,4 @@ nvim --headless -c 'lua vim.defer_fn(function()
 end, 4000)' file.xen
 ```
 
-Next: [Contributing](11-contributing.md)
+Next: [Contributing](12-contributing.md)

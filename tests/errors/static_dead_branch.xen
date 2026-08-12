@@ -1,0 +1,4 @@
+echo("this never prints")
+when false {
+ let broken: int = "not an int"
+}

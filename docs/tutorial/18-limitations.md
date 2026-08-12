@@ -5,46 +5,39 @@ find out here rather than halfway through writing something.
 
 Each entry says what happens, why, and what to do instead.
 
-## Type checking happens at runtime
+## The checker cannot see through the caller's scope
 
-Types are checked when an operation is reached, not before the program starts. So
-a type error in a branch that never executes is never reported, and a program can
-produce output and then stop on a bad line further down.
-
-```xenith
-echo("this prints")
-let broken: int = "not an int"
-echo("this does not")
-```
-
-```
-this prints
-error XEN001: Type Mismatch
-```
-
-**What to do:** run your code to type check it. A static pass that walks the
-whole program before executing is the main piece of work outstanding on the
-language.
-
-## Return types are not checked
-
-A method declares a result type, and nothing verifies that what it releases
-matches:
+A static pass runs before your program and reports the type errors it can prove.
+The one thing it cannot reason about is a name that a method reads from whoever
+called it, rather than from a parameter, because that value has no type until the
+call happens:
 
 ```xenith
-method wrong() -> int {
-    release "not an int"
+method show() -> null {
+    echo("{count + 1}")
+    release null
 }
 
-echo(wrong())
+let count: string = "not a number"
+show()
 ```
 
 ```
-not an int
+error XEN001: Type Mismatch
+  cannot add string and int
 ```
 
-**What to do:** treat the return type as documentation until the static checker
-lands.
+The error still arrives, but at run time rather than before it, and only if that
+line executes.
+
+**What to do:** pass what a method needs as an argument. Parameters have declared
+types, so everything computed from them is checked ahead of time.
+
+## Built in functions are not type checked
+
+`len`, `append`, `is_num` and the rest accept more than one type of argument in
+ways the type system cannot yet describe, so calls to them are not checked.
+Calls to methods you write are checked, by both count and type.
 
 ## Methods cannot capture their surroundings
 
@@ -162,14 +155,11 @@ surface.
 
 This is deliberate for now. The language is being settled first.
 
-## The language server does not report type errors
+## The language server's symbols are file local
 
-It reports syntax errors as you type. Type errors wait until you run the program,
-because the parser does not type check and there is no separate checking pass
-yet.
-
-Its symbol handling is also by name and file local, so rename will rewrite every
-`i` in the file, and definitions in other files are not followed.
+It reports syntax and type errors as you type. Its symbol handling, though, is by
+name and within one file, so rename will rewrite every `i` in the file, and
+definitions in other files are not followed.
 
 ## Recursion is bounded by the Rust stack
 

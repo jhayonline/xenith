@@ -5,18 +5,14 @@ installed by `cargo install --path .` at the repository root.
 
 ## What the language server gives you
 
-- **Diagnostics as you type.** Syntax errors appear immediately, from the same
-  lexer and parser the interpreter uses, so what the editor tells you is what the
-  command line will tell you.
+- **Diagnostics as you type.** Syntax and type errors appear immediately, from
+  the same lexer, parser and checker the interpreter uses, so what the editor
+  tells you is what the command line will tell you.
 - **Hover.** Over your own definition it shows the type or signature. Over a
   builtin or a keyword it shows what that does.
 - **Go to definition, find references, rename**, within the current file.
 - **Document symbols**, nested so a method's parameters and locals sit under it.
 - **Completion** for keywords, types, builtins and everything the file defines.
-
-Type errors are not reported yet. The server does what the parser can prove, and
-the parser does not check types. See
-[Known limitations](18-limitations.md).
 
 Symbol lookup is by name and file local. Two variables called `i` in different
 methods count as one symbol, so renaming a common name will rename all of them.

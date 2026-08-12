@@ -42,6 +42,37 @@ impl Lexer {
         lexer
     }
 
+    /// Lexes `text` but numbers the tokens as if they began at `origin`.
+    ///
+    /// Used for the expression inside a `{}` of an interpolated string, whose
+    /// text is extracted from the enclosing literal. Without this the tokens
+    /// would start at line 0 of a source called `<interpolated>`, and any error
+    /// in them would point at the top of the file instead of the string.
+    ///
+    /// Columns still drift for an expression that is not on the first line of
+    /// its string, because the extracted text has lost the original layout. The
+    /// line is right, which is what a reader needs.
+    pub fn new_at(text: String, origin: &Position) -> Self {
+        let mut lexer = Self {
+            // `index` must stay 0: `advance` uses it to walk `text`, which is
+            // the extracted expression, not the file. Only the line and column
+            // are shifted, and they are what a diagnostic prints.
+            position: Position::with_source(
+                0,
+                origin.line,
+                origin.column,
+                origin.file_name.clone(),
+                origin.file_text.clone(),
+            ),
+            current_character: None,
+            file_name: origin.file_name.to_string(),
+            text,
+        };
+
+        lexer.current_character = lexer.text.chars().next();
+        lexer
+    }
+
     /// Advances to the next character in the source
     pub fn advance(&mut self) {
         self.position.advance(self.current_character);

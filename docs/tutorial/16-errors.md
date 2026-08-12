@@ -54,6 +54,7 @@ note explaining the rule and a help line suggesting a fix.
 | Code | Name | When |
 | --- | --- | --- |
 | XEN012 | Module Not Found | the file could not be found, or did not export that name |
+| XEN021 | Circular Import | two modules import each other |
 
 ### Syntax errors
 
@@ -151,13 +152,25 @@ no fourth name
 
 ## When errors are reported
 
-Type checking happens as the program runs, not before it starts. A program can
-print several lines and then stop on a type error further down, and an error
-inside a branch that never executes is never reported at all.
+Syntax and type errors are reported before the program starts, all of them at
+once:
 
-The language server catches syntax errors as you type. Type errors still wait for
-the run. A static checking pass is the planned fix; see
-[Known limitations](18-limitations.md).
+```
+error XEN001: Type Mismatch
+...
+error XEN015: Too Many Arguments
+...
+3 errors found, nothing was run
+```
+
+An error in a branch that never executes is still reported.
+
+What the checker cannot prove ahead of time is caught as it runs, which stops the
+program at that point. The main thing it cannot see is a value a method reads
+from its caller's scope; [Known limitations](18-limitations.md) has the detail.
+
+The language server runs the same checks, so the editor shows what the command
+line will.
 
 ## Exit status
 

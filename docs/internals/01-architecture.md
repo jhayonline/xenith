@@ -14,8 +14,14 @@ source text
   Parser           src/parser.rs       tokens      ->  AST
     |
     v
+  Checker          src/checker.rs      AST         ->  type errors
+    |
+    v
   Interpreter      src/interpreter.rs  AST         ->  values and effects
 ```
+
+The checker never changes the tree and never runs anything. When it finds errors
+the program does not start.
 
 The whole pipeline is about 13,900 lines across 25 files, with seven
 dependencies.
@@ -31,8 +37,8 @@ There are two binaries:
 - `src/main.rs` builds `xenith`. It reads a file and calls `run`, or starts the
   REPL when given no arguments.
 - `src/bin/xenith-lsp.rs` builds `xenith-lsp`, the language server. It calls the
-  lexer and parser but never the interpreter, since analysing a file must not run
-  it.
+  lexer, the parser and the checker, but never the interpreter, since analysing a
+  file must not run it.
 
 `main.rs` does one unusual thing: it runs everything on a dedicated thread with a
 256 MB stack.
@@ -105,7 +111,7 @@ table.
 
 **Values are copied, not shared.** Assigning a struct or a list copies it.
 Mutating methods such as `.append()` therefore have to write the changed value
-back to the variable it came from. See [Values](06-values.md).
+back to the variable it came from. See [Values](07-values.md).
 
 **Names are resolved dynamically.** A method body is evaluated against a child of
 the *caller's* context, not the context where the method was defined. This is why
@@ -115,10 +121,12 @@ there are no closures. See [The interpreter](05-interpreter.md).
 start and an end position, so any error can point at the code that caused it.
 Positions share their file name and text through `Arc`, because copying them was
 once the single largest cost in the interpreter. See
-[Performance](09-performance.md).
+[Performance](10-performance.md).
 
-**There is no type checking pass.** Types are checked as operations execute. The
-`Type` enum exists and is stored on declarations, but nothing walks the tree
-ahead of time. This is the largest outstanding piece of work.
+**Checking happens twice, on purpose.** `src/checker.rs` reports what it can
+prove before the program starts, and the interpreter re-checks as it runs. The
+static pass is conservative and gives up on anything it cannot type, so the
+runtime checks are what make the guarantee complete. See
+[The static checker](06-checker.md).
 
 Next: [The lexer](02-lexer.md)

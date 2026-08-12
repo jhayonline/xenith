@@ -165,4 +165,4 @@ O(n) and worth remembering before calling it in a loop.
 `Value::get_type_name(value)` gives the name for a diagnostic. Use it rather than
 `{:?}` on a `Type`, which prints `Int` where a reader wants `int`.
 
-Next: [Errors and diagnostics](07-errors.md)
+Next: [Errors and diagnostics](08-errors.md)

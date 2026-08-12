@@ -334,12 +334,37 @@ pub struct InterpolatedStringNode {
 pub struct InterpolationPart {
     pub is_expression: bool,
     pub content: String, // If text: the literal text, if expression: the expression source
+    /// An expression part parsed at parse time.
+    ///
+    /// Interpolated expressions used to be kept only as source text and lexed
+    /// and parsed afresh on every evaluation, which cost a parse per loop
+    /// iteration and hid them from the static checker. `None` means the text
+    /// did not parse; the interpreter falls back to its old path so the error
+    /// surfaces the way it always did.
+    pub parsed: Option<Box<Node>>,
 }
 
 /// Hides `|` and `\` from the part delimiter used by the interpolation
 /// encoding, so an expression containing `||` survives the round trip.
 pub fn escape_interpolation_part(content: &str) -> String {
     content.replace('\\', "\\\\").replace('|', "\\p")
+}
+
+/// Lexes and parses the text inside one `{}` of an interpolated string.
+///
+/// Returns `None` when it does not parse, leaving the interpreter to produce
+/// the error at evaluation time exactly as it did before.
+fn parse_interpolated_expression(source: &str, origin: &Position) -> Option<Box<Node>> {
+    let mut lexer = crate::lexer::Lexer::new_at(source.to_string(), origin);
+    let tokens = lexer.make_tokens().ok()?;
+
+    let mut parser = crate::parser::Parser::new(tokens);
+    let result = parser.parse_expression();
+
+    if result.error.is_some() {
+        return None;
+    }
+    result.node.map(Box::new)
 }
 
 /// Inverse of [`escape_interpolation_part`].
@@ -369,14 +394,23 @@ impl InterpolatedStringNode {
     pub fn new(token: Token) -> Self {
         // Parse the encoded string
         let mut parts = Vec::new();
+        let origin = token.position_start.clone();
         if let Some(encoded) = token.value {
             let content = encoded.trim_start_matches("__INTERPOLATED__");
             for part in content.split('|').skip(1) {
                 let mut split = part.splitn(2, ':');
                 if let (Some(part_type), Some(content)) = (split.next(), split.next()) {
+                    let is_expression = part_type == "expr";
+                    let content = unescape_interpolation_part(content);
+                    let parsed = if is_expression {
+                        parse_interpolated_expression(&content, &origin)
+                    } else {
+                        None
+                    };
                     parts.push(InterpolationPart {
-                        is_expression: part_type == "expr",
-                        content: unescape_interpolation_part(content),
+                        is_expression,
+                        content,
+                        parsed,
                     });
                 }
             }

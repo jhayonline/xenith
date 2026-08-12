@@ -1,0 +1,1 @@
+method arrow(n: int) -> string => n * 2

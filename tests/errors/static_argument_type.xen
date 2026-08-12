@@ -1,0 +1,2 @@
+method sq(n: int) -> int => n * n
+let v: int = sq("x")

@@ -153,32 +153,24 @@ stops that.
 
 In the order it should probably be done:
 
-**1. A static checking pass.** A new module between parse and interpret that
-walks the tree, infers types for un-annotated declarations, validates annotated
-ones, checks calls, struct literals, index and field access, and reports every
-error before anything runs. This makes the language's central claim actually
-true, and it lets the language server report type errors. Once it exists, the
-runtime checks scattered through the visitors can come out of the hot path.
+**1. A resolver pass.** Give every variable reference a scope depth and slot
+index, so lookup is a vector index rather than a hashed walk. Most of the
+machinery it needs already exists in [the checker](06-checker.md), which walks
+the same scopes. This also gives the language server real scope information,
+which is what its rename needs.
 
-**2. A resolver pass.** Give every variable reference a scope depth and slot
-index, so lookup is a vector index rather than a hashed walk. It shares most of
-its machinery with the checker, so build them together. This also gives the
-language server real scope information, which is what its rename needs.
-
-**3. Lexical scoping.** Record the defining context in `Function` and use it in
+**2. Lexical scoping.** Record the defining context in `Function` and use it in
 `execute` instead of the caller's. That gives the language closures and lets a
 module's exports call its private helpers. It changes what existing programs do,
 so it wants a decision rather than a patch.
 
-**4. A standard library.** Strings first, since they are the most obviously
+**3. A standard library.** Strings first, since they are the most obviously
 missing. Written in Xenith where possible, so the language gets exercised, with
 Rust builtins only where it has to be.
 
 ## Smaller things worth doing
 
 - Move `format` out of `KEYWORDS` so it can be used as an expression.
-- Parse interpolated expressions at parse time rather than re-parsing them on
-  every evaluation.
 - Make `export struct` work.
 - Give the parser error recovery, so a file yields more than one diagnostic.
 - Delete `resolve_stdlib` and the duplicated third candidate in `resolve_local`

@@ -185,19 +185,32 @@ callgrind_annotate callgrind.out.*
 Add `debug = true` to the release profile first so the output has symbols, and
 take it out again afterwards.
 
+## Parse interpolated expressions once
+
+The text inside every `{}` used to be re-lexed and re-parsed each time the string
+was evaluated, so a loop printing one paid for a parse per iteration.
+`InterpolationPart` now carries the node, parsed at parse time.
+
+Measured A/B on a 300,000 iteration loop printing an interpolated string:
+
+| | Time |
+| --- | --- |
+| re-parsing each evaluation | 1.8 to 2.5 s |
+| parsed once | 0.37 to 0.49 s |
+
+About five times faster, and it is what lets the static checker see inside a
+string at all.
+
 ## What is left
 
 In rough order of expected return:
 
 1. **Resolve variables to slots.** Removes hashing from the hot path. Needs a
-   resolver pass.
-2. **Parse interpolated expressions once.** Today the interpreter lexes and
-   parses the text inside every `{}` each time the string is evaluated. A loop
-   printing an interpolated string re-parses on every iteration.
-3. **Intern identifiers.** Every identifier allocates a `String` in the lexer and
+   resolver pass, which shares most of its machinery with the checker.
+2. **Intern identifiers.** Every identifier allocates a `String` in the lexer and
    is compared by content thereafter.
-4. **Avoid cloning values out of the symbol table.** The largest remaining
+3. **Avoid cloning values out of the symbol table.** The largest remaining
    structural cost, and the hardest to change, since the whole interpreter
    assumes values are owned.
 
-Next: [The language server](10-language-server.md)
+Next: [The language server](11-language-server.md)

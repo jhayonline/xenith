@@ -80,8 +80,8 @@ indenting and the language server. With lazy.nvim:
 }
 ```
 
-The server gives diagnostics as you type, hover, go to definition, references,
-rename, document symbols and completion. Any LSP capable editor can use it; see
+The server gives diagnostics as you type, including type errors, plus hover, go
+to definition, references, rename, document symbols and completion. Any LSP capable editor can use it; see
 [Editor setup](docs/tutorial/17-editor-setup.md).
 
 ## Documentation
@@ -148,10 +148,9 @@ methods including passing them as values, modules, and the diagnostics, which
 point at the right code and suggest a fix.
 
 **Missing:** there is no standard library, so no files, no networking, no JSON,
-and strings have only `+`, `.len()` and comparison. Type checking happens as code
-runs rather than before it starts, so an error in a branch that never executes is
-never reported. There are no closures, because names resolve against the caller's
-scope rather than the defining one.
+and strings have only `+`, `.len()` and comparison. There are no closures,
+because names resolve against the caller's scope rather than the defining one,
+which is also the main thing the static checker cannot see through.
 
 The full list, with what to do instead in each case, is
 [Known limitations](docs/tutorial/18-limitations.md).
@@ -163,7 +162,7 @@ path is doing invisible work. On the machine this was written on, naive `fib(25)
 runs in about 355 ms and a three million iteration counting loop in about 1.8 s.
 
 Getting there meant fixing four things, none of them where profiling was expected
-to point. [Performance](docs/internals/09-performance.md) describes each, since
+to point. [Performance](docs/internals/10-performance.md) describes each, since
 they are all easy to reintroduce.
 
 ## Contributing
@@ -174,7 +173,7 @@ cargo test
 
 The suite is driven by fixtures under `tests/`, so adding a test means adding a
 `.xen` file and its expected output rather than writing Rust. See
-[Contributing](docs/internals/11-contributing.md), which also lists what is worth
+[Contributing](docs/internals/12-contributing.md), which also lists what is worth
 working on. The short version: a static type checking pass is the most important
 thing missing.
 

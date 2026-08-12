@@ -1,0 +1,5 @@
+let a: int = "one"
+let b: string = 2
+method f(n: int) -> int => n
+let c = f(1, 2)
+method g() -> bool { release 3 }

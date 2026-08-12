@@ -98,4 +98,4 @@ exports have to stand alone.
 - `resolve_stdlib` still exists and searches for a directory that was deleted.
 - The duplicated third candidate in `resolve_local`.
 
-Next: [Performance](09-performance.md)
+Next: [Performance](10-performance.md)

@@ -128,8 +128,17 @@ impl Value {
     // silent wrap or a slide into f64 imprecision.
     // ---------------------------------------------------------------
 
+    /// An operation applied to types it is not defined for.
+    ///
+    /// This is XEN001 like any other type mismatch. It used to fall through to
+    /// the generic XEN200, which meant `1 + 2.0` and `"a" + 1` reported
+    /// different codes for the same kind of mistake.
     fn arith_err(msg: &str) -> Error {
-        RuntimeError::new(Self::dummy_pos(), Self::dummy_pos(), msg, None).base
+        RuntimeError::new(Self::dummy_pos(), Self::dummy_pos(), msg, None)
+            .with_code("XEN001")
+            .with_name("Type Mismatch")
+            .with_help("convert explicitly, e.g. `x as float`")
+            .base
     }
 
     fn mixed_err(op: &str, a: &Number, b: &Number) -> Error {

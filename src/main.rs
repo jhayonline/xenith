@@ -20,25 +20,48 @@ fn run_file(filename: &str) {
         std::process::exit(1);
     }
 
-    match fs::read_to_string(filename) {
-        Ok(source) => match run(filename, &source) {
-            Ok(result) => {
-                let output = value_to_string(&result);
+    let source = match fs::read_to_string(filename) {
+        Ok(source) => source,
+        Err(e) => {
+            eprintln!("Error: Could not read file '{}': {}", filename, e);
+            std::process::exit(1);
+        }
+    };
 
-                if !output.is_empty()
-                    && output != "null"
-                    && !output.starts_with('[')
-                    && output != "0"
-                {
-                    println!("{}", output);
-                }
+    // Check the whole file before running any of it, so every static error is
+    // reported at once rather than one per attempt.
+    match xenith::check_source(filename, &source) {
+        Err(fatal) => {
+            // Lexing or parsing failed, so there is nothing to check.
+            eprintln!("{}", fatal.as_string_colored());
+            std::process::exit(1);
+        }
+        Ok(errors) if !errors.is_empty() => {
+            for error in &errors {
+                eprintln!("{}", error.as_string_colored());
             }
-            Err(e) => {
-                eprintln!("{}", e.as_string_colored());
-                std::process::exit(1);
+            eprintln!(
+                "{} error{} found, nothing was run",
+                errors.len(),
+                if errors.len() == 1 { "" } else { "s" }
+            );
+            std::process::exit(1);
+        }
+        Ok(_) => {}
+    }
+
+    match run(filename, &source) {
+        Ok(result) => {
+            let output = value_to_string(&result);
+
+            if !output.is_empty() && output != "null" && !output.starts_with('[') && output != "0" {
+                println!("{}", output);
             }
-        },
-        Err(e) => eprintln!("Error: Could not read file '{}': {}", filename, e),
+        }
+        Err(e) => {
+            eprintln!("{}", e.as_string_colored());
+            std::process::exit(1);
+        }
     }
 }
 
