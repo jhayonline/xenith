@@ -12,7 +12,7 @@
 //! ```rust
 //! use xenith::run;
 //!
-//! let result = run("test.xen", "let x = 5\nPRINT(x)");
+//! let result = run("example.xen", "let x: int = 5\necho(\"{x}\")");
 //! assert!(result.is_ok());
 //! ```
 

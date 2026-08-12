@@ -178,11 +178,6 @@ the host stack. The limit is 10000 calls and hitting it gives a clean XEN019
 rather than a crash, but a deeply recursive algorithm may need rewriting as a
 loop.
 
-## No tests in the repository
-
-There is no automated test suite yet. The samples under `testies/` are run by
-hand. If you are contributing, this is the highest value thing to add.
-
 ## Things that are not planned
 
 Some absences are decisions rather than gaps:

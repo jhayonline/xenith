@@ -1,0 +1,2 @@
+grab { b_thing } from "cycle_support_b"
+export method a_thing() -> int { release 1 }

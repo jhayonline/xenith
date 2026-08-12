@@ -1,0 +1,2 @@
+let xs: list<int> = [1]
+echo("{xs[5]}")

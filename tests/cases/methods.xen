@@ -1,0 +1,33 @@
+method add(a: int, b: int) -> int { release a + b }
+method square(n: int) -> int => n * n
+method banner(text: string) -> null {
+    echo("-- {text} --")
+    release null
+}
+method classify(n: int) -> string {
+    when n < 0 { release "neg" }
+    when n == 0 { release "zero" }
+    release "pos"
+}
+method factorial(n: int) -> int {
+    when n <= 1 { release 1 }
+    release n * factorial(n - 1)
+}
+type IntFn = method(int) -> int
+method apply_each(xs: list<int>, fn: IntFn) -> list<int> {
+    let out: list<int> = []
+    for x in xs { out.append(fn(x)) }
+    release out
+}
+echo("{add(2, 3)} {square(9)}")
+banner("hi")
+echo("{classify(-1)} {classify(0)} {classify(5)}")
+echo("{factorial(10)}")
+echo("{ret(apply_each([1, 2, 3], square))}")
+let triple: IntFn = method(n: int) -> int => n * 3
+echo("{ret(apply_each([1, 2], triple))}")
+let counter: int = 0
+method bump() -> null { counter = counter + 1 release null }
+bump()
+bump()
+echo("{counter}")

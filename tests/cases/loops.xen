@@ -1,0 +1,16 @@
+for (let i: int = 0; i < 3; i++) { echo("c{i}") }
+for (let n: int = 3; n > 0; n--) { echo("d{n}") }
+for (let i: int = 0; i < 20; i += 5) { echo("s{i}") }
+for item in ["a", "b"] { echo("in {item}") }
+for k, v in {"z": 1, "a": 2} { echo("kv {k}={v}") }
+let w: int = 0
+while w < 3 { w = w + 1 }
+echo("while {w}")
+for (let n: int = 1; n < 10; n++) {
+    when n % 2 == 0 { skip }
+    when n > 7 { stop }
+    echo("odd {n}")
+}
+let total: int = 0
+for n in [1, 2, 3, 4] { total = total + n }
+echo("acc {total}")

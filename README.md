@@ -151,7 +151,7 @@ point at the right code and suggest a fix.
 and strings have only `+`, `.len()` and comparison. Type checking happens as code
 runs rather than before it starts, so an error in a branch that never executes is
 never reported. There are no closures, because names resolve against the caller's
-scope rather than the defining one. There is no test suite.
+scope rather than the defining one.
 
 The full list, with what to do instead in each case, is
 [Known limitations](docs/tutorial/18-limitations.md).
@@ -168,9 +168,15 @@ they are all easy to reintroduce.
 
 ## Contributing
 
-Read [Contributing](docs/internals/11-contributing.md). The short version: a test
-harness is the most useful thing anyone could add, and a static type checking
-pass is the most important.
+```sh
+cargo test
+```
+
+The suite is driven by fixtures under `tests/`, so adding a test means adding a
+`.xen` file and its expected output rather than writing Rust. See
+[Contributing](docs/internals/11-contributing.md), which also lists what is worth
+working on. The short version: a static type checking pass is the most important
+thing missing.
 
 ## License
 

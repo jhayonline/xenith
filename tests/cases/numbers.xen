@@ -1,0 +1,16 @@
+# int is a real i64 and arithmetic is exact
+let big: int = 9007199254740993
+echo("{big}")
+echo("{7 + 2} {7 - 2} {7 * 2} {7 / 2} {7 % 2} {2 ^ 10}")
+echo("{-7}")
+echo("{7.0 / 2.0}")
+echo("{(3 as float) * 1.5}")
+echo("{42 as string} {"41" as int} {3.99 as int} {true as int} {0 as bool}")
+echo("{7 as float / 2.0}")
+let n: int = 10
+n += 5
+n -= 3
+n++
+n--
+echo("{n}")
+echo("{MATH_PI}")

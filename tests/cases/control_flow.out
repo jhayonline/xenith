@@ -1,0 +1,6 @@
+C
+pass
+truthy int
+falsy string
+in 1 2
+out 1

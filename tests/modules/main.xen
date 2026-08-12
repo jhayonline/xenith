@@ -1,0 +1,8 @@
+grab { total, twice, VERSION } from "helper"
+grab { twice as doubled } from "helper"
+grab * as h from "helper"
+
+echo("v{VERSION}")
+echo("{total([1, 2, 3])}")
+echo("{twice(4)} {doubled(4)}")
+echo("{h["twice"](5)}")

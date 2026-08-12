@@ -1,0 +1,8 @@
+let t: int = 18
+echo("{t > 15 && t < 25}")
+echo("{t < 0 || t > 10}")
+echo("{!(t > 100)}")
+echo("{t > 100 || t > 15 && t < 25}")
+echo("{1 + 2 * 3 == 7}")
+echo("{false || true} {true && false}")
+echo("{t == 18} {t != 18} {t <= 18} {t >= 19}")

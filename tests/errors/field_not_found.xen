@@ -1,0 +1,3 @@
+struct P { x: int }
+let p: P = P { x: 1 }
+echo("{p.z}")

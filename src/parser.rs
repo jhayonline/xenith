@@ -1415,15 +1415,22 @@ impl Parser {
             }
         }
 
-        // Indexed assignment: `xs[0] = v`, `m["key"] = v`, `grid[1][2] = v`.
+        // Assignment to an indexed or nested target: `xs[0] = v`,
+        // `m["key"] = v`, `grid[1][2] = v`, `record.items[0] = v`.
         // `call()` already parses the whole postfix chain, so this only has to
         // notice that an `=` follows it.
+        //
+        // A target starting `ident.` is handled here as well as by the field
+        // assignment path above, because that one stops at a single `.name`
+        // and cannot see a `[` after it.
         if let Some(tok) = self.current_token() {
             if tok.kind == TokenType::Identifier {
-                let starts_with_index =
-                    matches!(self.peek_token(), Some(t) if t.kind == TokenType::LSquare);
+                let starts_with_postfix = matches!(
+                    self.peek_token(),
+                    Some(t) if t.kind == TokenType::LSquare || t.kind == TokenType::Dot
+                );
 
-                if starts_with_index {
+                if starts_with_postfix {
                     let target_result = self.call();
 
                     if target_result.error.is_none() {
@@ -3418,6 +3425,19 @@ impl Parser {
                         position_end: field_or_method_name.position_end.clone(),
                     }));
                 }
+            } else if tok.kind == TokenType::LSquare {
+                // Indexing anywhere in a postfix chain, so `record.items[0]`
+                // and `f()[1]` compose. Without this branch indexing was only
+                // parsed by `atom`, before any `.` had been consumed, and a
+                // `[` after a field access was left for the caller to choke on.
+                let indexed = self.parse_indexing(node, ParseResult::new());
+                if indexed.error.is_some() {
+                    return indexed;
+                }
+                node = match indexed.node {
+                    Some(n) => n,
+                    None => return indexed,
+                };
             } else if tok.kind == TokenType::LParen {
                 // Regular function call (existing code)
                 let pos_start = tok.position_start.clone();

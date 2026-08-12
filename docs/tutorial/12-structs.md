@@ -125,6 +125,51 @@ echo("{c.label}: {c.value}")
 hits: 2
 ```
 
+Fields nest, and so does assignment to them. A field can be reached through
+another field, through a list index, or through a map key, to any depth:
+
+```xenith
+struct Point {
+    x: int,
+    y: int
+}
+
+struct Line {
+    start: Point,
+    end: Point
+}
+
+let path: list<Line> = [
+    Line { start: Point { x: 0, y: 0 }, end: Point { x: 1, y: 1 } }
+]
+
+path[0].end.x = 9
+echo("{path[0].end.x}")
+```
+
+```
+9
+```
+
+A list held in a field behaves like any other list:
+
+```xenith
+struct Basket {
+    items: list<string>
+}
+
+let b: Basket = Basket { items: ["apple"] }
+
+b.items.append("pear")
+b.items[0] = "plum"
+
+echo("{ret(b.items)}")
+```
+
+```
+[plum, pear]
+```
+
 Asking for a field that does not exist is an error:
 
 ```xenith

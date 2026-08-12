@@ -1,8 +1,12 @@
 # Test maps with types
-let user: map<string, int> = {
+let user: map<string, string> = {
     "name": "Alice",
-    "age": 25,
     "city": "New York"
+}
+
+let ages: map<string, int> = {
+    "alice": 25,
+    "bob": 31
 }
 
 # Iterate over keys
@@ -19,7 +23,7 @@ for value in user.values() {
 
 # Iterate over key-value pairs
 echo("All entries:")
-for key, value in user.items() {
+for key, value in ages {
     echo("  {key}: {value}")
 }
 

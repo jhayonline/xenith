@@ -1,0 +1,11 @@
+let score: int = 74
+when score >= 90 { echo("A") } or when score >= 80 { echo("B") } or when score >= 70 { echo("C") } otherwise { echo("F") }
+echo("{score > 50 ? "pass" : "fail"}")
+when 3 { echo("truthy int") }
+when "" { echo("never") } otherwise { echo("falsy string") }
+let outer: int = 1
+when true {
+    let inner: int = 2
+    echo("in {outer} {inner}")
+}
+echo("out {outer}")

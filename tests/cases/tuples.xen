@@ -1,0 +1,12 @@
+let point = (10, 20)
+echo("{ret(point)}")
+let (x, y) = point
+echo("{x} {y}")
+let (_, only) = point
+echo("{only}")
+method divmod(a: int, b: int) -> (int, int) { release (a / b, a % b) }
+let (q, r) = divmod(17, 5)
+echo("{q} {r}")
+let nested = ((1, 2), (3, 4))
+let ((a, b), (c, d)) = nested
+echo("{a}{b}{c}{d}")

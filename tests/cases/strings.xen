@@ -1,0 +1,10 @@
+let name: string = "Ada"
+let age: int = 36
+echo("{name} is {age}")
+echo("{2 + 3} and {age > 30 ? "older" : "younger"}")
+echo("tab:\tquote:\"back:\\")
+echo("braces {{literal}}")
+echo(`raw \n {not interpolated}`)
+echo("Ada" + " " + "Lovelace")
+echo("{name.len()} {len(name)}")
+echo("{"a" == "a"} {"a" != "b"}")

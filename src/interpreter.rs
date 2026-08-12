@@ -784,6 +784,78 @@ impl Interpreter {
     }
 
 
+    /// Can this expression be assigned to? True for a variable, a field access
+    /// or an index, and false for anything that produces a temporary.
+    fn is_assignable(node: &Node) -> bool {
+        match node {
+            Node::VarAccess(_) => true,
+            Node::MethodAccess(field) => Self::is_assignable(&field.object),
+            Node::BinaryOperator(bin_op) => matches!(
+                bin_op.operator_token.kind,
+                crate::tokens::TokenType::Index | crate::tokens::TokenType::Dot
+            ),
+            _ => false,
+        }
+    }
+
+    /// Sets one field on the value `object` evaluates to, then stores the
+    /// updated object back where it came from.
+    fn assign_field(
+        &mut self,
+        object: &Node,
+        field_name: &str,
+        value: Value,
+        position_start: &Position,
+        position_end: &Position,
+        context: &mut Context,
+    ) -> Option<Error> {
+        let mut result = RuntimeResult::new();
+        let current = result.register(self.visit(object, context));
+        if let Some(error) = result.error {
+            return Some(*error);
+        }
+
+        let updated = match current {
+            Value::Struct(mut s) => {
+                if !s.fields.contains_key(field_name) {
+                    return Some(Error::field_not_found(
+                        &s.name,
+                        field_name,
+                        position_start.clone(),
+                        position_end.clone(),
+                    ));
+                }
+                s.set_field(field_name.to_string(), value);
+                Value::Struct(s)
+            }
+            Value::Map(mut m) => {
+                m.set(field_name.to_string(), value);
+                Value::Map(m)
+            }
+            other => {
+                return Some(
+                    RuntimeError::new(
+                        position_start.clone(),
+                        position_end.clone(),
+                        &format!(
+                            "cannot set field `{}` on {}",
+                            field_name,
+                            Value::get_type_name(&other)
+                        ),
+                        Some(context.clone()),
+                    )
+                    .with_code("XEN009")
+                    .with_name("Field Not Found")
+                    .base,
+                );
+            }
+        };
+
+        // Push the updated object back to wherever it came from, which may
+        // itself be a field or an index.
+        self.assign_into(object, updated, context)
+    }
+
     /// Stores `value` at the location `target` names, and writes the change
     /// back through every container it is nested inside.
     ///
@@ -903,42 +975,44 @@ impl Interpreter {
                 self.assign_into(&bin_op.left_node, updated, context)
             }
 
-            // `record.field[i] = value`
+            // `record.field = value`, at any depth
             Node::MethodAccess(field_node) => {
-                let mut result = RuntimeResult::new();
-                let object = result.register(self.visit(&field_node.object, context));
-                if let Some(error) = result.error {
-                    return Some(*error);
-                }
-
                 let field_name = field_node.method_name.value.clone()?;
-                let updated = match object {
-                    Value::Struct(mut s) => {
-                        s.set_field(field_name, value);
-                        Value::Struct(s)
-                    }
-                    Value::Map(mut m) => {
-                        m.set(field_name, value);
-                        Value::Map(m)
-                    }
-                    other => {
-                        return Some(
-                            RuntimeError::new(
-                                field_node.position_start.clone(),
-                                field_node.position_end.clone(),
-                                &format!(
-                                    "cannot set field `{}` on {}",
-                                    field_node.method_name.value.clone().unwrap_or_default(),
-                                    Value::get_type_name(&other)
-                                ),
-                                Some(context.clone()),
-                            )
-                            .base,
-                        );
-                    }
-                };
+                self.assign_field(
+                    &field_node.object,
+                    &field_name,
+                    value,
+                    &field_node.position_start,
+                    &field_node.position_end,
+                    context,
+                )
+            }
 
-                self.assign_into(&field_node.object, updated, context)
+            // The same thing written as a binary `.`, which is the other shape
+            // the parser produces for field access.
+            Node::BinaryOperator(bin_op)
+                if bin_op.operator_token.kind == crate::tokens::TokenType::Dot =>
+            {
+                let Node::VarAccess(field) = &*bin_op.right_node else {
+                    return Some(
+                        RuntimeError::new(
+                            bin_op.position_start.clone(),
+                            bin_op.position_end.clone(),
+                            "expected a field name after `.`",
+                            Some(context.clone()),
+                        )
+                        .base,
+                    );
+                };
+                let field_name = field.variable_name_token.value.clone()?;
+                self.assign_field(
+                    &bin_op.left_node,
+                    &field_name,
+                    value,
+                    &bin_op.position_start,
+                    &bin_op.position_end,
+                    context,
+                )
             }
 
             other => Some(
@@ -977,129 +1051,40 @@ impl Interpreter {
                 }
             }
 
-            // Check if this is a struct field assignment (left side has a dot)
+            // The parser has two shapes for field access. This is the older
+            // one, a binary `.` operator; `MethodAccess` below is the other.
+            // Both go through `assign_into` so nesting works either way.
             if let Node::BinaryOperator(bin_op) = &*node.left_node {
                 if bin_op.operator_token.kind == crate::tokens::TokenType::Dot {
-                    // This is struct.field = value
-                    let struct_value = result.register(self.visit(&bin_op.left_node, context));
-                    if result.should_return() {
-                        return result;
-                    }
-
-                    let field_name = if let Node::VarAccess(var_node) = &*bin_op.right_node {
-                        var_node.variable_name_token.value.as_ref().unwrap().clone()
-                    } else {
-                        return result.failure(
-                            RuntimeError::new(
-                                node.position_start.clone(),
-                                node.position_end.clone(),
-                                "Expected field name after '.'",
-                                Some(context.clone()),
-                            )
-                            .base,
-                        );
-                    };
-
                     let value = result.register(self.visit(&node.right_node, context));
                     if result.should_return() {
                         return result;
                     }
 
-                    // Get the variable name to write back
-                    let var_name = if let Node::VarAccess(var_node) = &*bin_op.left_node {
-                        Some(var_node.variable_name_token.value.as_ref().unwrap().clone())
-                    } else {
-                        None
-                    };
-
-                    // Update the struct field
-                    match struct_value {
-                        Value::Struct(mut s) => {
-                            s.set_field(field_name.clone(), value.clone());
-                            // Write the mutated struct back to the variable
-                            if let Some(name) = var_name {
-                                context
-                                    .symbol_table
-                                    .set_existing(name, Value::Struct(s.clone())); // &self
-                            }
-                            return result.success(value);
-                        }
-                        Value::Map(mut m) => {
-                            m.set(field_name.clone(), value.clone());
-                            if let Some(name) = var_name {
-                                context.symbol_table.set_existing(name, Value::Map(m));
-                            }
-                            return result.success(value);
-                        }
-                        _ => {
-                            return result.failure(
-                                RuntimeError::new(
-                                    node.position_start.clone(),
-                                    node.position_end.clone(),
-                                    &format!(
-                                        "Cannot set field '{}' on non-struct/non-map value",
-                                        field_name
-                                    ),
-                                    Some(context.clone()),
-                                )
-                                .base,
-                            );
-                        }
+                    if let Some(error) = self.assign_into(&node.left_node, value.clone(), context) {
+                        return RuntimeResult::new().failure(error);
                     }
+                    return result.success(value);
                 }
             }
 
-            // Check for MethodAccess pattern (object.field = value)
-            if let Node::MethodAccess(field_node) = &*node.left_node {
-                let object_value = result.register(self.visit(&field_node.object, context));
-                if result.should_return() {
-                    return result;
-                }
+
+            // `object.field = value`. `assign_into` walks the target
+            // expression, so this works however deeply the field is nested:
+            // `q.p.x`, `items[0].name`, `lookup["k"].count`. The version before
+            // it only wrote back when the object was a bare variable, so
+            // anything deeper was evaluated, updated, and then thrown away
+            // without a word.
+            if let Node::MethodAccess(_) = &*node.left_node {
                 let right = result.register(self.visit(&node.right_node, context));
                 if result.should_return() {
                     return result;
                 }
 
-                let field_name = field_node.method_name.value.as_ref().unwrap();
-
-                // Get the variable name to write back
-                let var_name = if let Node::VarAccess(var_node) = &*field_node.object {
-                    Some(var_node.variable_name_token.value.as_ref().unwrap().clone())
-                } else {
-                    None
-                };
-
-                let updated = match object_value {
-                    Value::Struct(mut s) => {
-                        s.set_field(field_name.clone(), right.clone());
-                        Ok(Value::Struct(s))
-                    }
-                    Value::Map(mut m) => {
-                        m.set(field_name.clone(), right.clone());
-                        Ok(Value::Map(m))
-                    }
-                    _ => Err(RuntimeError::new(
-                        node.position_start.clone(),
-                        node.position_end.clone(),
-                        &format!(
-                            "Cannot set field '{}' on non-struct/non-map value",
-                            field_name
-                        ),
-                        Some(context.clone()),
-                    )
-                    .base),
-                };
-
-                return match updated {
-                    Ok(new_obj) => {
-                        // Write the mutated object back to the variable
-                        if let Some(name) = var_name {
-                            context.symbol_table.set_existing(name, new_obj.clone());
-                        }
-                        result.success(new_obj)
-                    }
-                    Err(e) => RuntimeResult::new().failure(e),
-                };
+                if let Some(error) = self.assign_into(&node.left_node, right.clone(), context) {
+                    return RuntimeResult::new().failure(error);
+                }
+                return result.success(right);
             } else {
                 // Plain variable assignment
                 let right = result.register(self.visit(&node.right_node, context));
@@ -1874,13 +1859,6 @@ impl Interpreter {
 
 // Check if this is a method call (node_to_call is a MethodAccess)
         if let Node::MethodAccess(method_node) = &*node.node_to_call {
-            // Check if the object is a variable access (so we can update it)
-            let var_name = if let Node::VarAccess(var_node) = &*method_node.object {
-                Some(var_node.variable_name_token.value.as_ref().unwrap().clone())
-            } else {
-                None
-            };
-
             // Evaluate the object
             let object = result.register(self.visit(&method_node.object, context));
             if result.should_return() {
@@ -1908,13 +1886,17 @@ impl Interpreter {
             }
 
             // A method like `append` mutates its receiver, so the new state has
-            // to be written back to the variable it was read from -- and back
-            // into the scope that *declared* it. Writing to the current scope
-            // instead would make `xs.append(v)` inside a loop body build up a
-            // shadow copy and silently leave the original list empty.
-            if let (Some(name), Some(updated)) = (var_name, mutated) {
-                if !context.symbol_table.assign_existing(&name, updated.clone()) {
-                    context.symbol_table.set(name, updated);
+            // to be stored back where the receiver came from. `assign_into`
+            // handles that at any depth, so `record.items.append(v)` works and
+            // not just `items.append(v)`.
+            //
+            // A receiver that is not a place, such as `[1, 2].append(3)`, has
+            // nowhere to write back to and is left alone rather than erroring.
+            if let Some(updated) = mutated {
+                if Self::is_assignable(&method_node.object) {
+                    if let Some(error) = self.assign_into(&method_node.object, updated, context) {
+                        return RuntimeResult::new().failure(error);
+                    }
                 }
             }
 

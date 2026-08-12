@@ -1,0 +1,2 @@
+method f(a: int, b: int) -> int { release a }
+echo("{f(1)}")

@@ -1,0 +1,46 @@
+# Type annotations, inference, aliases and constants.
+
+# Inference and explicit annotation produce the same thing.
+let inferred = 42
+let explicit: int = 42
+echo("{inferred} {explicit}")
+
+let a = "text"
+let b = 1.5
+let c = true
+let d = null
+echo("{a} {b} {c} {d}")
+
+# Constants.
+const let LIMIT: int = 100
+echo("{LIMIT}")
+
+# Aliases name an existing type.
+type Celsius = float
+type Scores = list<int>
+type Lookup = map<string, int>
+type IntFn = method(int) -> int
+
+let temp: Celsius = 21.5
+let marks: Scores = [88, 92]
+let table: Lookup = {"a": 1}
+let double: IntFn = method(n: int) -> int => n * 2
+
+echo("{temp} {ret(marks)} {table["a"]} {double(4)}")
+
+# An alias is interchangeable with the type it names.
+method is_freezing(t: Celsius) -> bool => t <= 0.0
+echo("{is_freezing(-4.0)} {is_freezing(10.0)}")
+
+# Predicates report what a value actually is.
+method square(n: int) -> int => n * n
+echo("{is_num(1)} {is_num(1.5)} {is_str("s")} {is_list([1])} {is_fun(square)}")
+echo("{is_num("7")} {is_str(7)}")
+
+# Shadowing in an inner scope leaves the outer binding alone.
+let value: int = 1
+when true {
+    let value: int = 99
+    echo("inner {value}")
+}
+echo("outer {value}")

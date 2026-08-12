@@ -1,0 +1,70 @@
+# Structs: definition, fields, nesting, and assignment at depth.
+
+struct Point {
+    x: int,
+    y: int
+}
+
+struct Line {
+    start: Point,
+    end: Point
+}
+
+struct Basket {
+    items: list<string>
+}
+
+let p: Point = Point { x: 1, y: 2 }
+echo("{p.x} {p.y}")
+
+p.x = 10
+echo("{p.x}")
+
+# Field order in a literal need not match the definition.
+let q: Point = Point { y: 5, x: 4 }
+echo("{q.x} {q.y}")
+
+# Behaviour lives in free methods.
+method area(a: Point, b: Point) -> int {
+    release (b.x - a.x) * (b.y - a.y)
+}
+echo("{area(Point { x: 0, y: 0 }, Point { x: 3, y: 4 })}")
+
+# Nested field read and write.
+let l: Line = Line {
+    start: Point { x: 0, y: 0 },
+    end: Point { x: 1, y: 1 }
+}
+l.end.x = 9
+echo("{l.start.x} {l.end.x}")
+
+# Through a list index.
+let path: list<Line> = [l]
+path[0].end.y = 7
+echo("{path[0].end.y}")
+
+# Through a map key.
+let named: map<string, Point> = {"origin": Point { x: 0, y: 0 }}
+named["origin"].x = 3
+echo("{named["origin"].x}")
+
+# A list held in a field.
+let b: Basket = Basket { items: ["apple"] }
+b.items.append("pear")
+b.items[0] = "plum"
+echo("{ret(b.items)} {b.items[1]}")
+
+# Structs are copied, not shared.
+let original: Point = Point { x: 1, y: 1 }
+let copy: Point = original
+copy.x = 99
+echo("{original.x} {copy.x}")
+
+# A list of records.
+let points: list<Point> = [
+    Point { x: 1, y: 1 },
+    Point { x: 2, y: 2 }
+]
+for point in points {
+    echo("({point.x},{point.y})")
+}

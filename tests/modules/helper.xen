@@ -1,0 +1,12 @@
+# Imported by main.xen. Only the exported names are visible to it.
+export let VERSION: string = "1.0"
+
+export method total(values: list<int>) -> int {
+    let sum: int = 0
+    for value in values { sum = sum + value }
+    release sum
+}
+
+export method twice(n: int) -> int => n * 2
+
+method not_exported() -> int => 0

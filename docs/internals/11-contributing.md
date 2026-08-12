@@ -13,24 +13,52 @@ Use `cargo check` for everything except benchmarking.
 
 ## Testing
 
-There is no automated test suite. The samples in `testies/` are the closest
-thing, run by hand:
-
 ```sh
-for f in testies/*.xen; do
-    xenith "$f" > /dev/null 2>&1 && echo "ok   $f" || echo "FAIL $f"
-done
+cargo test
 ```
 
-Two of them fail and have for a long time: `backtick_strings.xen` exercises
-`format` with a backtick string, which is the `format` keyword problem, and
-`map.xen` puts string values in a `map<string, int>` and is simply a wrong
-fixture.
+`tests/run.rs` drives everything from files, so adding a test means adding a
+fixture rather than writing Rust.
 
-**Adding a test harness is the highest value contribution available.** The shape
-that fits: each `.xen` file beside an expected stdout, a Rust integration test
-that runs every pair and diffs. Ten of the samples had quietly rotted before
-anyone noticed, which is what happens without one.
+| Directory | Holds | Checked against |
+| --- | --- | --- |
+| `tests/cases/` | `name.xen` with `name.out` | exit 0 and byte identical stdout |
+| `tests/errors/` | `name.xen` with `name.err` | non zero exit and that error code in stderr |
+| `tests/modules/` | `main.xen` and the module it imports | exit 0 and its `.out` |
+| `testies/` | the older samples, with no expected output | that they still run at all |
+
+### Adding a case
+
+Write the program, run it, read the output carefully, and save it:
+
+```sh
+xenith tests/cases/my_case.xen          # read this and check it is right
+xenith tests/cases/my_case.xen > tests/cases/my_case.out
+```
+
+Recording output you have not read defeats the point. The golden file is the
+assertion.
+
+### Adding an error case
+
+The `.err` file holds one error code:
+
+```sh
+echo 'let n: int = "five"' > tests/errors/my_error.xen
+echo 'XEN001' > tests/errors/my_error.err
+```
+
+Only the code is matched, not the wording, so improving a message does not break
+the test. A `.xen` with no `.err` beside it is treated as a support file for
+another case and is not run on its own, which is how the circular import case
+gets its two extra modules.
+
+### Known failures
+
+`samples_still_run` carries a short list of `testies/` samples that are expected
+to fail, each with the reason. If one starts passing the test says so, so the
+list cannot rot. There is one entry today: `backtick_strings.xen`, which needs
+`format` to work as an expression.
 
 ## Adding a builtin function
 
@@ -125,26 +153,24 @@ stops that.
 
 In the order it should probably be done:
 
-**1. A test harness.** Everything else is riskier without it.
-
-**2. A static checking pass.** A new module between parse and interpret that
+**1. A static checking pass.** A new module between parse and interpret that
 walks the tree, infers types for un-annotated declarations, validates annotated
 ones, checks calls, struct literals, index and field access, and reports every
 error before anything runs. This makes the language's central claim actually
 true, and it lets the language server report type errors. Once it exists, the
 runtime checks scattered through the visitors can come out of the hot path.
 
-**3. A resolver pass.** Give every variable reference a scope depth and slot
+**2. A resolver pass.** Give every variable reference a scope depth and slot
 index, so lookup is a vector index rather than a hashed walk. It shares most of
 its machinery with the checker, so build them together. This also gives the
 language server real scope information, which is what its rename needs.
 
-**4. Lexical scoping.** Record the defining context in `Function` and use it in
+**3. Lexical scoping.** Record the defining context in `Function` and use it in
 `execute` instead of the caller's. That gives the language closures and lets a
 module's exports call its private helpers. It changes what existing programs do,
 so it wants a decision rather than a patch.
 
-**5. A standard library.** Strings first, since they are the most obviously
+**4. A standard library.** Strings first, since they are the most obviously
 missing. Written in Xenith where possible, so the language gets exercised, with
 Rust builtins only where it has to be.
 
