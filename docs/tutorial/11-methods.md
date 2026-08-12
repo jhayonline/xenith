@@ -198,14 +198,10 @@ echo("{triple(7)}")
 21
 ```
 
-## Names are resolved at the call site
+## A method sees where it was written
 
-This is the one surprising thing about methods in Xenith, and it is worth
-understanding before it surprises you.
-
-A method body looks up names in the scope of whoever called it, not the scope
-where the method was written. So a method can read and change a variable that
-belongs to its caller:
+A method body runs against the scope the method was written in. So it can read
+and change a variable declared beside it:
 
 ```xenith
 let counter: int = 0
@@ -225,8 +221,30 @@ echo("{counter}")
 2
 ```
 
-The flip side is that a method cannot capture anything from where it was
-defined. This does not work:
+That works wherever the method is called from, because what matters is where it
+was defined, not who called it.
+
+The capture is live rather than a snapshot, so a name declared after the method
+is still visible by the time it runs:
+
+```xenith
+method report() -> null {
+    echo("later is {later}")
+    release null
+}
+
+let later: int = 7
+report()
+```
+
+```
+later is 7
+```
+
+## Closures
+
+Because a method keeps the scope it was written in, one built inside another
+keeps that one's values:
 
 ```xenith
 type IntFn = method(int) -> int
@@ -236,20 +254,87 @@ method make_adder(n: int) -> IntFn {
 }
 
 let add_ten: IntFn = make_adder(10)
+let add_one: IntFn = make_adder(1)
+
 echo("{add_ten(5)}")
+echo("{add_one(5)}")
+```
+
+```
+15
+6
+```
+
+Each call to `make_adder` produces a method holding its own `n`. They do not
+interfere.
+
+A closure can be passed around like any other value, and carries its captured
+values with it:
+
+```xenith
+type IntFn = method(int) -> int
+
+method apply_twice(fn: IntFn, start: int) -> int {
+    release fn(fn(start))
+}
+
+method build_tripler() -> IntFn {
+    let factor: int = 3
+    release method(x: int) -> int => x * factor
+}
+
+echo("{apply_twice(build_tripler(), 2)}")
+```
+
+```
+18
+```
+
+## What a method cannot see
+
+A method cannot see another method's locals. This is an error, and it should be:
+
+```xenith
+method show() -> null {
+    echo("{value}")
+    release null
+}
+
+method caller() -> null {
+    let value: int = 111
+    show()
+    release null
+}
+
+caller()
 ```
 
 ```
 error XEN002: Undefined Variable
-  `n` is not defined
+  `value` is not defined
 ```
 
-By the time `add_ten` runs, `make_adder` has returned and its `n` is gone. There
-are no closures.
+`show` was written at the top level, so that is what it can see. `value` belongs
+to `caller`. Pass it as an argument:
 
-In practice: pass everything a method needs as an argument. That is good style
-anyway, and here it is also the only thing that works. See
-[Known limitations](18-limitations.md).
+```xenith
+method show(value: int) -> null {
+    echo("{value}")
+    release null
+}
+
+method caller() -> null {
+    let value: int = 111
+    show(value)
+    release null
+}
+
+caller()
+```
+
+```
+111
+```
 
 ## Parameters are copies
 

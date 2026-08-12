@@ -152,12 +152,7 @@ stops that.
 
 In the order it should probably be done:
 
-**1. Lexical scoping.** Record the defining context in `Function` and use it in
-`execute` instead of the caller's. That gives the language closures and lets a
-module's exports call its private helpers. It changes what existing programs do,
-so it wants a decision rather than a patch.
-
-**2. A standard library.** Strings first, since they are the most obviously
+**1. A standard library.** Strings first, since they are the most obviously
 missing. Written in Xenith where possible, so the language gets exercised, with
 Rust builtins only where it has to be.
 

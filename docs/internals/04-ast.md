@@ -77,8 +77,8 @@ pub struct SlotCache {
 ```
 
 It is a `Cell`, so a shared tree can still update it. The name at that position
-is verified before the value is used, which is what makes it safe under dynamic
-scoping. [Performance](10-performance.md) explains why.
+is verified before the value is used, so a stale entry costs a lookup rather than
+returning the wrong variable. [Performance](10-performance.md) explains why.
 
 ```rust
 pub struct VarAssignNode {

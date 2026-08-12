@@ -1,6 +1,6 @@
-111
-a string
-111
+total 3
+later is 7
+15 6 15
 inner 100
 inner 101
 inner 102
@@ -8,7 +8,9 @@ outer 1
 1275
 6
 1275
-counter 3
+showing 111
+showing 222
+showing 111
 even 0
 odd 100
 even 20

@@ -5,66 +5,11 @@ find out here rather than halfway through writing something.
 
 Each entry says what happens, why, and what to do instead.
 
-## The checker cannot see through the caller's scope
-
-A static pass runs before your program and reports the type errors it can prove.
-The one thing it cannot reason about is a name that a method reads from whoever
-called it, rather than from a parameter, because that value has no type until the
-call happens:
-
-```xenith
-method show() -> null {
-    echo("{count + 1}")
-    release null
-}
-
-let count: string = "not a number"
-show()
-```
-
-```
-error XEN001: Type Mismatch
-  cannot add string and int
-```
-
-The error still arrives, but at run time rather than before it, and only if that
-line executes.
-
-**What to do:** pass what a method needs as an argument. Parameters have declared
-types, so everything computed from them is checked ahead of time.
-
 ## Built in functions are not type checked
 
 `len`, `append`, `is_num` and the rest accept more than one type of argument in
 ways the type system cannot yet describe, so calls to them are not checked.
 Calls to methods you write are checked, by both count and type.
-
-## Methods cannot capture their surroundings
-
-Names inside a method body are resolved against the scope of whoever called it,
-not the scope where the method was written. There are no closures:
-
-```xenith
-type IntFn = method(int) -> int
-
-method make_adder(n: int) -> IntFn {
-    release method(x: int) -> int => x + n
-}
-
-let add_ten: IntFn = make_adder(10)
-echo("{add_ten(5)}")
-```
-
-```
-error XEN002: Undefined Variable
-  `n` is not defined
-```
-
-The same rule means a module's exported method cannot see that module's private
-helpers once an importing file calls it.
-
-**What to do:** pass everything a method needs as an argument, and write module
-exports so each one stands alone.
 
 ## export struct is not supported
 

@@ -1929,12 +1929,17 @@ impl Interpreter {
             .map(|t| t.value.as_ref().unwrap().clone())
             .collect();
 
+        // Capture the scope this definition sits in. The clone is O(1) and
+        // shares the underlying tables, so the capture stays live: a name
+        // declared after this line is still visible, and a named method can
+        // see itself.
         let func = Function::new(
             func_name.clone(),
             *node.body_node.clone(),
             arg_names,
             node.param_types.clone(),
             node.is_arrow,
+            std::rc::Rc::new(context.clone()),
         );
 
         let func_value = Value::Function(Box::new(func));

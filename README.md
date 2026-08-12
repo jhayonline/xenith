@@ -144,13 +144,13 @@ type Celsius = float                           # alias an existing type
 Xenith works and is worth writing small programs in. It is not finished.
 
 **Solid:** the number semantics, structs and collections, the four loop forms,
-methods including passing them as values, modules, and the diagnostics, which
-point at the right code and suggest a fix.
+methods including closures and passing them as values, modules, a static checker
+that reports every type error before anything runs, and diagnostics that point at
+the right code and suggest a fix.
 
 **Missing:** there is no standard library, so no files, no networking, no JSON,
-and strings have only `+`, `.len()` and comparison. There are no closures,
-because names resolve against the caller's scope rather than the defining one,
-which is also the main thing the static checker cannot see through.
+and strings have only `+`, `.len()` and comparison. That is now the single
+largest thing outstanding.
 
 The full list, with what to do instead in each case, is
 [Known limitations](docs/tutorial/18-limitations.md).

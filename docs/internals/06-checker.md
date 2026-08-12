@@ -50,31 +50,32 @@ fn compatible(&self, expected: &Type, actual: &Type) -> bool {
 So an unresolved name poisons its expression into silence rather than into a
 complaint.
 
-## Why it cannot be lexical
+## Why it still does not report unresolved names
 
-Xenith resolves names dynamically. A method body is evaluated against a child of
-the *caller's* context, so this is legal:
+Name resolution is lexical, so the checker's view now matches the interpreter's,
+and it could in principle report a name that is not in scope.
+
+It does not yet, for one reason: a capture is live, so a method may legitimately
+use a name declared later in the file.
 
 ```xenith
-method show() -> null {
-    echo("{count}")     # `count` is not declared anywhere above
+method report() -> null {
+    echo("later is {later}")   # not declared yet, and that is fine
     release null
 }
 
-let count: int = 5
-show()
+let later: int = 7
+report()
 ```
 
-A lexical checker would flag `count` inside `show` as undefined. It is not; the
-caller supplies it.
+Reporting undefined names correctly means knowing whether the declaration will
+have run by the time the call does, which is a reachability question rather than
+a scoping one. Until that is worked out the checker resolves what it can see and
+stays quiet about the rest, which is why an unresolved name still yields
+`Type::Unknown` rather than an error.
 
-The checker therefore never reports an unresolved name. It resolves what it can
-see and gives up quietly on the rest. That is also why it reports so little
-inside a method that reads its caller's variables: those values have no type
-until the call happens.
-
-If [lexical scoping](12-contributing.md) ever lands, this restriction lifts and
-the checker gets considerably stronger for free.
+The interpreter reports those at run time as XEN002, so nothing is missed; it is
+reported later than it could be.
 
 ## What it checks
 
@@ -97,7 +98,7 @@ the checker gets considerably stronger for free.
 
 - **Builtins.** `len`, `append` and the rest accept several argument types in
   ways `Type` cannot describe, so they are `Unknown` and their calls pass.
-- **Anything typed by the caller's scope**, as above.
+- **Names not yet declared at the point the checker reaches them**, as above.
 - **Method values.** Calling a method held in a variable is not checked against
   its `method(A) -> B` type.
 

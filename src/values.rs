@@ -654,6 +654,22 @@ pub struct Function {
     pub arg_names: Rc<Vec<String>>,
     pub param_types: Rc<Vec<Type>>,
     pub should_auto_return: bool,
+    /// The scope this method was written in.
+    ///
+    /// A call runs the body against a child of *this*, not of whoever called
+    /// it. That is what makes a method see the names around its own definition:
+    /// closures over enclosing locals, and a module's exports reaching its
+    /// private helpers.
+    ///
+    /// Shared rather than copied, so the capture stays live: a method defined
+    /// before a name it uses still sees that name once it is declared, and a
+    /// named method can see itself for recursion.
+    ///
+    /// This makes a reference cycle whenever a method is stored in the scope it
+    /// captured, which is every named method. `Rc` never frees a cycle, so those
+    /// contexts live until the process exits. A `Weak` here would break the case
+    /// closures exist for, where the method outlives the scope that made it.
+    pub closure: Rc<Context>,
 }
 
 impl Function {
@@ -663,6 +679,7 @@ impl Function {
         arg_names: Vec<String>,
         param_types: Vec<Type>,
         should_auto_return: bool,
+        closure: Rc<Context>,
     ) -> Self {
         Self {
             name,
@@ -670,6 +687,7 @@ impl Function {
             arg_names: Rc::new(arg_names),
             param_types: Rc::new(param_types),
             should_auto_return,
+            closure,
         }
     }
 
@@ -739,11 +757,18 @@ impl Function {
             );
         }
 
-        // Create child context
-        let mut func_context = context.create_child(
+        // The body runs against the scope the method was written in, not the
+        // one it was called from.
+        let mut func_context = self.closure.create_child(
             self.name.as_deref().unwrap_or("<anonymous>"),
             call_position.clone(),
         );
+
+        // Depth counts calls, not lexical nesting, so it has to come from the
+        // caller. Taking it from the closure would leave it constant for a
+        // top level method and the recursion guard would never fire, which is
+        // an abort rather than a diagnostic.
+        func_context.depth = context.depth + 1;
 
         // Bind arguments
         for (i, arg_name) in self.arg_names.iter().enumerate() {

@@ -1,24 +1,40 @@
-# Cases where remembering where a name lives could go wrong.
-# Each of these resolves the same syntax against a different scope.
+# Cases where remembering where a name lives could go wrong, and the scoping
+# rules those depend on.
 
-# Dynamic scoping: one method body, two callers, two different `n`.
-method show() -> null {
-    echo("{n}")
+# A method sees the scope it was written in. `total` is declared beside it, so
+# the method can read and change it.
+let total: int = 0
+method bump() -> null {
+    total = total + 1
     release null
 }
-method first() -> null {
-    let n: int = 111
-    show()
+method wrapper() -> null {
+    bump()
+    bump()
     release null
 }
-method second() -> null {
-    let n: string = "a string"
-    show()
+bump()
+wrapper()
+echo("total {total}")
+
+# A name declared after the method is still visible, because the capture is
+# live rather than a snapshot.
+method report() -> null {
+    echo("later is {later}")
     release null
 }
-first()
-second()
-first()
+let later: int = 7
+report()
+
+# A closure keeps the values around its own definition, and two of them made
+# from the same method are independent.
+type IntFn = method(int) -> int
+method make_adder(n: int) -> IntFn {
+    release method(x: int) -> int => x + n
+}
+let add_ten: IntFn = make_adder(10)
+let add_one: IntFn = make_adder(1)
+echo("{add_ten(5)} {add_one(5)} {add_ten(5)}")
 
 # Shadowing: the inner binding wins inside the block and nowhere else.
 let v: int = 1
@@ -37,20 +53,26 @@ echo("{sum_to(50)}")
 echo("{sum_to(3)}")
 echo("{sum_to(50)}")
 
-# A method reaching out to a caller's variable, at two call depths.
-let counter: int = 0
-method bump() -> null {
-    counter = counter + 1
+# The same method called from two places, where each call passes a different
+# value. This is what a method reading a caller's local used to look like, and
+# it now has to be an argument.
+method show(value: int) -> null {
+    echo("showing {value}")
     release null
 }
-method wrapper() -> null {
-    bump()
-    bump()
+method first() -> null {
+    let n: int = 111
+    show(n)
     release null
 }
-bump()
-wrapper()
-echo("counter {counter}")
+method second() -> null {
+    let n: int = 222
+    show(n)
+    release null
+}
+first()
+second()
+first()
 
 # Declarations that only happen on some iterations.
 for (let i: int = 0; i < 4; i++) {

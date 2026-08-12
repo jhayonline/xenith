@@ -46,9 +46,11 @@ mutates its receiver has to hand back the new value, and the caller writes it
 back to the variable it came from. `assign_into` in the interpreter exists
 entirely to unwind this through nested containers.
 
-**Names are resolved dynamically.** A method body runs in a child of the
-*caller's* context, not the one it was written in. That is why there are no
-closures and why a module's exports cannot see its private helpers.
+**Names are resolved lexically.** A `Function` captures the context it was
+defined in, and a call runs against a child of that. This is what gives the
+language closures and lets a module's exports reach its private helpers. It also
+makes a reference cycle for every named method, which `Rc` never frees; see
+[The interpreter](05-interpreter.md).
 
 **Symbol table reads clone.** `get` returns an owned `Value`. Anything reachable
 from a `Value` therefore has to be cheap to clone, which is why `Function` holds

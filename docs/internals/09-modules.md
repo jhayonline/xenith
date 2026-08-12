@@ -100,18 +100,15 @@ scope, under its alias if `as` was used. A name that is not exported is XEN012.
 `grab * as name` builds a `Value::Map` of every export and binds that, which is
 why the namespace form is used with brackets: `stats["total"](xs)`.
 
-## The scoping problem
+## Scoping
 
-A module's exported method cannot call that module's private helpers.
+A module's exported method can call that module's private helpers, because a
+method captures the context it was written in and a module's top level runs in
+its own context. Nothing has to be exported just to be reachable from inside the
+module.
 
-The reason is in [The interpreter](05-interpreter.md): a method body evaluates in
-a child of the *caller's* context. When another file calls `double_all`, the
-context chain runs back to that file's scope, not to the module's. The module's
-unexported names were bound in a context that is no longer reachable.
-
-The fix is the same one that would give the language closures: record the
-defining context in `Function` and use it in `execute`. Until then, a module's
-exports have to stand alone.
+That was not true while name resolution was dynamic: the body ran against the
+importing file's scope, and the module's own unexported names were unreachable.
 
 ## What is missing
 

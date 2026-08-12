@@ -1,0 +1,17 @@
+# A module's exports can call its own unexported helpers, because a method runs
+# against the scope it was written in.
+method double(n: int) -> int => n * 2
+
+method describe(n: int) -> string => "n={n}"
+
+export method double_all(values: list<int>) -> list<int> {
+    let out: list<int> = []
+    for value in values {
+        out.append(double(value))
+    }
+    release out
+}
+
+export method summary(n: int) -> string {
+    release describe(double(n))
+}

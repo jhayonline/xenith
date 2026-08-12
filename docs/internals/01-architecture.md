@@ -113,9 +113,11 @@ table.
 Mutating methods such as `.append()` therefore have to write the changed value
 back to the variable it came from. See [Values](07-values.md).
 
-**Names are resolved dynamically.** A method body is evaluated against a child of
-the *caller's* context, not the context where the method was defined. This is why
-there are no closures. See [The interpreter](05-interpreter.md).
+**Names are resolved lexically.** A method captures the context it was defined
+in and runs against a child of that, which is what gives the language closures.
+Call depth is threaded separately from the caller, because the recursion guard
+counts calls rather than lexical nesting. See
+[The interpreter](05-interpreter.md).
 
 **Everything carries a source position.** Every token and every AST node has a
 start and an end position, so any error can point at the code that caused it.

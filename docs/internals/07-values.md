@@ -91,6 +91,8 @@ pub struct Function {
     pub arg_names: Rc<Vec<String>>,
     pub param_types: Rc<Vec<Type>>,
     pub should_auto_return: bool,
+    /// The scope this method was written in.
+    pub closure: Rc<Context>,
 }
 ```
 
@@ -108,10 +110,11 @@ on every function lookup.
 1. Compares argument count, raising XEN015 or XEN016.
 2. Checks each argument against its declared type.
 3. Checks `context.depth_exceeded()` and raises XEN019.
-4. Creates a child context of the caller's and binds the parameters.
+4. Creates a child of `self.closure` and binds the parameters, taking `depth`
+   from the caller so the recursion guard still counts calls.
 5. Visits the body.
 
-Step 4 is where dynamic scoping comes from; see
+Step 4 is where lexical scoping comes from; see
 [The interpreter](05-interpreter.md).
 
 ## Collections

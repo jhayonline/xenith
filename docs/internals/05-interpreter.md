@@ -141,27 +141,48 @@ non cryptographic hash lifted from rustc's design. Variable lookup was hot enoug
 that SipHash showed up in profiles, before the slot cache took most lookups off
 the hashed path entirely.
 
-## Name resolution is dynamic
+## Name resolution is lexical
 
-When a method is called, its body executes in a child of the *caller's* context:
+A `Function` captures the context it was defined in, and a call runs the body
+against a child of *that*, not of whoever called it:
 
 ```rust
-func.execute(args, context.clone(), self, call_position)
+pub struct Function {
+    ...
+    /// The scope this method was written in.
+    pub closure: Rc<Context>,
+}
 ```
 
-`context` there is the caller's. The context where the method was defined is not
-recorded anywhere.
+```rust
+let mut func_context = self.closure.create_child(name, call_position);
 
-Two consequences:
+// Depth counts calls, not lexical nesting, so it comes from the caller.
+func_context.depth = context.depth + 1;
+```
 
-1. A method can read and write its caller's variables.
-2. A method cannot capture anything from where it was written, so there are no
-   closures, and a module's exported method cannot see that module's private
-   helpers.
+That `depth` line matters. The recursion guard compares `depth` against
+`MAX_CALL_DEPTH`, and a top level method's closure has a constant depth, so
+taking it from the closure would leave the guard never firing and turn runaway
+recursion back into a process abort.
 
-Making this lexical means storing the defining context in `Function` and using it
-in `execute`. It is a contained change with a wide blast radius, since it alters
-what existing programs do.
+The capture is an `Rc<Context>` rather than a copy, and `Context::clone` is O(1)
+with the symbol tables shared behind it. So the capture is live: a method sees a
+name declared after it, and a named method can see itself for recursion.
+
+This resolution used to be dynamic, with the body running against the caller's
+context. That meant no closures, and a module's exported method could not see
+that module's private helpers.
+
+### The cycle
+
+A named method is stored in the scope it captured, so `Function` holds an `Rc` to
+a context whose symbol table holds the function. `Rc` never frees a cycle, so
+those contexts live until the process exits.
+
+A `Weak` here would break the case closures exist for, where the method outlives
+the scope that produced it. For a program that runs and exits this costs nothing;
+for a long lived REPL session it accumulates slowly.
 
 ## Assignment
 

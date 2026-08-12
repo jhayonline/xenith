@@ -285,20 +285,21 @@ position before returning the value, and `assign_slot` hands the value back
 untouched if it does not match. A stale entry costs a lookup, never a wrong
 answer.
 
-That check is not paranoia. Xenith resolves names against the caller's scope, so
-one method body can run against completely different chains:
+That check is not paranoia. The same node can still run against different chains:
+a closure produced twice from the same method has a different captured scope each
+time, and a method defined inside a block sees a scope that is rebuilt on every
+pass.
 
 ```xenith
-method show() -> null {
-    echo("{n}")
-    release null
+method make_adder(n: int) -> IntFn {
+    release method(x: int) -> int => x + n
 }
-method first() -> null  { let n: int = 111        show() release null }
-method second() -> null { let n: string = "text"  show() release null }
+let add_ten: IntFn = make_adder(10)
+let add_one: IntFn = make_adder(1)
 ```
 
-The same `echo` node reads an `int`, then a `string`, then an `int` again. The
-name check makes it miss and re-resolve each time.
+Both closures share one `x + n` node, against two different scopes. The name
+check is what keeps that honest.
 
 This is why it is a cache filled at run time rather than a resolver pass filling
 in positions ahead of time. A static pass would have to predict the exact shape

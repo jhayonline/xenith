@@ -1,0 +1,37 @@
+# A method runs against the scope it was written in, which is what lets it keep
+# values from around its own definition.
+
+type IntFn = method(int) -> int
+
+# Each call to make_adder produces a method holding its own `n`.
+method make_adder(n: int) -> IntFn {
+    release method(x: int) -> int => x + n
+}
+
+let add_ten: IntFn = make_adder(10)
+let add_one: IntFn = make_adder(1)
+
+echo("{add_ten(5)}")
+echo("{add_one(5)}")
+echo("{add_ten(100)}")
+
+# A closure passed to another method still carries its captured value.
+method apply_twice(fn: IntFn, start: int) -> int {
+    release fn(fn(start))
+}
+echo("{apply_twice(add_ten, 0)}")
+
+# Captured values are read at call time, so a later change is seen.
+let step: int = 1
+method advance(n: int) -> int => n + step
+echo("{advance(0)}")
+step = 50
+echo("{advance(0)}")
+
+# A method defined inside a block captures that block.
+method build() -> IntFn {
+    let factor: int = 3
+    release method(x: int) -> int => x * factor
+}
+let triple: IntFn = build()
+echo("{triple(7)}")

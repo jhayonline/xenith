@@ -118,12 +118,13 @@ definitions and little else. Anything at the top level that prints or does work
 will happen on import, once, the first time any file imports it. Modules are
 cached, so importing the same one twice does not run it twice.
 
-## Two limitations worth knowing up front
+## One limitation worth knowing up front
 
-**A module's exports cannot call its own private helpers.** Names are resolved
-against the scope of the caller, not the file where the code was written. Once an
-importing file calls an exported method, the module's own unexported definitions
-are out of scope:
+**`export struct` is not supported.** Only methods and `let` bindings can be
+exported. A struct needed in two files has to be declared in both.
+
+A module's exports can call its own unexported helpers, so a module is free to
+keep its internals private:
 
 ```xenith
 # stats.xen
@@ -133,18 +134,15 @@ method double(n: int) -> int => n * 2
 export method double_all(values: list<int>) -> list<int> {
     let out: list<int> = []
     for value in values {
-        out.append(double(value))     # `double` is not visible here
+        out.append(double(value))
     }
     release out
 }
 ```
 
-Calling `double_all` from another file gives `error XEN002: Undefined Variable`
-for `double`. Until name resolution becomes lexical, write each export so it
-stands on its own, or export the helper too.
-
-**`export struct` is not supported.** Only methods and `let` bindings can be
-exported. A struct needed in two files has to be declared in both.
+`double` is not exported, so an importing file cannot call it, but `double_all`
+can, because a method runs against the scope it was written in. See
+[Methods](11-methods.md).
 
 ## A worked example
 

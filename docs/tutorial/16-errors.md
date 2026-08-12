@@ -177,8 +177,7 @@ error XEN001: Type Mismatch
 ```
 
 What the checker cannot prove ahead of time is caught as it runs, which stops the
-program at that point. The main thing it cannot see is a value a method reads
-from its caller's scope; [Known limitations](18-limitations.md) has the detail.
+program at that point. [Known limitations](18-limitations.md) has the detail.
 
 The language server runs the same checks, so the editor shows what the command
 line will.

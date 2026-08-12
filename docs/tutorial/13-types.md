@@ -69,10 +69,9 @@ error XEN001: Type Mismatch
 That program reports three errors and a count, then stops without running.
 
 The checker is deliberately cautious. Where it cannot work out a type it says
-nothing rather than guessing, so a reported error is a real one. The main thing
-it cannot see through is a name that comes from the caller's scope, which
-[Methods](11-methods.md) explains. The interpreter still checks as it runs, so
-anything the static pass misses is caught at the point it happens.
+nothing rather than guessing, so a reported error is a real one. The interpreter
+still checks as it runs, so anything the static pass misses is caught at the
+point it happens.
 
 ## What is checked
 
@@ -176,14 +175,11 @@ error XEN001: Type Mismatch
 
 ## What is not checked
 
-A value that reaches a method from its caller's scope rather than from a
-parameter has no type the checker can see, so anything computed from it goes
-unchecked until it runs. That is a consequence of how names resolve; see
-[Methods](11-methods.md).
+Built in functions. Most of them accept more than one type of argument in a way
+the type system cannot yet describe, so calls to `len`, `append` and the rest are
+not checked. Calls to methods you write are checked, by both count and type.
 
-Interpolated expressions, index and field access are all checked. Built in
-functions are not, because most of them accept more than one type of argument in
-a way the type system cannot yet describe.
+Interpolated expressions, index access and field access are all checked.
 
 ## Conversions
 
