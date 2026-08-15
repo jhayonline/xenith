@@ -1,0 +1,214 @@
+# std::bytes
+#
+# Raw bytes, with no encoding assumed. A `string` is guaranteed to be valid
+# UTF-8; a `bytes` is guaranteed nothing, which is what makes it the right type
+# for anything that came from outside the program.
+#
+# The primitives underneath are `bytes_slice`, `bytes_to_string`,
+# `bytes_to_list` and `bytes_from_list`, plus what the language already gives
+# every type: `len(raw)`, `raw[i]`, `left + right`, `a == b`, and `as` in both
+# directions. Everything on this page is written on top of those.
+#
+# Indexing gives an int in 0 to 255, not a one byte `bytes`:
+#
+#     let raw: bytes = "hi" as bytes
+#     echo("{raw[0]}")        # 104
+#
+# Going to text can fail, and there are two ways to ask:
+#
+#     let text: string = raw as string        # stops the program if invalid
+#     let (text, error) = to_string(raw)      # hands back the reason instead
+
+grab { is_empty } from "std::string"
+
+# ---------------------------------------------------------------------------
+# Making and converting
+# ---------------------------------------------------------------------------
+
+export method empty() -> bytes {
+    release "" as bytes
+}
+
+# Text as its UTF-8 bytes. Never fails: a string is already valid UTF-8.
+export method from_string(text: string) -> bytes {
+    release text as bytes
+}
+
+# The bytes decoded as UTF-8, and an error which is empty on success.
+export method to_string(raw: bytes) -> (string, string) {
+    release bytes_to_string(raw)
+}
+
+# Every byte as an int in 0 to 255.
+export method to_list(raw: bytes) -> list<int> {
+    release bytes_to_list(raw)
+}
+
+# Bytes from a list of ints, and an error which is empty on success. A value
+# outside 0 to 255 is an error rather than a silent truncation.
+export method from_list(codes: list<int>) -> (bytes, string) {
+    release bytes_from_list(codes)
+}
+
+# ---------------------------------------------------------------------------
+# Looking at them
+# ---------------------------------------------------------------------------
+
+export method size(raw: bytes) -> int {
+    release len(raw)
+}
+
+export method is_blank(raw: bytes) -> bool {
+    release len(raw) == 0
+}
+
+# The byte at an index, and whether the index was in range. The bare `raw[i]`
+# stops the program when it is not, so this is the form to reach for when the
+# index came from somewhere you do not control.
+export method at(raw: bytes, index: int) -> (int, bool) {
+    when index < 0 || index >= len(raw) {
+        release (0, false)
+    }
+    release (raw[index], true)
+}
+
+# The bytes from `start` up to but not including `end`. Clamped at both ends,
+# so it never fails.
+export method slice(raw: bytes, start: int, end: int) -> bytes {
+    release bytes_slice(raw, start, end)
+}
+
+export method concat(left: bytes, right: bytes) -> bytes {
+    release left + right
+}
+
+export method equal(left: bytes, right: bytes) -> bool {
+    release left == right
+}
+
+# ---------------------------------------------------------------------------
+# Searching
+# ---------------------------------------------------------------------------
+
+export method starts_with(raw: bytes, prefix: bytes) -> bool {
+    when len(prefix) > len(raw) {
+        release false
+    }
+    release slice(raw, 0, len(prefix)) == prefix
+}
+
+export method ends_with(raw: bytes, suffix: bytes) -> bool {
+    when len(suffix) > len(raw) {
+        release false
+    }
+    release slice(raw, len(raw) - len(suffix), len(raw)) == suffix
+}
+
+# Where `needle` first appears, and whether it appears at all. An empty needle
+# is found at 0, which is the convention `std::string` uses too.
+export method index_of(raw: bytes, needle: bytes) -> (int, bool) {
+    let needle_size: int = len(needle)
+    when needle_size == 0 {
+        release (0, true)
+    }
+
+    let last: int = len(raw) - needle_size
+    for (let start: int = 0; start <= last; start++) {
+        when slice(raw, start, start + needle_size) == needle {
+            release (start, true)
+        }
+    }
+    release (0, false)
+}
+
+export method contains(raw: bytes, needle: bytes) -> bool {
+    let (at_index, found) = index_of(raw, needle)
+    release found
+}
+
+# How many times `needle` appears, without overlaps.
+export method count(raw: bytes, needle: bytes) -> int {
+    let needle_size: int = len(needle)
+    when needle_size == 0 {
+        release 0
+    }
+
+    let total: int = 0
+    let position: int = 0
+    let last: int = len(raw) - needle_size
+
+    while position <= last {
+        when slice(raw, position, position + needle_size) == needle {
+            total = total + 1
+            position = position + needle_size
+        } otherwise {
+            position = position + 1
+        }
+    }
+    release total
+}
+
+# ---------------------------------------------------------------------------
+# Hex
+#
+# Lowercase, two characters per byte, no separators. Useful on its own for
+# printing a digest, and the reason it lives here rather than in a future
+# `std::crypto` is that it is about bytes and not about hashing.
+# ---------------------------------------------------------------------------
+
+const let ZERO: int = 48       # "0"
+const let LOWER_A: int = 97    # "a"
+
+method hex_digit(value: int) -> string {
+    when value < 10 {
+        release from_code(ZERO + value)
+    }
+    release from_code(LOWER_A + value - 10)
+}
+
+export method to_hex(raw: bytes) -> string {
+    let out: string = ""
+    for (let i: int = 0; i < len(raw); i++) {
+        let byte: int = raw[i]
+        out = out + hex_digit(byte / 16) + hex_digit(byte % 16)
+    }
+    release out
+}
+
+method hex_value(character: string) -> (int, bool) {
+    let code: int = code_at(character, 0)
+    when code >= ZERO && code <= ZERO + 9 {
+        release (code - ZERO, true)
+    }
+    when code >= LOWER_A && code <= LOWER_A + 5 {
+        release (code - LOWER_A + 10, true)
+    }
+    # Upper case A to F.
+    when code >= 65 && code <= 70 {
+        release (code - 65 + 10, true)
+    }
+    release (0, false)
+}
+
+# The inverse of `to_hex`, and an error which is empty on success. An odd
+# number of characters is an error, because a half byte has no meaning.
+export method from_hex(text: string) -> (bytes, string) {
+    when is_empty(text) {
+        release (empty(), "")
+    }
+    when text.len() % 2 != 0 {
+        release (empty(), "hex text must have an even number of characters")
+    }
+
+    let codes: list<int> = []
+    for (let i: int = 0; i < text.len(); i = i + 2) {
+        let (high, high_ok) = hex_value(text[i])
+        let (low, low_ok) = hex_value(text[i + 1])
+        when !high_ok || !low_ok {
+            release (empty(), "'{substring(text, i, i + 2)}' is not a hex byte")
+        }
+        codes.append(high * 16 + low)
+    }
+
+    release from_list(codes)
+}

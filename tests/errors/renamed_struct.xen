@@ -1,0 +1,5 @@
+# A struct is identified by its name, so it cannot be renamed on the way in.
+# A renamed one would not match the methods that take it.
+grab { Shown as Displayed } from "hidden_struct"
+let thing: Displayed = Displayed { value: 1 }
+echo("{thing.value}")

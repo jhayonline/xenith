@@ -36,7 +36,7 @@ syn keyword xenithInclude grab from export
 syn keyword xenithConversion as
 
 " --- Types ----------------------------------------------------------------
-syn keyword xenithType int float string bool list map
+syn keyword xenithType int float string bytes bool list map
 " PascalCase is the convention for structs and type aliases. Requiring a
 " lowercase letter keeps SCREAMING_SNAKE constants out of this group.
 syn match xenithUserType "\<\u\w*\l\w*\>"

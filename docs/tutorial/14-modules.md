@@ -23,6 +23,37 @@ export method shout(name: string) -> string {
 
 Definitions without `export` are not visible outside the file.
 
+Structs are exported the same way, which is how two files agree on a type:
+
+```xenith
+# shapes.xen
+
+export struct Point {
+    x: int,
+    y: int
+}
+
+export method shift(point: Point, by: int) -> Point {
+    release Point { x: point.x + by, y: point.y + by }
+}
+```
+
+```xenith
+grab { Point, shift } from "shapes"
+
+let moved: Point = shift(Point { x: 1, y: 2 }, 3)
+
+echo("({moved.x},{moved.y})")
+```
+
+```
+(4,5)
+```
+
+A `Point` built here is the same type as one built inside `shapes.xen`. There is
+one `Point`, not a copy per file, which is the whole reason to export it rather
+than declare it twice.
+
 ## Importing
 
 `grab` names from a file. The path is relative to the importing file and the
@@ -55,6 +86,19 @@ echo(hello("Ada"))
 
 ```
 Hello, Ada
+```
+
+A struct cannot be renamed this way. A struct is identified by its name -- that
+is what makes one `Point` the same type as another -- so a renamed one would be
+rejected by the very methods the module exports to take it:
+
+```xenith
+grab { Point as Coordinate } from "shapes"
+```
+
+```
+error XEN012: Module Not Found
+  struct 'Point' cannot be renamed on import
 ```
 
 ## Importing everything
@@ -118,10 +162,7 @@ definitions and little else. Anything at the top level that prints or does work
 will happen on import, once, the first time any file imports it. Modules are
 cached, so importing the same one twice does not run it twice.
 
-## One limitation worth knowing up front
-
-**`export struct` is not supported.** Only methods and `let` bindings can be
-exported. A struct needed in two files has to be declared in both.
+## Private helpers
 
 A module's exports can call its own unexported helpers, so a module is free to
 keep its internals private:

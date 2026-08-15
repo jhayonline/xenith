@@ -1,0 +1,3 @@
+# Removing a key that is not there is an error, not a silent no-op.
+let ages: map<string, int> = {"ada": 36}
+ages.remove("alan")

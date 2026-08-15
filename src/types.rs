@@ -14,6 +14,13 @@ pub enum Type {
     Float,
     /// String (UTF-8)
     String,
+    /// A sequence of raw bytes, with no encoding assumed.
+    ///
+    /// Separate from `String` because a `String` is guaranteed valid UTF-8 and
+    /// a great deal of what a program reads from the world is not: a PNG, a
+    /// gzip stream, a request body, a file written by something else. Going
+    /// between the two is an explicit conversion that can fail.
+    Bytes,
     /// Boolean (true/false)
     Bool,
     /// Null type
@@ -53,6 +60,7 @@ impl Type {
             Type::Int => "0".to_string(),
             Type::Float => "0.0".to_string(),
             Type::String => "\"\"".to_string(),
+            Type::Bytes => "(\"\" as bytes)".to_string(),
             Type::Bool => "false".to_string(),
             Type::Null => "null".to_string(),
             Type::List(_) => "[]".to_string(),
@@ -70,7 +78,7 @@ impl Type {
     pub fn is_primitive(&self) -> bool {
         matches!(
             self,
-            Type::Int | Type::Float | Type::String | Type::Bool | Type::Null
+            Type::Int | Type::Float | Type::String | Type::Bytes | Type::Bool | Type::Null
         )
     }
 
@@ -80,6 +88,7 @@ impl Type {
             "int" => Type::Int,
             "float" => Type::Float,
             "string" => Type::String,
+            "bytes" => Type::Bytes,
             "bool" => Type::Bool,
             "null" => Type::Null,
             "tuple" => Type::Tuple(vec![]),
@@ -93,6 +102,7 @@ impl Type {
             Type::Int => "int".to_string(),
             Type::Float => "float".to_string(),
             Type::String => "string".to_string(),
+            Type::Bytes => "bytes".to_string(),
             Type::Bool => "bool".to_string(),
             Type::Null => "null".to_string(),
             Type::List(t) => format!("list<{}>", t.to_string()),

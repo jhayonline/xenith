@@ -179,12 +179,16 @@ Rust builtins only where it has to be.
 
 ## Smaller things worth doing
 
-- Make `export struct` work.
+- Teach the static pass to follow `grab`, so an imported method call and an
+  imported struct literal are checked before the program runs rather than as
+  they run. Everything needed is already on the `Module`.
 - Give the parser error recovery, so a file yields more than one diagnostic.
 - Delete `resolve_stdlib` and the duplicated third candidate in `resolve_local`
   in `src/modules.rs`.
-- Replace the `Result<Module, String>` module errors with a real error type, so a
-  nested failure does not arrive as a pre-rendered string.
+- Allow an expression to span lines, so a long condition does not have to be one
+  line. The lexer ends a statement at a newline with no continuation rule.
+- Add hex and binary integer literals. `0xff` does not parse, which is felt most
+  when working with `bytes`.
 - Store the two variable `for k, v` names as a proper field instead of the
   literal text `(k,v)` in one token.
 - Give the language server real scope information. Its rename is still by name

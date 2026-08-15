@@ -11,10 +11,21 @@ Each entry says what happens, why, and what to do instead.
 ways the type system cannot yet describe, so calls to them are not checked.
 Calls to methods you write are checked, by both count and type.
 
-## export struct is not supported
+## Imported names are checked as they run, not before
 
-Only methods and `let` bindings can be exported from a module. A struct needed in
-two files has to be declared in both.
+The static pass does not follow `grab`, so it knows nothing about what a module
+exports. A call to an imported method is not checked for argument count or type,
+and a literal of an imported struct is not checked for its fields.
+
+They are all still checked, with the same errors and the same messages, when the
+line runs. What you lose is finding out before any output appears, and finding
+out about a branch that never executes.
+
+## A struct cannot be renamed on import
+
+`grab { Point } from "shapes"` works. `grab { Point as Coordinate }` is refused,
+because a struct is identified by its name and a renamed one would not match the
+methods that take it. Methods and `let` bindings can still be renamed.
 
 ## Chain keywords must follow the closing brace
 
@@ -33,11 +44,32 @@ when false {
 b
 ```
 
-## No way to remove a map key
+## A keyword cannot be a struct field name
 
-Maps can be read, updated and added to, but there is no delete.
+`from`, `in`, `as` and the rest are reserved everywhere, including inside a
+struct literal, so `Line { from: a, to: b }` does not parse.
 
-**What to do:** build a new map without the key.
+**What to do:** name the field something else. `head` and `tail` in that case.
+
+## No hex or binary number literals
+
+`255` is the only way to write it; `0xff` and `0b1111_1111` do not parse. This
+shows up most when working with `bytes`.
+
+**What to do:** write it in decimal, or go through
+[`std::bytes`](19-standard-library.md) `from_hex` for a run of them.
+
+## An expression cannot span lines
+
+A newline ends a statement, so a long condition has to stay on one line:
+
+```xenith
+# Does not parse.
+release a == "1" || a == "true"
+    || a == "yes"
+```
+
+**What to do:** put it on one line, or name the pieces with `let` first.
 
 ## Conditions accept non-booleans
 
@@ -60,11 +92,11 @@ echo(ret([5, 6]))
 [5, 6]
 ```
 
-## The standard library is one module
+## The standard library is small
 
-`std::string` exists; see [The standard library](19-standard-library.md). There
-is no file system, no networking, no JSON, no time, no random, and no maths
-beyond the operators and `MATH_PI`.
+`std::string`, `std::math`, `std::fs`, `std::bytes` and `std::env` exist; see
+[The standard library](19-standard-library.md). There is no networking, no JSON,
+no time and no random.
 
 Collections are the interesting gap. Without generics there is no way to write
 one `map` or `filter` that works for a `list<int>` and a `list<string>` both, so

@@ -50,29 +50,11 @@ const KEYWORDS: &[&str] = &[
     "len",
 ];
 
-// Built-in types
-const TYPES: &[&str] = &[
-    "int", "float", "string", "bool", "list", "map", "null",
-];
-
-// Built-in functions
-const BUILTINS: &[&str] = &[
-    "echo",
-    "ret",
-    "input",
-    "input_int",
-    "clear",
-    "is_num",
-    "is_str",
-    "is_list",
-    "is_fun",
-    "append",
-    "pop",
-    "extend",
-    "len",
-    "run",
-    "format",
-];
+// Types and builtins come from the shared registry rather than a copy here.
+// The copy had drifted: it was missing `substring`, `code_at`, every `fs_`
+// name and every float primitive, so the REPL completed a smaller language than
+// the one it was running.
+use crate::builtins::registry::{BUILTIN_FUNCTIONS, TYPE_NAMES};
 
 // Command completions
 const COMMANDS: &[&str] = &[":help", ":exit", ":quit", ":clear", ":vars", ":load"];
@@ -203,7 +185,7 @@ impl Completer for ReplCompleter {
             }
         }
 
-        for typ in TYPES {
+        for typ in TYPE_NAMES {
             if typ.starts_with(last_word) {
                 candidates.push(Pair {
                     display: typ.to_string(),
@@ -212,11 +194,11 @@ impl Completer for ReplCompleter {
             }
         }
 
-        for builtin in BUILTINS {
-            if builtin.starts_with(last_word) {
+        for builtin in BUILTIN_FUNCTIONS {
+            if builtin.name.starts_with(last_word) {
                 candidates.push(Pair {
-                    display: builtin.to_string(),
-                    replacement: builtin.to_string(),
+                    display: builtin.name.to_string(),
+                    replacement: builtin.name.to_string(),
                 });
             }
         }

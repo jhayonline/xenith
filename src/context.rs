@@ -6,6 +6,7 @@
 
 use crate::position::Position;
 use crate::symbol_table::SymbolTable;
+use crate::types::Type;
 use crate::values::Value;
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -25,6 +26,12 @@ pub struct Context {
     pub parent_entry_position: Option<Position>,
     pub symbol_table: Rc<SymbolTable>,
     pub exports: HashMap<String, Value>,
+    /// Structs this module marked `export`, with their declared fields.
+    ///
+    /// Separate from `exports` because a struct definition is not a value:
+    /// there is nothing to put in the map. What an importer needs is the field
+    /// list, so that is what travels.
+    pub struct_exports: HashMap<String, Vec<(String, Type)>>,
     /// Nesting depth of this context, counted from the program root.
     pub depth: usize,
 }
@@ -48,6 +55,7 @@ impl Context {
             parent_entry_position,
             symbol_table,
             exports: HashMap::new(),
+            struct_exports: HashMap::new(),
             depth,
         }
     }
@@ -59,6 +67,7 @@ impl Context {
             parent_entry_position: Some(entry_pos),
             symbol_table: Rc::new(SymbolTable::with_parent(self.symbol_table.clone())),
             exports: HashMap::new(),
+            struct_exports: HashMap::new(),
             depth: self.depth + 1,
         }
     }
@@ -74,5 +83,13 @@ impl Context {
 
     pub fn get_exports(&self) -> &HashMap<String, Value> {
         &self.exports
+    }
+
+    pub fn add_struct_export(&mut self, name: String, fields: Vec<(String, Type)>) {
+        self.struct_exports.insert(name, fields);
+    }
+
+    pub fn get_struct_exports(&self) -> &HashMap<String, Vec<(String, Type)>> {
+        &self.struct_exports
     }
 }

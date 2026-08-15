@@ -11,8 +11,8 @@ let (text, read_error) = read("a.txt")
 echo("read [{read_error}] {text.len()} characters")
 
 echo("exists {exists("a.txt")} is_file {is_file("a.txt")} is_dir {is_dir("a.txt")}")
-let (bytes, size_error) = size("a.txt")
-echo("size {bytes} [{size_error}]")
+let (byte_count, size_error) = size("a.txt")
+echo("size {byte_count} [{size_error}]")
 
 # Appending
 echo("append [{append("a.txt", "four\n")}]")

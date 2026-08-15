@@ -19,9 +19,10 @@ SHOUT
 
 ## It is written in Xenith
 
-Every function in it is ordinary Xenith, on top of four primitives the language
-provides because they cannot be expressed in it: string indexing, `substring`,
-`code_at` and `from_code`.
+Every function in it is ordinary Xenith, on top of a small set of primitives the
+language provides because they cannot be expressed in it: string indexing,
+`substring`, `code_at` and `from_code` for text, the float functions for maths,
+and the `fs_`, `bytes_` and `env_` families for reaching outside the program.
 
 That is a deliberate choice rather than a stopgap. It means you can read the
 source of `trim` and it will look like code you would write:
@@ -424,8 +425,33 @@ written
 | `append(path, contents)` | adds to the end |
 | `remove(path)` | |
 | `exists(path)`, `is_file(path)`, `is_dir(path)` | plain `bool` |
-| `size(path)` | `(bytes, error)` |
-| `copy(source, destination)` | text files only |
+| `size(path)` | `(byte_count, error)` |
+| `copy(source, destination)` | any file, held in memory |
+
+`read` and `write` are for text and fail on a file that is not valid UTF-8.
+Three more take the file as it is:
+
+| Function | |
+| --- | --- |
+| `read_bytes(path)` | `(bytes, error)` |
+| `write_bytes(path, raw)` | |
+| `append_bytes(path, raw)` | |
+
+```xenith
+grab { read_bytes, write_bytes } from "std::fs"
+grab { to_hex, from_list } from "std::bytes"
+
+let (raw, build_error) = from_list([0, 159, 146, 150])
+echo("[{write_bytes("icon.dat", raw)}]")
+
+let (back, read_error) = read_bytes("icon.dat")
+echo("{to_hex(back)} [{read_error}]")
+```
+
+```
+[]
+009f9296 []
+```
 
 ### Lines
 
@@ -498,6 +524,163 @@ filesystem itself needs primitives, and those carry an `fs_` prefix: an operatio
 on a built in type like `substring` is global under its own name, but reading a
 file is a service, and it should be visible in the imports that a program does
 it.
+
+## std::bytes
+
+Raw bytes. The language already gives the type `len`, indexing, `+`, `==` and
+`as` in both directions; this module is what sits above those.
+
+```xenith
+grab { from_string, to_hex, index_of, slice } from "std::bytes"
+
+let raw: bytes = from_string("hello world")
+
+let (at, found) = index_of(raw, from_string("world"))
+echo("{at} {found}")
+echo(to_hex(slice(raw, 0, 2)))
+```
+
+```
+6 true
+6865
+```
+
+### Making and converting
+
+| Function | |
+| --- | --- |
+| `empty()` | no bytes at all |
+| `from_string(text)` | never fails; text is already UTF-8 |
+| `to_string(raw)` | `(text, error)` |
+| `to_list(raw)` | each byte as an int in 0 to 255 |
+| `from_list(codes)` | `(bytes, error)`; a value outside 0 to 255 is an error |
+
+`raw as string` is the same conversion as `to_string`, except that it stops the
+program instead of handing back the reason. Use `as` when invalid bytes would be
+a bug, and `to_string` when they are a case to handle.
+
+### Looking at them
+
+| Function | |
+| --- | --- |
+| `size(raw)` | the same as `len(raw)` |
+| `is_blank(raw)` | whether there are none |
+| `at(raw, index)` | `(byte, in_range)`, where `raw[index]` would stop the program |
+| `slice(raw, start, end)` | clamped at both ends, so it never fails |
+| `concat(left, right)` | the same as `left + right` |
+| `equal(left, right)` | the same as `left == right` |
+
+### Searching
+
+| Function | |
+| --- | --- |
+| `starts_with(raw, prefix)`, `ends_with(raw, suffix)` | |
+| `index_of(raw, needle)` | `(position, found)` |
+| `contains(raw, needle)` | |
+| `count(raw, needle)` | without overlaps |
+
+### Hex
+
+| Function | |
+| --- | --- |
+| `to_hex(raw)` | lowercase, two characters per byte, no separators |
+| `from_hex(text)` | `(bytes, error)`; upper case is accepted |
+
+```xenith
+grab { from_hex, to_hex, from_string } from "std::bytes"
+
+echo(to_hex(from_string("hi")))
+
+let (raw, error) = from_hex("68656c6c6f")
+echo("{raw as string} [{error}]")
+
+let (odd, odd_error) = from_hex("abc")
+echo("[{odd_error}]")
+```
+
+```
+6869
+hello []
+[hex text must have an even number of characters]
+```
+
+`from_hex` is also the practical way to write a run of byte values, since the
+language has no `0xff` literal.
+
+## std::env
+
+The process environment: variables, the command line, the working directory and
+the exit status.
+
+Reading a variable hands back a pair, because a variable that is unset and one
+set to the empty string are different things and a single string cannot tell
+them apart:
+
+```xenith
+grab { get, get_or } from "std::env"
+
+let (value, found) = get("PORT")
+when !found {
+    echo("PORT is not set")
+}
+
+echo(get_or("PORT", "8080"))
+```
+
+```
+PORT is not set
+8080
+```
+
+### Variables
+
+| Function | |
+| --- | --- |
+| `get(name)` | `(value, found)` |
+| `get_or(name, fallback)` | the fallback only when unset, not when empty |
+| `has(name)` | |
+| `get_int(name)` | `(number, ok)` |
+| `get_flag(name)` | `1`, `true`, `yes`, `on` in any case; anything else is false |
+| `set(name, value)`, `unset(name)` | this process and anything it starts |
+| `all()` | `map<string, string>` |
+
+`set` does not reach the shell that started the program. No process can change
+its parent's environment, in any language.
+
+### The command line
+
+| Function | |
+| --- | --- |
+| `args()` | the program, then everything after it |
+| `params()` | just the arguments, without the program name |
+| `program()` | the path of the program, as it was typed |
+
+```xenith
+grab { params } from "std::env"
+
+for argument in params() {
+    echo(argument)
+}
+```
+
+```sh
+xenith greet.xen Ada Alan
+```
+
+```
+Ada
+Alan
+```
+
+### The process
+
+| Function | |
+| --- | --- |
+| `cwd()` | `(path, error)` |
+| `exit(code)` | stops immediately; nothing after it runs |
+
+`exit` is for the end of a program. It is not a way to report a failure up a
+call chain, because nothing gets to see it happen. See [Errors](16-errors.md).
 
 ## What is not here yet
 

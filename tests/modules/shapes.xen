@@ -1,0 +1,29 @@
+# Imported by main.xen. A struct marked `export` can be named, built and passed
+# by another file; one without `export` cannot leave this one.
+
+export struct Point {
+    x: int,
+    y: int
+}
+
+export struct Line {
+    head: Point,
+    tail: Point
+}
+
+# Not exported. `grab { Internal }` from another file is refused.
+struct Internal {
+    scratch: int
+}
+
+export method origin() -> Point {
+    release Point { x: 0, y: 0 }
+}
+
+export method shift(point: Point, by: int) -> Point {
+    release Point { x: point.x + by, y: point.y + by }
+}
+
+export method describe(line: Line) -> string {
+    release "({line.head.x},{line.head.y}) to ({line.tail.x},{line.tail.y})"
+}

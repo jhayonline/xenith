@@ -1,0 +1,50 @@
+grab { get, get_or, has, set, unset, all, get_int, get_flag, args, params, program, cwd } from "std::env"
+
+# Nothing here reads a variable the machine happens to have, because the test
+# has to give the same answer everywhere. It sets what it reads.
+
+echo("unset {has("XENITH_TEST_VALUE")}")
+
+# Unset and set-to-empty are different, which is why `get` is a pair.
+let (missing, missing_found) = get("XENITH_TEST_VALUE")
+echo("missing [{missing}] {missing_found}")
+
+set("XENITH_TEST_VALUE", "")
+let (blank, blank_found) = get("XENITH_TEST_VALUE")
+echo("blank [{blank}] {blank_found}")
+
+set("XENITH_TEST_VALUE", "hello")
+let (value, found) = get("XENITH_TEST_VALUE")
+echo("set [{value}] {found}")
+echo("in all {all().has_key("XENITH_TEST_VALUE")}")
+
+unset("XENITH_TEST_VALUE")
+echo("after unset {has("XENITH_TEST_VALUE")}")
+
+# The fallback form, for when the difference does not matter.
+echo("fallback {get_or("XENITH_TEST_VALUE", "default")}")
+set("XENITH_TEST_VALUE", "given")
+echo("given {get_or("XENITH_TEST_VALUE", "default")}")
+unset("XENITH_TEST_VALUE")
+
+# Reading a number and a flag, which is most of what an environment holds.
+set("XENITH_TEST_PORT", "8080")
+let (port, port_ok) = get_int("XENITH_TEST_PORT")
+echo("port {port} {port_ok}")
+unset("XENITH_TEST_PORT")
+let (no_port, no_port_ok) = get_int("XENITH_TEST_PORT")
+echo("no port {no_port} {no_port_ok}")
+
+set("XENITH_TEST_FLAG", "YES")
+echo("flag {get_flag("XENITH_TEST_FLAG")}")
+set("XENITH_TEST_FLAG", "off")
+echo("off {get_flag("XENITH_TEST_FLAG")}")
+unset("XENITH_TEST_FLAG")
+echo("unset flag {get_flag("XENITH_TEST_FLAG")}")
+
+# The command line. Only the shape is checked: the paths differ per machine.
+echo("args {args().len() >= 1} params {params().len()}")
+echo("program named {program().len() > 0}")
+
+let (where_we_are, cwd_error) = cwd()
+echo("cwd {where_we_are.len() > 0} [{cwd_error}]")

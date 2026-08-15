@@ -11,3 +11,25 @@ echo("{h["twice"](5)}")
 grab { double_all, summary } from "private_helper"
 echo("{ret(double_all([1, 2, 3]))}")
 echo(summary(4))
+
+# An exported struct: named in an annotation, built here, and passed back to
+# the module's own methods, which is the point of exporting it at all.
+grab { Point, Line, origin, shift, describe } from "shapes"
+
+let start: Point = origin()
+echo("origin ({start.x},{start.y})")
+
+let moved: Point = shift(Point { x: 1, y: 2 }, 3)
+echo("shifted ({moved.x},{moved.y})")
+
+echo(describe(Line { head: start, tail: moved }))
+
+# A struct built here is the same type as one built there.
+method further(a: Point, b: Point) -> Point {
+    when a.x + a.y > b.x + b.y {
+        release a
+    }
+    release b
+}
+let winner: Point = further(moved, Point { x: 10, y: 10 })
+echo("further ({winner.x},{winner.y})")

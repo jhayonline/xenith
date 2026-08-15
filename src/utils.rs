@@ -97,6 +97,7 @@ pub fn value_to_string(value: &Value) -> String {
     match value {
         Value::Number(n) => n.to_string(),
         Value::String(s) => s.value.clone(),
+        Value::Bytes(b) => format!("<bytes {}>", b.len()),
         Value::List(l) => {
             if l.elements.len() == 1 {
                 value_to_string(&l.elements[0])
@@ -171,6 +172,7 @@ pub fn value_to_interpolated_string(value: &Value) -> String {
     match value {
         Value::Number(n) => n.to_string(),
         Value::String(s) => s.value.clone(),
+        Value::Bytes(b) => format!("<bytes {}>", b.len()),
         Value::List(l) => {
             let mut result = String::from("[");
             for (i, elem) in l.elements.iter().enumerate() {

@@ -1,0 +1,4 @@
+# A struct without `export` cannot be imported, the same as a method without it.
+grab { Hidden } from "hidden_struct"
+let secret: Hidden = Hidden { value: 1 }
+echo("{secret.value}")

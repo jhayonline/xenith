@@ -1,0 +1,6 @@
+start 3
+removed 36, left 2, still there false
+keys [alan, grace]
+guarded, nothing removed
+nested 1 [y]
+emptied 0 []

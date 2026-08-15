@@ -117,7 +117,51 @@ echo("{ret(counts.items())}")
 [[blue, 1], [red, 2]]
 ```
 
-There is no way to remove a key yet.
+## Removing
+
+`.remove(key)` takes a key out and hands back what was under it:
+
+```xenith
+let ages: map<string, int> = {"ada": 36, "alan": 41}
+
+let was: int = ages.remove("ada")
+
+echo("removed {was}, {ages.len()} left")
+```
+
+```
+removed 36, 1 left
+```
+
+Removing a key that is not there is an error, the same as reading one:
+
+```xenith
+let ages: map<string, int> = {"ada": 36}
+
+ages.remove("nobody")
+```
+
+```
+error XEN200: Runtime Error
+  Key 'nobody' not found in map
+  💡 check with `has_key` before removing
+```
+
+So guard it when you are not certain, exactly as you would a read:
+
+```xenith
+let ages: map<string, int> = {"ada": 36}
+
+when ages.has_key("nobody") {
+    ages.remove("nobody")
+}
+
+echo("{ages.len()}")
+```
+
+```
+1
+```
 
 ## The map methods
 
@@ -125,6 +169,7 @@ There is no way to remove a key yet.
 | --- | --- |
 | `.len()` | how many pairs |
 | `.has_key(k)` | whether a key is present |
+| `.remove(k)` | removes a key and gives back its value |
 | `.keys()` | a list of the keys |
 | `.values()` | a list of the values |
 | `.items()` | a list of two element lists |

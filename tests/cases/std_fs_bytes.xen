@@ -1,0 +1,32 @@
+grab { read_bytes, write_bytes, append_bytes, read, write, copy, remove, size, exists } from "std::fs"
+grab { from_string, to_hex, from_list } from "std::bytes"
+
+# Bytes in and out of a file.
+echo("write [{write_bytes("raw.bin", from_string("hello"))}]")
+let (back, read_error) = read_bytes("raw.bin")
+echo("read {len(back)} bytes {back as string} [{read_error}]")
+
+echo("append [{append_bytes("raw.bin", from_string(" world"))}]")
+let (joined, joined_error) = read_bytes("raw.bin")
+echo("appended {joined as string} [{joined_error}]")
+
+# A file that is not text at all. `read` refuses it; `read_bytes` does not.
+let (binary, binary_error) = from_list([0, 159, 146, 150])
+echo("write binary [{write_bytes("raw.dat", binary)}]")
+
+let (as_text, text_error) = read("raw.dat")
+echo("read as text [{text_error != ""}]")
+
+let (as_bytes, bytes_error) = read_bytes("raw.dat")
+echo("read as bytes {to_hex(as_bytes)} [{bytes_error}]")
+
+# Copying goes through bytes, so it works on that file too.
+echo("copy [{copy("raw.dat", "copy.dat")}]")
+let (copied, copy_error) = read_bytes("copy.dat")
+echo("copied {to_hex(copied)} [{copy_error}]")
+
+# Reading a file that is not there gives no bytes and a reason.
+let (nothing, nothing_error) = read_bytes("absent.bin")
+echo("absent {len(nothing)} [{nothing_error != ""}]")
+
+echo("[{remove("raw.bin")}][{remove("raw.dat")}][{remove("copy.dat")}]")

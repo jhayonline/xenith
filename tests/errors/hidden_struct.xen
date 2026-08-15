@@ -1,0 +1,9 @@
+# Support file for unexported_struct.xen and renamed_struct.xen. Not run on its
+# own: it has no .err.
+export struct Shown {
+    value: int
+}
+
+struct Hidden {
+    value: int
+}

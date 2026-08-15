@@ -21,9 +21,11 @@ pub fn source(name: &str) -> Option<&'static str> {
         "string" => Some(include_str!("string.xen")),
         "math" => Some(include_str!("math.xen")),
         "fs" => Some(include_str!("fs.xen")),
+        "bytes" => Some(include_str!("bytes.xen")),
+        "env" => Some(include_str!("env.xen")),
         _ => None,
     }
 }
 
 /// Every module name the standard library provides, for error messages.
-pub const MODULE_NAMES: &[&str] = &["string", "math", "fs"];
+pub const MODULE_NAMES: &[&str] = &["string", "math", "fs", "bytes", "env"];

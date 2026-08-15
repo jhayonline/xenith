@@ -174,6 +174,7 @@ impl Parser {
             TokenType::TypeInt => Type::Int,
             TokenType::TypeFloat => Type::Float,
             TokenType::TypeString => Type::String,
+            TokenType::TypeBytes => Type::Bytes,
             TokenType::TypeBool => Type::Bool,
             TokenType::TypeNull => Type::Null,
             TokenType::TypeList => {
@@ -484,6 +485,7 @@ impl Parser {
             TokenType::TypeInt => Type::Int,
             TokenType::TypeFloat => Type::Float,
             TokenType::TypeString => Type::String,
+            TokenType::TypeBytes => Type::Bytes,
             TokenType::TypeBool => Type::Bool,
             TokenType::TypeNull => Type::Null,
             TokenType::TypeList => {
@@ -845,6 +847,12 @@ impl Parser {
                 if let Some(next) = self.peek_token() {
                     if next.matches(TokenType::Keyword, Some("method")) {
                         return self.exported_func_def();
+                    }
+                    // `struct` lexes as its own token kind, not as a keyword.
+                    if next.kind == TokenType::TypeStruct
+                        || next.matches(TokenType::Keyword, Some("struct"))
+                    {
+                        return self.exported_struct_def();
                     }
                 }
                 return self.export_statement();
@@ -1963,7 +1971,7 @@ impl Parser {
                         InvalidSyntaxError::new(
                             pos_start.clone(),
                             pos_end.clone(),
-                            "Can only export variables and functions",
+                            "Can only export variables, methods and structs",
                         )
                         .base,
                     );
@@ -2027,6 +2035,55 @@ impl Parser {
                 Self::dummy_pos(),
                 Self::dummy_pos(),
                 "Expected function after export",
+            )
+            .base,
+        )
+    }
+
+    /// `export struct Name { ... }`
+    ///
+    /// Separate from `export_statement` for the same reason `exported_func_def`
+    /// is: a struct definition is a statement, and `export_statement` reaches
+    /// for an expression.
+    fn exported_struct_def(&mut self) -> ParseResult {
+        let mut result = ParseResult::new();
+
+        // Consume 'export'
+        self.advance();
+
+        let struct_result = self.struct_definition();
+        if struct_result.error.is_some() {
+            return struct_result;
+        }
+
+        if let Some(Node::StructDef(struct_def)) = struct_result.node {
+            let Some(exported_name) = struct_def.name.value.clone() else {
+                return result.failure(
+                    InvalidSyntaxError::new(
+                        struct_def.position_start.clone(),
+                        struct_def.position_end.clone(),
+                        "Cannot export an unnamed struct",
+                    )
+                    .base,
+                );
+            };
+
+            let pos_start = struct_def.position_start.clone();
+            let pos_end = struct_def.position_end.clone();
+
+            return result.success(Node::Export(Box::new(ExportNode {
+                exported_name,
+                node: Box::new(Node::StructDef(struct_def)),
+                position_start: pos_start,
+                position_end: pos_end,
+            })));
+        }
+
+        result.failure(
+            InvalidSyntaxError::new(
+                Self::dummy_pos(),
+                Self::dummy_pos(),
+                "Expected a struct after export",
             )
             .base,
         )
@@ -3079,6 +3136,7 @@ impl Parser {
                 Some(t) if t.kind == TokenType::TypeInt => "int",
                 Some(t) if t.kind == TokenType::TypeFloat => "float",
                 Some(t) if t.kind == TokenType::TypeString => "string",
+                Some(t) if t.kind == TokenType::TypeBytes => "bytes",
                 Some(t) if t.kind == TokenType::TypeBool => "bool",
                 Some(t) => {
                     return result.failure(
@@ -3087,7 +3145,7 @@ impl Parser {
                             t.position_end.clone(),
                             &format!("Expected type name after 'as', got {:?}", t.kind),
                         )
-                        .with_help("`as` converts to int, float, string or bool")
+                        .with_help("`as` converts to int, float, string, bytes or bool")
                         .base,
                     );
                 }

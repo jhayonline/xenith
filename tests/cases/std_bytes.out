@@ -1,0 +1,17 @@
+size 11 blank false empty blank true
+at 0 104 true, at 99 0 false
+slice [6865]
+concat abcd
+equal true
+starts true ends true
+starts too long false
+index 6 true
+missing 0 false
+empty needle true
+count 2
+hex 6869
+from_hex hello []
+odd [hex text must have an even number of characters]
+bad ['zz' is not a hex byte]
+upper HI []
+round trip hi [104, 105] []

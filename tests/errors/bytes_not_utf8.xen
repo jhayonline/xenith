@@ -1,0 +1,5 @@
+# `as string` stops the program on bytes that are not valid UTF-8.
+# `bytes_to_string` is the form that hands the failure back instead.
+let (raw, build_error) = bytes_from_list([255, 254])
+let text: string = raw as string
+echo(text)

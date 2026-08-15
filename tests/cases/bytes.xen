@@ -1,0 +1,36 @@
+# The bytes type: what the language itself gives it, before any library.
+
+let raw: bytes = "hello" as bytes
+echo("len {len(raw)}")
+echo("first {raw[0]} last {raw[len(raw) - 1]}")
+
+# Concatenation and equality.
+let greeting: bytes = raw + (" world" as bytes)
+echo("joined {greeting as string}")
+echo("equal {raw == ("hello" as bytes)} {raw == greeting}")
+
+# Bytes are not characters: this is three characters and five bytes.
+let accented: bytes = "héllo" as bytes
+echo("chars {"héllo".len()} bytes {len(accented)}")
+
+# Echoing bytes says how many there are rather than spraying them at the
+# terminal.
+echo(raw)
+
+# The primitives.
+echo("slice {bytes_slice(greeting, 6, 11) as string}")
+echo("list {bytes_to_list("hi" as bytes)}")
+
+let (built, build_error) = bytes_from_list([104, 105])
+echo("built {built as string} [{build_error}]")
+
+let (rejected, range_error) = bytes_from_list([104, 300])
+echo("rejected [{range_error}]")
+
+# The two ways of asking for text, one of which hands the failure back.
+let (decoded, decode_error) = bytes_to_string(greeting)
+echo("decoded {decoded} [{decode_error}]")
+
+let (invalid, invalid_error) = bytes_from_list([255])
+let (undecodable, utf8_error) = bytes_to_string(invalid)
+echo("undecodable [{utf8_error}]")

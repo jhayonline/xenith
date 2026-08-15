@@ -339,6 +339,19 @@ impl Interpreter {
     ) -> RuntimeResult {
         // Execute the inner node
         let inner_result = self.visit(&node.node, context);
+        if inner_result.error.is_some() {
+            return inner_result;
+        }
+
+        // A struct is a type, not a value, so there is nothing useful in
+        // `inner_result` to export. What an importer needs is the field list,
+        // which running the definition has just put in `struct_defs`.
+        if matches!(&*node.node, Node::StructDef(_)) {
+            if let Some(fields) = self.struct_defs.get(&node.exported_name) {
+                context.add_struct_export(node.exported_name.clone(), fields.clone());
+            }
+            return inner_result;
+        }
 
         // Mark the value as exported in the current context's module exports
         if let Some(value) = &inner_result.value {
@@ -458,10 +471,33 @@ impl Interpreter {
 
                 if let Some(value) = module.exports.get(original_name) {
                     context.symbol_table.set(target_name.clone(), value.clone());
-                } else if self.struct_names.contains(original_name.as_str()) {
-                    // It's a struct — just register the marker in the symbol table
+                } else if let Some(fields) = module.struct_exports.get(original_name) {
+                    // A struct is identified by its name -- that is what makes
+                    // one `User` the same type as another. Renaming it on the
+                    // way in would produce a value the exporting module's own
+                    // methods reject, so it is refused rather than half done.
+                    if target_name != original_name {
+                        return result.failure(
+                            RuntimeError::new(
+                                spec.position_start.clone(),
+                                spec.position_end.clone(),
+                                &format!(
+                                    "struct '{}' cannot be renamed on import",
+                                    original_name
+                                ),
+                                Some(context.clone()),
+                            )
+                            .with_code("XEN012")
+                            .with_name("Module Not Found")
+                            .with_help("import it under its own name; a struct is identified by that name, so a renamed one would not match the methods that take it")
+                            .base,
+                        );
+                    }
+
+                    self.struct_names.insert(original_name.clone());
+                    self.struct_defs.insert(original_name.clone(), fields.clone());
                     context.symbol_table.set(
-                        target_name.clone(),
+                        original_name.clone(),
                         Value::String(XenithString::new(format!("__struct__{}", original_name))),
                     );
                 } else {
@@ -1374,6 +1410,32 @@ impl Interpreter {
                     }
                 }
 
+                // `raw[i]` gives one byte, as an int in 0..=255.
+                (Value::Bytes(raw), Value::Number(idx)) => {
+                    let Some(position) = idx.as_index() else {
+                        return RuntimeResult::new().failure(
+                            RuntimeError::new(
+                                node.position_start.clone(),
+                                node.position_end.clone(),
+                                "a bytes index must be a non-negative int",
+                                None,
+                            )
+                            .with_code("XEN004")
+                            .with_name("Index Out of Bounds")
+                            .base,
+                        );
+                    };
+                    match raw.data.get(position) {
+                        Some(byte) => Ok(Value::int(*byte as i64)),
+                        None => Err(Error::index_out_of_bounds(
+                            position,
+                            raw.len(),
+                            node.position_start.clone(),
+                            node.position_end.clone(),
+                        )),
+                    }
+                }
+
                 // `text[i]` gives the character at a position, as a one
                 // character string. Counted in characters rather than bytes, to
                 // agree with `.len()`, so indexing text with an accent in it
@@ -1480,6 +1542,30 @@ impl Interpreter {
                         ))),
                     },
                     (Value::String(s), "string") => Ok(Value::String(s.clone())),
+                    // A string is already valid UTF-8, so this direction never
+                    // fails. The other one does.
+                    (Value::String(s), "bytes") => {
+                        Ok(Value::bytes(s.value.clone().into_bytes()))
+                    }
+
+                    // ---- bytes conversions ----
+                    //
+                    // Bytes that are not valid UTF-8 have no string form, and
+                    // quietly substituting replacement characters would lose
+                    // data that a caller may well have been about to write back
+                    // out. `bytes_to_string` is the form that hands back the
+                    // failure instead of stopping.
+                    (Value::Bytes(b), "string") => {
+                        String::from_utf8(b.data.clone())
+                            .map(|text| Value::String(XenithString::new(text)))
+                            .map_err(|e| {
+                                convert_err(format!(
+                                    "bytes are not valid UTF-8 (at byte {})",
+                                    e.utf8_error().valid_up_to()
+                                ))
+                            })
+                    }
+                    (Value::Bytes(b), "bytes") => Ok(Value::Bytes(b.clone())),
 
                     // ---- bool conversions ----
                     (Value::Bool(b), "int") => Ok(Value::int(if *b { 1 } else { 0 })),
@@ -2071,7 +2157,18 @@ impl Interpreter {
 
             // Call the method on the object
             let method_name = method_node.method_name.value.as_ref().unwrap();
-            let (call_result, mutated) = self.call_method(object.clone(), method_name, args, context);
+            let (mut call_result, mutated) =
+                self.call_method(object.clone(), method_name, args, context);
+
+            // `call_method` builds its errors without positions, the way the
+            // value-level operators do. Attach the call's real span so a
+            // failure points at the source rather than at line 1.
+            if let Some(error) = &mut call_result.error {
+                if error.position_start.index == 0 && error.position_end.index == 0 {
+                    error.position_start = node.position_start.clone();
+                    error.position_end = node.position_end.clone();
+                }
+            }
 
             // Register the result
             let value = result.register(call_result);
@@ -2234,6 +2331,38 @@ impl Interpreter {
                 RuntimeResult::new().success(Value::int(map.len() as i64)),
                 None,
             ),
+            // Deleting a key. It errors on a key that is not there rather than
+            // doing nothing quietly, which is the same choice `pop` and
+            // `map[key]` make: `has_key` is how you ask first.
+            (Value::Map(mut map), "remove") => {
+                if args.len() != 1 {
+                    return fail("remove expects 1 argument");
+                }
+                let Value::String(key) = &args[0] else {
+                    return fail("remove expects a string key");
+                };
+                match map.remove(&key.value) {
+                    // The removed value is the call's result; the shortened map
+                    // is what the variable should now hold.
+                    Some(removed) => (
+                        RuntimeResult::new().success(removed),
+                        Some(Value::Map(map)),
+                    ),
+                    None => (
+                        RuntimeResult::new().failure(
+                            RuntimeError::new(
+                                Self::dummy_pos(),
+                                Self::dummy_pos(),
+                                &format!("Key '{}' not found in map", key.value),
+                                Some(context.clone()),
+                            )
+                            .with_help("check with `has_key` before removing")
+                            .base,
+                        ),
+                        None,
+                    ),
+                }
+            }
             (Value::Map(map), "has_key") => {
                 if args.len() != 1 {
                     return fail("has_key expects 1 argument");

@@ -1,0 +1,29 @@
+# Deleting a map key.
+
+let ages: map<string, int> = {"ada": 36, "alan": 41, "grace": 45}
+echo("start {ages.len()}")
+
+# `remove` gives back what it took out.
+let removed: int = ages.remove("ada")
+echo("removed {removed}, left {ages.len()}, still there {ages.has_key("ada")}")
+echo("keys {ages.keys()}")
+
+# `has_key` is how you ask before removing a key that may not be there.
+when ages.has_key("nobody") {
+    ages.remove("nobody")
+} otherwise {
+    echo("guarded, nothing removed")
+}
+
+# It works at any depth, not just on a bare name.
+struct Store {
+    entries: map<string, int>
+}
+let store: Store = Store { entries: {"x": 1, "y": 2} }
+store.entries.remove("x")
+echo("nested {store.entries.len()} {store.entries.keys()}")
+
+# Removing every key leaves an empty map rather than anything special.
+let counts: map<string, int> = {"only": 1}
+counts.remove("only")
+echo("emptied {counts.len()} {counts.keys()}")

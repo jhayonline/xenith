@@ -10,6 +10,7 @@ rules that the earlier pages showed one at a time.
 | `int` | 64 bit signed integers |
 | `float` | 64 bit floating point |
 | `string` | UTF-8 text |
+| `bytes` | raw bytes, no encoding assumed |
 | `bool` | `true` and `false` |
 | `null` | only `null` |
 | `list<T>` | any number of `T` |
@@ -199,8 +200,74 @@ echo("{n as bool}")
 true
 ```
 
-The conversions that exist are between `int`, `float`, `string` and `bool`. There
-is no conversion to or from lists, maps, tuples or structs.
+The conversions that exist are between `int`, `float`, `string` and `bool`, and
+between `string` and `bytes`. There is no conversion to or from lists, maps,
+tuples or structs.
+
+## bytes
+
+A `string` is guaranteed to be valid UTF-8. A `bytes` is guaranteed nothing,
+which is what makes it the right type for anything that came from outside the
+program: a file that is not text, an image, a compressed stream.
+
+```xenith
+let raw: bytes = "hello" as bytes
+
+echo("{len(raw)} bytes, first is {raw[0]}")
+echo("{(raw + (" world" as bytes)) as string}")
+```
+
+```
+5 bytes, first is 104
+hello world
+```
+
+Indexing gives an `int` in 0 to 255 rather than a one byte `bytes`, because
+almost everything done with a single byte is arithmetic or a comparison against
+a code. `+` joins, `==` compares, and `len` counts bytes rather than characters:
+
+```xenith
+let accented: bytes = "héllo" as bytes
+
+echo("{"héllo".len()} characters, {len(accented)} bytes")
+```
+
+```
+5 characters, 6 bytes
+```
+
+Text always converts to bytes. Bytes do not always convert to text, and `as`
+stops the program when they do not:
+
+```xenith
+let (raw, error) = bytes_from_list([255, 254])
+
+let text: string = raw as string
+```
+
+```
+error XEN011: Invalid Type Conversion
+  bytes are not valid UTF-8 (at byte 0)
+```
+
+When that is a case to handle rather than a bug, `bytes_to_string` hands the
+reason back instead of stopping:
+
+```xenith
+let (raw, build_error) = bytes_from_list([255, 254])
+
+let (text, error) = bytes_to_string(raw)
+
+echo("[{error}]")
+```
+
+```
+[not valid UTF-8 (at byte 0)]
+```
+
+`echo` prints how many bytes there are rather than the bytes themselves, which
+would spray control characters at the terminal. See
+[The standard library](19-standard-library.md) for `std::bytes`.
 
 ## Type aliases
 

@@ -1,0 +1,16 @@
+unset false
+missing [] false
+blank [] true
+set [hello] true
+in all true
+after unset false
+fallback default
+given given
+port 8080 true
+no port 0 false
+flag true
+off false
+unset flag false
+args true params 0
+program named true
+cwd true []

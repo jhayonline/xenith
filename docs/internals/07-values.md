@@ -9,6 +9,7 @@ arithmetic and the built in functions.
 pub enum Value {
     Number(Number),
     String(XenithString),
+    Bytes(Bytes),
     Bool(bool),
     Null,
     List(List),
@@ -120,10 +121,15 @@ Step 4 is where lexical scoping comes from; see
 ## Collections
 
 ```rust
+pub struct Bytes { pub data: Vec<u8> }
 pub struct List { pub elements: Vec<Value> }
 pub struct Map { pub pairs: HashMap<String, Value> }
 pub struct Struct { pub name: String, pub fields: HashMap<String, Value> }
 ```
+
+`Bytes` is held inline rather than boxed. A `Vec<u8>` is 24 bytes, the same as
+the `String` inside `XenithString` and the `Vec<Value>` inside `List`, so it
+does not widen `Value` the way `Map` and `Struct` did.
 
 `Map` uses a plain `HashMap`, so it has no order of its own. `keys()`, `values()`
 and `items()` all sort by key before returning, and `visit_for` sorts before

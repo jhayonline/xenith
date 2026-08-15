@@ -36,6 +36,23 @@ export method append(path: string, contents: string) -> string {
     release fs_append(path, contents)
 }
 
+# The whole file as raw bytes, and an error which is empty on success.
+#
+# `read` fails on a file that is not valid UTF-8, which for a text file is
+# what you want to hear about. For a PNG, a zip or anything else that is not
+# text, this is the one to use.
+export method read_bytes(path: string) -> (bytes, string) {
+    release fs_read_bytes(path)
+}
+
+export method write_bytes(path: string, contents: bytes) -> string {
+    release fs_write_bytes(path, contents)
+}
+
+export method append_bytes(path: string, contents: bytes) -> string {
+    release fs_append_bytes(path, contents)
+}
+
 export method remove(path: string) -> string {
     release fs_remove(path)
 }
@@ -114,14 +131,15 @@ export method remove_dir(path: string) -> string {
 # Copying
 # ---------------------------------------------------------------------------
 
-# Copies a file by reading it and writing it out, so it only works for text and
-# holds the whole thing in memory.
+# Copies a file by reading it and writing it out, so it holds the whole thing
+# in memory. It goes through bytes rather than text, so it works on any file
+# and not only a UTF-8 one.
 export method copy(source: string, destination: string) -> string {
-    let (text, error) = read(source)
+    let (raw, error) = read_bytes(source)
     when error != "" {
         release error
     }
-    release write(destination, text)
+    release write_bytes(destination, raw)
 }
 
 # ---------------------------------------------------------------------------

@@ -24,6 +24,9 @@ use crate::utils::value_to_string;
 pub enum Value {
     Number(Number),
     String(XenithString),
+    /// Raw bytes. Held inline: a `Vec<u8>` is 24 bytes, the same as the
+    /// `String` and `Vec<Value>` already here, so this costs nothing.
+    Bytes(Bytes),
     List(List),
     Function(Box<Function>),
     BuiltInFunction(BuiltInFunction),
@@ -53,6 +56,11 @@ impl Value {
         Value::String(XenithString::new(s.to_string()))
     }
 
+    /// Creates a bytes value
+    pub fn bytes(data: Vec<u8>) -> Self {
+        Value::Bytes(Bytes::new(data))
+    }
+
     /// Creates a list value
     pub fn list(elements: Vec<Value>) -> Self {
         Value::List(List::new(elements))
@@ -63,6 +71,7 @@ impl Value {
         match self {
             Value::Number(n) => !n.is_zero(),
             Value::String(s) => !s.value.is_empty(),
+            Value::Bytes(b) => !b.data.is_empty(),
             Value::List(l) => !l.elements.is_empty(),
             Value::Map(m) => !m.pairs.is_empty(),
             Value::Struct(s) => !s.fields.is_empty(),
@@ -86,6 +95,14 @@ impl Value {
     pub fn as_string(&self) -> Option<&XenithString> {
         match self {
             Value::String(s) => Some(s),
+            _ => None,
+        }
+    }
+
+    /// Tries to get as bytes
+    pub fn as_bytes(&self) -> Option<&Bytes> {
+        match self {
+            Value::Bytes(b) => Some(b),
             _ => None,
         }
     }
@@ -192,6 +209,11 @@ impl Value {
                 let mut new = a.value.clone();
                 new.push_str(&b.value);
                 Ok(Value::String(XenithString::new(new)))
+            }
+            (Value::Bytes(a), Value::Bytes(b)) => {
+                let mut new = a.data.clone();
+                new.extend_from_slice(&b.data);
+                Ok(Value::bytes(new))
             }
             (Value::List(a), Value::List(b)) => {
                 let mut new = a.clone();
@@ -354,6 +376,7 @@ impl Value {
                 _ => false,
             },
             (Value::String(a), Value::String(b)) => a.value == b.value,
+            (Value::Bytes(a), Value::Bytes(b)) => a.data == b.data,
             (Value::Bool(a), Value::Bool(b)) => a == b,
             (Value::Null, Value::Null) => true,
             (Value::List(a), Value::List(b)) => {
@@ -392,6 +415,7 @@ impl Value {
                 _ => Err(Self::mixed_err("compare", a, b)),
             },
             (Value::String(a), Value::String(b)) => Ok(a.value.cmp(&b.value)),
+            (Value::Bytes(a), Value::Bytes(b)) => Ok(a.data.cmp(&b.data)),
             _ => Err(Self::arith_err(&format!(
                 "cannot compare {} {} {}",
                 Self::get_type_name(self),
@@ -457,6 +481,7 @@ impl Value {
             Type::Int => matches!(value, Value::Number(Number::Int(_))),
             Type::Float => matches!(value, Value::Number(Number::Float(_))),
             Type::String => matches!(value, Value::String(_)),
+            Type::Bytes => matches!(value, Value::Bytes(_)),
             Type::Bool => matches!(value, Value::Bool(_)),
             Type::Null => matches!(value, Value::Null),
             Type::List(inner) => match value {
@@ -494,6 +519,7 @@ impl Value {
         match value {
             Value::Number(n) => n.type_name().to_string(),
             Value::String(_) => "string".to_string(),
+            Value::Bytes(_) => "bytes".to_string(),
             Value::Bool(_) => "bool".to_string(),
             Value::List(_) => "list".to_string(),
             Value::Map(_) => "map".to_string(),
@@ -598,6 +624,45 @@ pub struct XenithString {
 impl XenithString {
     pub fn new(value: String) -> Self {
         Self { value }
+    }
+}
+
+/// Raw bytes runtime value.
+///
+/// Indexing gives an `int` in 0..=255 rather than a one-byte `bytes`, because
+/// nearly everything done with a single byte is arithmetic or a comparison
+/// against a code, and a one-element container would have to be unwrapped at
+/// every use.
+#[derive(Debug, Clone)]
+pub struct Bytes {
+    pub data: Vec<u8>,
+}
+
+impl Bytes {
+    pub fn new(data: Vec<u8>) -> Self {
+        Self { data }
+    }
+
+    pub fn len(&self) -> usize {
+        self.data.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.data.is_empty()
+    }
+
+    /// The bytes from `start` up to but not including `end`, both clamped, so
+    /// this never fails. Same contract as `substring` on a string, and for the
+    /// same reason: slicing is constant in byte-handling code and a version
+    /// that could error means a bounds check at every call site.
+    pub fn slice(&self, start: i64, end: i64) -> Bytes {
+        let length = self.data.len() as i64;
+        let start = start.clamp(0, length) as usize;
+        let end = end.clamp(0, length) as usize;
+        if start >= end {
+            return Bytes::new(Vec::new());
+        }
+        Bytes::new(self.data[start..end].to_vec())
     }
 }
 
@@ -840,6 +905,9 @@ impl BuiltInFunction {
             "fs_read" => self.fs_read(args, call_pos),
             "fs_write" => self.fs_write(args, call_pos, false),
             "fs_append" => self.fs_write(args, call_pos, true),
+            "fs_read_bytes" => self.fs_read_bytes(args, call_pos),
+            "fs_write_bytes" => self.fs_write_bytes(args, call_pos, false),
+            "fs_append_bytes" => self.fs_write_bytes(args, call_pos, true),
             "fs_remove" => self.fs_remove(args, call_pos),
             "fs_exists" => self.fs_test(args, call_pos, "fs_exists", |p| p.exists()),
             "fs_is_file" => self.fs_test(args, call_pos, "fs_is_file", |p| p.is_file()),
@@ -857,6 +925,17 @@ impl BuiltInFunction {
             "atan2" => self.atan2(args, call_pos),
             "code_at" => self.code_at(args, call_pos),
             "from_code" => self.from_code(args, call_pos),
+            "bytes_slice" => self.bytes_slice(args, call_pos),
+            "bytes_to_string" => self.bytes_to_string(args, call_pos),
+            "bytes_to_list" => self.bytes_to_list(args, call_pos),
+            "bytes_from_list" => self.bytes_from_list(args, call_pos),
+            "env_get" => self.env_get(args, call_pos),
+            "env_set" => self.env_set(args, call_pos),
+            "env_unset" => self.env_unset(args, call_pos),
+            "env_vars" => self.env_vars(),
+            "env_args" => self.env_args(),
+            "env_cwd" => self.env_cwd(),
+            "env_exit" => self.env_exit(args, call_pos),
             "format" => crate::builtins::format::format(args, interpreter, call_pos, context),
             // =================================================================================
             _ => RuntimeResult::new().failure(
@@ -876,6 +955,10 @@ impl BuiltInFunction {
             match arg {
                 Value::Number(n) => print!("{}", n),
                 Value::String(s) => print!("{}", s.value),
+                // Not the contents: bytes are usually not text, and printing
+                // them raw would spray control characters at the terminal.
+                // `b as string` is how you ask for the contents.
+                Value::Bytes(b) => print!("<bytes {}>", b.len()),
                 Value::Bool(b) => print!("{}", b),
                 Value::Null => print!("null"),
                 Value::List(l) => {
@@ -1261,6 +1344,54 @@ impl BuiltInFunction {
         Self::outcome(result)
     }
 
+    fn fs_read_bytes(&self, args: Vec<Value>, call_pos: Position) -> RuntimeResult {
+        let path = match self.fs_path("fs_read_bytes", &args, &call_pos) {
+            Ok(path) => path,
+            Err(failure) => return failure,
+        };
+
+        match std::fs::read(&path) {
+            Ok(contents) => Self::ok_pair(Value::bytes(contents)),
+            Err(e) => Self::err_pair(Value::bytes(Vec::new()), e.to_string()),
+        }
+    }
+
+    fn fs_write_bytes(&self, args: Vec<Value>, call_pos: Position, append: bool) -> RuntimeResult {
+        let name = if append { "fs_append_bytes" } else { "fs_write_bytes" };
+        let path = match self.fs_path(name, &args, &call_pos) {
+            Ok(path) => path,
+            Err(failure) => return failure,
+        };
+
+        let Some(Value::Bytes(contents)) = args.get(1) else {
+            return RuntimeResult::new().failure(
+                RuntimeError::new(
+                    call_pos.clone(),
+                    call_pos,
+                    &format!("{} expects the contents as bytes", name),
+                    None,
+                )
+                .with_code("XEN001")
+                .with_name("Type Mismatch")
+                .with_help("convert text first, e.g. `text as bytes`")
+                .base,
+            );
+        };
+
+        let result = if append {
+            use std::io::Write as _;
+            std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&path)
+                .and_then(|mut file| file.write_all(&contents.data))
+        } else {
+            std::fs::write(&path, &contents.data)
+        };
+
+        Self::outcome(result)
+    }
+
     fn fs_remove(&self, args: Vec<Value>, call_pos: Position) -> RuntimeResult {
         match self.fs_path("fs_remove", &args, &call_pos) {
             Ok(path) => Self::outcome(std::fs::remove_file(path)),
@@ -1334,6 +1465,268 @@ impl BuiltInFunction {
         Self::ok_pair(Value::list(
             names.into_iter().map(|n| Value::string(&n)).collect(),
         ))
+    }
+
+    // -- bytes -----------------------------------------------------------
+
+    /// The one bytes argument these start with.
+    fn bytes_arg(&self, name: &str, args: &[Value], call_pos: &Position) -> Result<Bytes, RuntimeResult> {
+        let fail = |detail: String| {
+            RuntimeResult::new().failure(
+                RuntimeError::new(call_pos.clone(), call_pos.clone(), &detail, None)
+                    .with_code("XEN001")
+                    .with_name("Type Mismatch")
+                    .with_help("convert text first, e.g. `text as bytes`")
+                    .base,
+            )
+        };
+
+        match args.first() {
+            Some(Value::Bytes(raw)) => Ok(raw.clone()),
+            Some(other) => Err(fail(format!(
+                "{} expects bytes, found {}",
+                name,
+                Value::get_type_name(other)
+            ))),
+            None => Err(fail(format!("{} expects bytes", name))),
+        }
+    }
+
+    fn bytes_slice(&self, args: Vec<Value>, call_pos: Position) -> RuntimeResult {
+        let raw = match self.bytes_arg("bytes_slice", &args, &call_pos) {
+            Ok(raw) => raw,
+            Err(failure) => return failure,
+        };
+
+        let bound = |index: usize| match args.get(index) {
+            Some(Value::Number(Number::Int(n))) => Some(*n),
+            _ => None,
+        };
+
+        let (Some(start), Some(end)) = (bound(1), bound(2)) else {
+            return RuntimeResult::new().failure(
+                RuntimeError::new(
+                    call_pos.clone(),
+                    call_pos,
+                    "bytes_slice expects a start and an end, both ints",
+                    None,
+                )
+                .with_code("XEN001")
+                .with_name("Type Mismatch")
+                .base,
+            );
+        };
+
+        RuntimeResult::new().success(Value::Bytes(raw.slice(start, end)))
+    }
+
+    fn bytes_to_string(&self, args: Vec<Value>, call_pos: Position) -> RuntimeResult {
+        let raw = match self.bytes_arg("bytes_to_string", &args, &call_pos) {
+            Ok(raw) => raw,
+            Err(failure) => return failure,
+        };
+
+        match String::from_utf8(raw.data) {
+            Ok(text) => Self::ok_pair(Value::String(XenithString::new(text))),
+            Err(e) => Self::err_pair(
+                Value::string(""),
+                format!(
+                    "not valid UTF-8 (at byte {})",
+                    e.utf8_error().valid_up_to()
+                ),
+            ),
+        }
+    }
+
+    fn bytes_to_list(&self, args: Vec<Value>, call_pos: Position) -> RuntimeResult {
+        let raw = match self.bytes_arg("bytes_to_list", &args, &call_pos) {
+            Ok(raw) => raw,
+            Err(failure) => return failure,
+        };
+
+        RuntimeResult::new().success(Value::list(
+            raw.data.iter().map(|byte| Value::int(*byte as i64)).collect(),
+        ))
+    }
+
+    fn bytes_from_list(&self, args: Vec<Value>, call_pos: Position) -> RuntimeResult {
+        let Some(Value::List(codes)) = args.first() else {
+            return RuntimeResult::new().failure(
+                RuntimeError::new(
+                    call_pos.clone(),
+                    call_pos,
+                    "bytes_from_list expects a list of ints",
+                    None,
+                )
+                .with_code("XEN001")
+                .with_name("Type Mismatch")
+                .base,
+            );
+        };
+
+        let mut data = Vec::with_capacity(codes.elements.len());
+        for (index, element) in codes.elements.iter().enumerate() {
+            let Value::Number(Number::Int(code)) = element else {
+                return Self::err_pair(
+                    Value::bytes(Vec::new()),
+                    format!(
+                        "element {} is a {}, not an int",
+                        index,
+                        Value::get_type_name(element)
+                    ),
+                );
+            };
+            match u8::try_from(*code) {
+                Ok(byte) => data.push(byte),
+                Err(_) => {
+                    return Self::err_pair(
+                        Value::bytes(Vec::new()),
+                        format!("element {} is {}, outside 0 to 255", index, code),
+                    );
+                }
+            }
+        }
+
+        Self::ok_pair(Value::bytes(data))
+    }
+
+    // -- environment -----------------------------------------------------
+
+    /// The one string argument the env builtins start with.
+    fn env_name(&self, name: &str, args: &[Value], call_pos: &Position) -> Result<String, RuntimeResult> {
+        let fail = |detail: String| {
+            RuntimeResult::new().failure(
+                RuntimeError::new(call_pos.clone(), call_pos.clone(), &detail, None)
+                    .with_code("XEN001")
+                    .with_name("Type Mismatch")
+                    .base,
+            )
+        };
+
+        match args.first() {
+            Some(Value::String(text)) => Ok(text.value.clone()),
+            Some(other) => Err(fail(format!(
+                "{} expects a variable name as a string, found {}",
+                name,
+                Value::get_type_name(other)
+            ))),
+            None => Err(fail(format!("{} expects a variable name", name))),
+        }
+    }
+
+    /// The value and whether it was set. Unset and empty are different, and a
+    /// single string cannot tell them apart -- which is the bug every language
+    /// that returns "" for both makes easy to write.
+    fn env_get(&self, args: Vec<Value>, call_pos: Position) -> RuntimeResult {
+        let name = match self.env_name("env_get", &args, &call_pos) {
+            Ok(name) => name,
+            Err(failure) => return failure,
+        };
+
+        match std::env::var(&name) {
+            Ok(value) => RuntimeResult::new().success(Value::Tuple(vec![
+                Value::String(XenithString::new(value)),
+                Value::Bool(true),
+            ])),
+            Err(_) => RuntimeResult::new()
+                .success(Value::Tuple(vec![Value::string(""), Value::Bool(false)])),
+        }
+    }
+
+    fn env_set(&self, args: Vec<Value>, call_pos: Position) -> RuntimeResult {
+        let name = match self.env_name("env_set", &args, &call_pos) {
+            Ok(name) => name,
+            Err(failure) => return failure,
+        };
+
+        let Some(Value::String(value)) = args.get(1) else {
+            return RuntimeResult::new().failure(
+                RuntimeError::new(
+                    call_pos.clone(),
+                    call_pos,
+                    "env_set expects the value as a string",
+                    None,
+                )
+                .with_code("XEN001")
+                .with_name("Type Mismatch")
+                .base,
+            );
+        };
+
+        // Xenith is single threaded, which is the condition this is unsafe
+        // without. Revisit when it is not.
+        unsafe { std::env::set_var(&name, &value.value) };
+        RuntimeResult::new().success(Value::Null)
+    }
+
+    fn env_unset(&self, args: Vec<Value>, call_pos: Position) -> RuntimeResult {
+        let name = match self.env_name("env_unset", &args, &call_pos) {
+            Ok(name) => name,
+            Err(failure) => return failure,
+        };
+
+        unsafe { std::env::remove_var(&name) };
+        RuntimeResult::new().success(Value::Null)
+    }
+
+    /// A name whose value is not valid UTF-8 is dropped rather than reported.
+    /// `std::env::vars` skips those already; this is a note that it does.
+    ///
+    /// No sorting here: `Map` sorts in `keys`, `values`, `items` and iteration,
+    /// so every way of walking the result already agrees.
+    fn env_vars(&self) -> RuntimeResult {
+        let mut map = Map::new();
+        for (name, value) in std::env::vars() {
+            map.set(name, Value::String(XenithString::new(value)));
+        }
+        RuntimeResult::new().success(Value::Map(Box::new(map)))
+    }
+
+    /// The command line as the process received it, minus the interpreter
+    /// itself, so `args()[0]` is the program being run and the rest is what the
+    /// user typed after it -- which is what a script wants and what `os.Args`
+    /// gives in Go.
+    fn env_args(&self) -> RuntimeResult {
+        let args: Vec<Value> = std::env::args()
+            .skip(1)
+            .map(|arg| Value::String(XenithString::new(arg)))
+            .collect();
+        RuntimeResult::new().success(Value::list(args))
+    }
+
+    fn env_cwd(&self) -> RuntimeResult {
+        match std::env::current_dir() {
+            Ok(path) => Self::ok_pair(Value::String(XenithString::new(
+                path.to_string_lossy().to_string(),
+            ))),
+            Err(e) => Self::err_pair(Value::string(""), e.to_string()),
+        }
+    }
+
+    fn env_exit(&self, args: Vec<Value>, call_pos: Position) -> RuntimeResult {
+        let code = match args.first() {
+            Some(Value::Number(Number::Int(code))) => *code,
+            Some(other) => {
+                return RuntimeResult::new().failure(
+                    RuntimeError::new(
+                        call_pos.clone(),
+                        call_pos,
+                        &format!(
+                            "env_exit expects an int status, found {}",
+                            Value::get_type_name(other)
+                        ),
+                        None,
+                    )
+                    .with_code("XEN001")
+                    .with_name("Type Mismatch")
+                    .base,
+                );
+            }
+            None => 0,
+        };
+
+        io::stdout().flush().ok();
+        std::process::exit(code as i32);
     }
 
     /// The characters of `text` from `start` up to but not including `end`.
@@ -1460,11 +1853,18 @@ impl BuiltInFunction {
             Value::String(s) => {
                 RuntimeResult::new().success(Value::int(s.value.chars().count() as i64))
             }
+            // Bytes, not characters. `len` on a string counts characters, and
+            // the whole point of holding something as bytes is that its length
+            // in bytes is the length that matters.
+            Value::Bytes(raw) => RuntimeResult::new().success(Value::int(raw.len() as i64)),
+            // The registry has always documented `len` as working on a map; it
+            // did not, and `map.len()` was the only way to ask.
+            Value::Map(map) => RuntimeResult::new().success(Value::int(map.len() as i64)),
             _ => RuntimeResult::new().failure(
                 RuntimeError::new(
                     call_pos.clone(),
                     call_pos,
-                    "len expects a list or string",
+                    "len expects a list, map, string or bytes",
                     None,
                 )
                 .base,

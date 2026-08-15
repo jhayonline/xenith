@@ -127,6 +127,9 @@ numbers[0] = 99
 
 let ages: map<string, int> = {"ada": 36}
 ages["alan"] = 41
+ages.remove("ada")
+
+let raw: bytes = "hello" as bytes             # raw bytes, no encoding assumed
 
 let (quotient, remainder) = (17 / 5, 17 % 5)   # tuples
 
@@ -148,9 +151,11 @@ methods including closures and passing them as values, modules, a static checker
 that reports every type error before anything runs, and diagnostics that point at
 the right code and suggest a fix.
 
-**Missing:** the standard library covers strings, maths and files, all written in
-Xenith. Time and randomness are not there, and collections are waiting on a
-decision about generics.
+**Missing:** the standard library covers strings, maths, files, bytes and the
+environment, all written in Xenith. Time and randomness are not there,
+collections are waiting on a decision about generics, and the static pass does
+not follow imports, so an imported name is checked as it runs rather than
+before.
 
 The full list, with what to do instead in each case, is
 [Known limitations](docs/tutorial/18-limitations.md).

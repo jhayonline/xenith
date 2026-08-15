@@ -55,17 +55,25 @@ the numbers are [1, 2, 3]
 
 ### len(value)
 
-The number of elements in a list or map, or characters in a string.
+The number of elements in a list or map, characters in a string, or bytes in a
+`bytes`.
 
 ```xenith
 echo("{len("xenith")}")
 echo("{len([1, 2, 3])}")
+echo("{len({"a": 1})}")
+echo("{len("héllo" as bytes)}")
 ```
 
 ```
 6
 3
+1
+6
 ```
+
+A string counts characters and a `bytes` counts bytes, which is why the last
+two lines of that example disagree about `héllo`.
 
 Lists, maps and strings also have a `.len()` method, which reads better in a
 chain:
@@ -276,49 +284,43 @@ should be visible in the imports that it does.
 Use `std::fs`. These are documented so that the line between what the language
 provides and what the library adds is clear, not because you should call them.
 
-## format
+`fs_read_bytes`, `fs_write_bytes` and `fs_append_bytes` are the same three file
+operations for a file that is not text.
 
-### String primitives
+## Bytes primitives
 
-`substring(text, start, end)`, `code_at(text, index)` and `from_code(code)`,
-along with indexing a string, are what a string library is built from. See
-[Strings](04-strings.md).
+`bytes_slice(raw, start, end)`, `bytes_to_string(raw)`, `bytes_to_list(raw)` and
+`bytes_from_list(codes)`.
 
-## Float primitives
+Deliberately few, for the same reason as the string ones: `len`, indexing, `+`,
+`==` and `as` already cover most of what byte handling needs, and
+[std::bytes](19-standard-library.md) is written on top of these.
 
-`sin(x)`, `cos(x)`, `tan(x)`, `atan2(y, x)`, `log(x)`, `log10(x)` and `exp(x)`.
-
-Each takes a float and returns one. They are here because a series expansion
-written in Xenith would give wrong answers away from zero, not because Rust is
-faster. `sqrt` is not among them, because `x ^ 0.5` already is one.
+`bytes_to_string` exists alongside `raw as string` because `as` stops the program
+on invalid UTF-8, and bytes that came from a file or a socket are exactly where a
+caller wants to handle that rather than die.
 
 ```xenith
-echo("{cos(0.0)} {exp(0.0)} {log10(1000.0)}")
+let (raw, build_error) = bytes_from_list([104, 105])
+
+echo("{raw as string} {bytes_to_list(raw)}")
+
+let (text, error) = bytes_to_string(raw)
+echo("{text} [{error}]")
 ```
 
 ```
-1.0 1.0 3.0
+hi [104, 105]
+hi []
 ```
 
-They will not take an int. The language does not convert between int and float
-anywhere else, so `sqrt(n as float)` says what it does.
+## Environment primitives
 
-[std::math](19-standard-library.md) has `abs`, `floor`, `round`, `sqrt` and the
-rest, written in Xenith on top of these.
+`env_get`, `env_set`, `env_unset`, `env_vars`, `env_args`, `env_cwd` and
+`env_exit`.
 
-## Filesystem primitives
-
-`fs_read`, `fs_write`, `fs_append`, `fs_remove`, `fs_exists`, `fs_is_file`,
-`fs_is_dir`, `fs_size`, `fs_list`, `fs_create_dir` and `fs_remove_dir`.
-
-Unlike the others on this page these carry a prefix, and
-[std::fs](19-standard-library.md) wraps them under plain names. The rule: an
-operation on a built in type is global under its own name, a service is prefixed
-and imported. Reading a file is something a program asks the world to do, and it
-should be visible in the imports that it does.
-
-Use `std::fs`. These are documented so that the line between what the language
-provides and what the library adds is clear, not because you should call them.
+Prefixed and imported for the same reason as the filesystem ones, and wrapped
+under plain names by [std::env](19-standard-library.md), which is what to use.
 
 ## format(text)
 

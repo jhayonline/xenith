@@ -621,6 +621,7 @@ impl Checker {
                     Some("int") => Type::Int,
                     Some("float") => Type::Float,
                     Some("string") => Type::String,
+                    Some("bytes") => Type::Bytes,
                     Some("bool") => Type::Bool,
                     _ => Type::Unknown,
                 };
@@ -700,9 +701,12 @@ impl Checker {
             (Type::Int, Type::Int) => Type::Int,
             (Type::Float, Type::Float) => Type::Float,
 
-            // `+` also joins strings and lists.
+            // `+` also joins strings, bytes and lists.
             (Type::String, Type::String) if node.operator_token.kind == TokenType::Plus => {
                 Type::String
+            }
+            (Type::Bytes, Type::Bytes) if node.operator_token.kind == TokenType::Plus => {
+                Type::Bytes
             }
             (Type::List(a), Type::List(b)) if node.operator_token.kind == TokenType::Plus => {
                 if self.compatible(a, b) {
@@ -766,6 +770,9 @@ impl Checker {
                 );
                 Type::Unknown
             }
+            // One byte, as an int.
+            (Type::Bytes, Type::Int) => Type::Int,
+            (Type::Bytes, Type::Unknown) => Type::Unknown,
             (Type::Map(_, value), Type::String) => (**value).clone(),
             (Type::Map(_, _), Type::Unknown) => Type::Unknown,
             (Type::Map(_, _), other) => {
@@ -979,6 +986,6 @@ impl Checker {
 fn is_builtin_method(name: &str) -> bool {
     matches!(
         name,
-        "len" | "append" | "pop" | "keys" | "values" | "items" | "has_key"
+        "len" | "append" | "pop" | "remove" | "keys" | "values" | "items" | "has_key"
     )
 }

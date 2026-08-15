@@ -1,0 +1,43 @@
+grab { from_string, to_string, to_list, from_list, empty, size, is_blank, at, slice, concat, equal, starts_with, ends_with, index_of, contains, count, to_hex, from_hex } from "std::bytes"
+
+let raw: bytes = from_string("hello world")
+echo("size {size(raw)} blank {is_blank(raw)} empty blank {is_blank(empty())}")
+
+# Indexing that hands back whether the index was in range, rather than
+# stopping the program.
+let (first, first_ok) = at(raw, 0)
+let (past, past_ok) = at(raw, 99)
+echo("at 0 {first} {first_ok}, at 99 {past} {past_ok}")
+
+echo("slice [{to_hex(slice(raw, 0, 2))}]")
+echo("concat {concat(from_string("ab"), from_string("cd")) as string}")
+echo("equal {equal(from_string("ab"), from_string("ab"))}")
+
+echo("starts {starts_with(raw, from_string("hello"))} ends {ends_with(raw, from_string("world"))}")
+echo("starts too long {starts_with(from_string("ab"), from_string("abc"))}")
+
+let (found_at, found) = index_of(raw, from_string("world"))
+echo("index {found_at} {found}")
+let (missing_at, missing) = index_of(raw, from_string("zebra"))
+echo("missing {missing_at} {missing}")
+echo("empty needle {contains(raw, empty())}")
+
+echo("count {count(from_string("aaaa"), from_string("aa"))}")
+
+# Hex, both ways.
+echo("hex {to_hex(from_string("hi"))}")
+let (round_trip, hex_error) = from_hex("68656c6c6f")
+echo("from_hex {round_trip as string} [{hex_error}]")
+let (odd, odd_error) = from_hex("abc")
+echo("odd [{odd_error}]")
+let (bad, bad_error) = from_hex("zz")
+echo("bad [{bad_error}]")
+
+# Upper case hex is accepted on the way in.
+let (upper, upper_error) = from_hex("4849")
+echo("upper {upper as string} [{upper_error}]")
+
+# The module's own conversions, round tripping through a list of ints.
+let (made, made_error) = from_list([104, 105])
+let (text, text_error) = to_string(made)
+echo("round trip {text} {to_list(made)} [{made_error}{text_error}]")

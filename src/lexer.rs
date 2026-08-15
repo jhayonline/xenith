@@ -575,6 +575,7 @@ impl Lexer {
             "int" => TokenType::TypeInt,
             "float" => TokenType::TypeFloat,
             "string" => TokenType::TypeString,
+            "bytes" => TokenType::TypeBytes,
             "bool" => TokenType::TypeBool,
             "null" => TokenType::TypeNull,
             "list" => TokenType::TypeList,

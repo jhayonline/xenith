@@ -25,6 +25,9 @@ pub struct ModuleRegistry {
 pub struct Module {
     pub name: String,
     pub exports: HashMap<String, Value>,
+    /// Structs the module marked `export`, with their declared fields. Kept
+    /// apart from `exports` because a struct is a type and not a value.
+    pub struct_exports: HashMap<String, Vec<(String, crate::types::Type)>>,
     pub ast: Node,
 }
 
@@ -145,10 +148,12 @@ impl ModuleRegistry {
         }
         // Collect exports from the module's symbol table
         let exports = module_context.get_exports().clone();
+        let struct_exports = module_context.get_struct_exports().clone();
 
         let module = Module {
             name: module_path.to_string(),
             exports,
+            struct_exports,
             ast,
         };
 
