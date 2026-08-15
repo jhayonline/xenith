@@ -45,6 +45,10 @@ pub struct Checker {
     /// Innermost scope last.
     scopes: Vec<HashMap<String, Binding>>,
     structs: HashMap<String, Vec<(String, Type)>>,
+    /// Variants of each enum declared in this file, with what each carries.
+    /// An enum from another module is not in here, and a `match` on one is left
+    /// alone rather than guessed at.
+    enums: HashMap<String, Vec<(String, Vec<Type>)>>,
     aliases: HashMap<String, Type>,
     methods: HashMap<String, Signature>,
     errors: Vec<Error>,
@@ -68,6 +72,7 @@ impl Checker {
         Self {
             scopes: vec![HashMap::new()],
             structs: HashMap::new(),
+            enums: HashMap::new(),
             aliases,
             methods: HashMap::new(),
             errors: Vec::new(),
@@ -181,6 +186,7 @@ impl Checker {
             Node::VarAssign(n) => self.check_var_assign(n),
             Node::FuncDef(n) => self.check_func_def(n),
             Node::StructDef(n) => self.check_struct_def(n),
+            Node::EnumDef(n) => self.check_enum_def(n),
 
             Node::TypeAlias(n) => {
                 if let Some(name) = n.name.value.clone() {
@@ -367,6 +373,433 @@ impl Checker {
         self.structs.insert(name, fields);
     }
 
+    fn check_enum_def(&mut self, node: &EnumDefNode) {
+        let Some(name) = node.name.value.clone() else {
+            return;
+        };
+        let variants = node
+            .variants
+            .iter()
+            .filter_map(|variant| {
+                let variant_name = variant.name.value.clone()?;
+                let payload = variant
+                    .payload_types
+                    .iter()
+                    .map(|t| self.resolve(t))
+                    .collect();
+                Some((variant_name, payload))
+            })
+            .collect();
+        self.enums.insert(name, variants);
+    }
+
+    /// The declared payload of one variant, or `None` when the checker cannot
+    /// see the enum -- which is the normal case for an imported one.
+    fn variant_payload(&self, enum_name: &str, variant_name: &str) -> Option<Vec<Type>> {
+        self.enums
+            .get(enum_name)?
+            .iter()
+            .find(|(name, _)| name == variant_name)
+            .map(|(_, payload)| payload.clone())
+    }
+
+    fn unknown_variant_error(&mut self, enum_name: &str, variant_name: &str, start: &Position, end: &Position) {
+        let known: Vec<&str> = self
+            .enums
+            .get(enum_name)
+            .map(|variants| variants.iter().map(|(name, _)| name.as_str()).collect())
+            .unwrap_or_default();
+
+        self.error(
+            crate::error::RuntimeError::new(
+                start.clone(),
+                end.clone(),
+                &format!("enum `{}` has no variant `{}`", enum_name, variant_name),
+                None,
+            )
+            .with_code("XEN009")
+            .with_name("Variant Not Found")
+            .with_help(&format!("it has {}", known.join(", ")))
+            .base,
+        );
+    }
+
+    fn arity_error(
+        &mut self,
+        enum_name: &str,
+        variant_name: &str,
+        expected: usize,
+        got: usize,
+        start: &Position,
+        end: &Position,
+    ) {
+        let error = if got > expected {
+            Error::too_many_arguments(expected, got, start.clone(), end.clone())
+        } else {
+            Error::too_few_arguments(expected, got, start.clone(), end.clone())
+        };
+        self.error(error.with_note(&format!(
+            "variant `{}::{}` carries {}",
+            enum_name,
+            variant_name,
+            crate::interpreter::describe_arity(expected)
+        )));
+    }
+
+    fn infer_enum_variant(&mut self, node: &EnumVariantNode) -> Type {
+        let Some(payload_types) = self.variant_payload(&node.enum_name, &node.variant_name) else {
+            for argument in &node.arguments {
+                self.infer(argument);
+            }
+            // A known enum with an unknown variant is a real mistake; an enum
+            // the checker has never seen is left to the interpreter.
+            if self.enums.contains_key(&node.enum_name) {
+                self.unknown_variant_error(
+                    &node.enum_name,
+                    &node.variant_name,
+                    &node.position_start,
+                    &node.position_end,
+                );
+                return Type::Struct(node.enum_name.clone(), Vec::new());
+            }
+            return Type::Unknown;
+        };
+
+        if node.arguments.len() != payload_types.len() {
+            for argument in &node.arguments {
+                self.infer(argument);
+            }
+            self.arity_error(
+                &node.enum_name,
+                &node.variant_name,
+                payload_types.len(),
+                node.arguments.len(),
+                &node.position_start,
+                &node.position_end,
+            );
+            return Type::Struct(node.enum_name.clone(), Vec::new());
+        }
+
+        for (argument, expected) in node.arguments.iter().zip(&payload_types) {
+            let actual = self.infer(argument);
+            if !self.compatible(expected, &actual) {
+                self.type_error(
+                    expected,
+                    &actual,
+                    argument.position_start(),
+                    argument.position_end(),
+                );
+            }
+        }
+
+        Type::Struct(node.enum_name.clone(), Vec::new())
+    }
+
+    // -- match ---------------------------------------------------------------
+
+    fn infer_match(&mut self, node: &MatchNode) -> Type {
+        let subject = self.infer(&node.subject);
+        let subject = self.resolve(&subject);
+
+        let mut result: Option<Type> = None;
+
+        for arm in &node.arms {
+            self.push_scope();
+
+            for pattern in &arm.patterns {
+                self.check_pattern(pattern, &subject);
+            }
+
+            if let Some(guard) = &arm.guard {
+                self.infer(guard);
+            }
+
+            let body = self.infer_arm_body(&arm.body);
+            self.pop_scope();
+
+            // Every arm of an expression has to agree about what it produces.
+            // Two arms with concrete, incompatible types is provably wrong, so
+            // it is reported; anything the checker could not work out is not.
+            match &result {
+                None if !matches!(body, Type::Unknown) => result = Some(body),
+                Some(expected) if !self.compatible(expected, &body) => {
+                    let expected = expected.clone();
+                    self.type_error(
+                        &expected,
+                        &body,
+                        &arm.position_start,
+                        &arm.position_end,
+                    );
+                }
+                _ => {}
+            }
+        }
+
+        self.check_exhaustive(node, &subject);
+
+        result.unwrap_or(Type::Unknown)
+    }
+
+    /// An arm's body is one expression, or a block whose value is its last
+    /// statement. `infer` on a block would call `infer_list` and report it as a
+    /// list, which is what a block node means everywhere else.
+    fn infer_arm_body(&mut self, body: &Node) -> Type {
+        let Node::List(block) = body else {
+            return self.infer(body);
+        };
+
+        let mut last = Type::Null;
+        for (index, statement) in block.element_nodes.iter().enumerate() {
+            if index + 1 == block.element_nodes.len() {
+                last = self.infer(statement);
+            } else {
+                self.visit(statement);
+            }
+        }
+        last
+    }
+
+    /// Checks a pattern against the type it will be matched on, and declares
+    /// whatever it binds into the current scope.
+    fn check_pattern(&mut self, pattern: &Pattern, expected: &Type) {
+        match &pattern.kind {
+            PatternKind::Wildcard => {}
+
+            PatternKind::Binding(token) => {
+                if let Some(name) = token.value.clone() {
+                    self.declare(&name, expected.clone(), false);
+                }
+            }
+
+            PatternKind::Literal(literal) => {
+                let literal_type = self.infer(literal);
+                // A pattern whose type cannot occur here can never match, which
+                // is a mistake worth reporting rather than dead code to ignore.
+                if !self.compatible(expected, &literal_type) {
+                    self.type_error(
+                        expected,
+                        &literal_type,
+                        &pattern.position_start,
+                        &pattern.position_end,
+                    );
+                }
+            }
+
+            PatternKind::Tuple(elements) => {
+                let element_types: Vec<Type> = match self.resolve(expected) {
+                    Type::Tuple(types) if types.len() == elements.len() => types,
+                    Type::Tuple(types) => {
+                        self.error(
+                            crate::error::RuntimeError::new(
+                                pattern.position_start.clone(),
+                                pattern.position_end.clone(),
+                                &format!(
+                                    "pattern has {} elements, the tuple has {}",
+                                    elements.len(),
+                                    types.len()
+                                ),
+                                None,
+                            )
+                            .with_code("XEN020")
+                            .with_name("Destructuring Mismatch")
+                            .base,
+                        );
+                        vec![Type::Unknown; elements.len()]
+                    }
+                    _ => vec![Type::Unknown; elements.len()],
+                };
+
+                for (element, element_type) in elements.iter().zip(element_types) {
+                    self.check_pattern(element, &element_type);
+                }
+            }
+
+            PatternKind::Variant {
+                enum_name,
+                variant_name,
+                sub_patterns,
+                has_parens,
+            } => {
+                // Matching one enum's variant against another enum's value can
+                // never succeed. Only reported when both names are known.
+                if let Type::Struct(subject_name, _) = expected {
+                    if subject_name != enum_name
+                        && self.enums.contains_key(subject_name.as_str())
+                        && self.enums.contains_key(enum_name.as_str())
+                    {
+                        self.type_error(
+                            expected,
+                            &Type::Struct(enum_name.clone(), Vec::new()),
+                            &pattern.position_start,
+                            &pattern.position_end,
+                        );
+                        return;
+                    }
+                }
+
+                let Some(payload) = self.variant_payload(enum_name, variant_name) else {
+                    if self.enums.contains_key(enum_name.as_str()) {
+                        self.unknown_variant_error(
+                            enum_name,
+                            variant_name,
+                            &pattern.position_start,
+                            &pattern.position_end,
+                        );
+                    }
+                    // Unknown enum: still declare the bindings, as Unknown, so
+                    // the arm body does not report them undefined.
+                    let mut bound = Vec::new();
+                    pattern.bindings(&mut bound);
+                    for token in bound {
+                        if let Some(name) = token.value.clone() {
+                            self.declare(&name, Type::Unknown, false);
+                        }
+                    }
+                    return;
+                };
+
+                if *has_parens && sub_patterns.len() != payload.len() {
+                    self.arity_error(
+                        enum_name,
+                        variant_name,
+                        payload.len(),
+                        sub_patterns.len(),
+                        &pattern.position_start,
+                        &pattern.position_end,
+                    );
+                    for sub in sub_patterns {
+                        self.check_pattern(sub, &Type::Unknown);
+                    }
+                    return;
+                }
+
+                for (sub, sub_type) in sub_patterns.iter().zip(payload) {
+                    self.check_pattern(sub, &sub_type);
+                }
+            }
+        }
+    }
+
+    /// Reports a match that could fall off the end.
+    ///
+    /// This is the reason enums are worth having: add a variant, and every
+    /// match that does not handle it stops compiling. It only fires where the
+    /// full set of cases is known, so an unresolved type is never complained
+    /// about.
+    fn check_exhaustive(&mut self, node: &MatchNode, subject: &Type) {
+        // An arm with a guard proves nothing: whether it matches cannot be
+        // decided by looking at it.
+        let unguarded = || node.arms.iter().filter(|arm| arm.guard.is_none());
+
+        let has_catch_all = unguarded()
+            .any(|arm| arm.patterns.iter().any(|p| p.is_irrefutable()));
+        if has_catch_all {
+            return;
+        }
+
+        let missing: Vec<String> = match subject {
+            Type::Struct(name, _) => {
+                // Not an enum this pass can see. A struct needs a catch-all;
+                // anything else is left alone, because an imported enum would
+                // otherwise be wrongly accused of a hole it does not have.
+                let variants = match self.enums.get(name).cloned() {
+                    Some(variants) => variants,
+                    None if self.structs.contains_key(name) => {
+                        vec![("every case".to_string(), Vec::new())]
+                    }
+                    None => return,
+                };
+
+                let mut covered: Vec<&str> = Vec::new();
+                for arm in unguarded() {
+                    for pattern in &arm.patterns {
+                        if let PatternKind::Variant {
+                            enum_name,
+                            variant_name,
+                            sub_patterns,
+                            ..
+                        } = &pattern.kind
+                        {
+                            // `Circle(0.0)` does not cover `Circle`.
+                            if enum_name == name
+                                && sub_patterns.iter().all(|p| p.is_irrefutable())
+                            {
+                                covered.push(variant_name);
+                            }
+                        }
+                    }
+                }
+
+                variants
+                    .iter()
+                    .map(|(variant, _)| variant.clone())
+                    .filter(|variant| !covered.iter().any(|c| c == variant))
+                    .collect()
+            }
+
+            // Two values, so both literals are a complete set.
+            Type::Bool => {
+                let mut seen_true = false;
+                let mut seen_false = false;
+                for arm in unguarded() {
+                    for pattern in &arm.patterns {
+                        if let PatternKind::Literal(literal) = &pattern.kind {
+                            if let Node::BoolLiteral(b) = &**literal {
+                                seen_true |= b.value;
+                                seen_false |= !b.value;
+                            }
+                        }
+                    }
+                }
+                match (seen_true, seen_false) {
+                    (true, true) => Vec::new(),
+                    (true, false) => vec!["false".to_string()],
+                    (false, true) => vec!["true".to_string()],
+                    (false, false) => vec!["true".to_string(), "false".to_string()],
+                }
+            }
+
+            // An open set: there is no finite list of ints or strings to cover,
+            // so a match on one always needs a catch-all.
+            Type::Int | Type::Float | Type::String | Type::Bytes | Type::Null => {
+                vec!["every other value".to_string()]
+            }
+
+            // Anything the checker could not pin down.
+            _ => return,
+        };
+
+        if missing.is_empty() {
+            return;
+        }
+
+        let detail = if missing.len() == 1 && missing[0].contains(' ') {
+            format!("this match does not cover {}", missing[0])
+        } else {
+            format!(
+                "this match does not cover {}",
+                missing
+                    .iter()
+                    .map(|name| format!("`{}`", name))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        };
+
+        self.error(
+            crate::error::RuntimeError::new(
+                node.position_start.clone(),
+                node.position_end.clone(),
+                &detail,
+                None,
+            )
+            .with_code("XEN022")
+            .with_name("Match Not Exhaustive")
+            .with_help("add the missing arms, or a `_` arm for everything else")
+            .base,
+        );
+    }
+
     fn check_func_def(&mut self, node: &FuncDefNode) {
         let return_type = self.resolve(&node.return_type);
         let param_types: Vec<Type> = node.param_types.iter().map(|t| self.resolve(t)).collect();
@@ -508,6 +941,8 @@ impl Checker {
             }
 
             Node::Call(n) => self.infer_call(n),
+            Node::EnumVariant(n) => self.infer_enum_variant(n),
+            Node::Match(n) => self.infer_match(n),
             Node::StructInstantiation(n) => self.infer_struct_literal(n),
             Node::MethodAccess(n) => self.infer_field(n),
 
@@ -537,6 +972,7 @@ impl Checker {
             | Node::ForClassic(_)
             | Node::Return(_)
             | Node::StructDef(_)
+            | Node::EnumDef(_)
             | Node::TypeAlias(_)
             | Node::Destructure(_)
             | Node::Export(_)

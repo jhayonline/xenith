@@ -16,6 +16,7 @@ pub enum Value {
     Map(Map),
     Tuple(Vec<Value>),
     Struct(Struct),
+    Enum(EnumValue),
     Function(Function),
     BuiltInFunction(BuiltInFunction),
 }
@@ -125,7 +126,18 @@ pub struct Bytes { pub data: Vec<u8> }
 pub struct List { pub elements: Vec<Value> }
 pub struct Map { pub pairs: HashMap<String, Value> }
 pub struct Struct { pub name: String, pub fields: HashMap<String, Value> }
+pub struct EnumValue {
+    pub enum_name: String,
+    pub variant: String,
+    pub payload: Vec<Value>,
+}
 ```
+
+`EnumValue` carries its own enum's name for the same reason `Struct` does: it is
+what `value_matches_type` compares against a `Type::Struct(name, _)`, with no
+table to consult. Enums have no `Type` variant of their own -- `Type::Struct` is
+the named user type and covers both, because a type annotation is written the
+same way for either and the parser cannot tell an imported name apart anyway.
 
 `Bytes` is held inline rather than boxed. A `Vec<u8>` is 24 bytes, the same as
 the `String` inside `XenithString` and the `Vec<Value>` inside `List`, so it

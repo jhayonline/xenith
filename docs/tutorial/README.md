@@ -23,13 +23,14 @@ The whole language is about thirty keywords. These pages cover all of it.
 | 10 | [Tuples](10-tuples.md) | Destructuring, returning several values |
 | 11 | [Methods](11-methods.md) | Parameters, `release`, methods as values, recursion |
 | 12 | [Structs](12-structs.md) | Records, fields, behaviour in free methods |
-| 13 | [The type system](13-types.md) | What is checked, aliases, conversions |
-| 14 | [Modules](14-modules.md) | `export`, `grab`, module resolution |
-| 15 | [Built in functions](15-builtins.md) | Everything available without an import |
-| 16 | [Errors](16-errors.md) | Reading diagnostics, error codes, `panic` |
-| 17 | [Editor setup](17-editor-setup.md) | The language server and the Neovim plugin |
-| 18 | [Known limitations](18-limitations.md) | What does not work yet, and why |
-| 19 | [The standard library](19-standard-library.md) | `std::string`, and how it is built |
+| 13 | [Enums and match](13-enums.md) | Variants that carry values, patterns, completeness |
+| 14 | [The type system](14-types.md) | What is checked, aliases, conversions |
+| 15 | [Modules](15-modules.md) | `export`, `grab`, module resolution |
+| 16 | [Built in functions](16-builtins.md) | Everything available without an import |
+| 17 | [Errors](17-errors.md) | Reading diagnostics, error codes, `panic` |
+| 18 | [Editor setup](18-editor-setup.md) | The language server and the Neovim plugin |
+| 19 | [Known limitations](19-limitations.md) | What does not work yet, and why |
+| 20 | [The standard library](20-standard-library.md) | `std::string`, `std::bytes`, `std::env`, and how they are built |
 
 ## The whole language on one page
 

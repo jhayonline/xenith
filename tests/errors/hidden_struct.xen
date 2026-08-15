@@ -7,3 +7,13 @@ export struct Shown {
 struct Hidden {
     value: int
 }
+
+export enum Visible {
+    First(int),
+    Second(string),
+    Third
+}
+
+enum Concealed {
+    Only
+}

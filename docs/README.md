@@ -14,7 +14,7 @@ Worth reading early:
 
 - [Numbers](tutorial/03-numbers.md), because the split between `int` and `float`
   is the decision most of the rest of the language follows from.
-- [Known limitations](tutorial/18-limitations.md), because knowing what does not
+- [Known limitations](tutorial/19-limitations.md), because knowing what does not
   work yet saves an hour of finding out.
 
 ## [Internals](internals/README.md)

@@ -15,6 +15,7 @@ pub struct Module {
     pub name: String,
     pub exports: HashMap<String, Value>,
     pub struct_exports: HashMap<String, Vec<(String, Type)>>,
+    pub enum_exports: HashMap<String, Vec<(String, Vec<Type>)>>,
     pub ast: Node,
 }
 ```
@@ -36,6 +37,8 @@ pub fn source(name: &str) -> Option<&'static str> {
         "string" => Some(include_str!("string.xen")),
         "math" => Some(include_str!("math.xen")),
         "fs" => Some(include_str!("fs.xen")),
+        "bytes" => Some(include_str!("bytes.xen")),
+        "env" => Some(include_str!("env.xen")),
         _ => None,
     }
 }
@@ -104,9 +107,12 @@ recognises a `Node::StructDef` and copies its field list from `struct_defs` into
 `context.struct_exports`, a second map that travels alongside `exports` on the
 `Module`.
 
-Two maps rather than a `Value::StructDef` variant, because a struct definition
-is not a value anywhere else in the interpreter either, and adding a variant
-would mean an arm in every match over `Value` that could never fire.
+An enum travels the same way, in a third map `enum_exports`, carrying each
+variant and the types it holds.
+
+Separate maps rather than a `Value::StructDef` variant, because a struct or enum
+definition is not a value anywhere else in the interpreter either, and adding a
+variant would mean an arm in every match over `Value` that could never fire.
 
 ## Importing
 
@@ -118,15 +124,15 @@ instead is registered in `struct_names` and `struct_defs` and given the
 `__struct__` marker in the symbol table, which is what makes a literal of it
 check against the right fields. A name in neither is XEN012.
 
-A struct cannot be renamed on import. Struct identity is the name in
-`Struct.name`, compared by `value_matches_type`, so a renamed one would be
-rejected by the exporting module's own methods. Refusing it is a one line check
+Neither a struct nor an enum can be renamed on import. Identity is the name in
+`Struct.name` or `EnumValue.enum_name`, compared by `value_matches_type`, so a
+renamed one would be rejected by the exporting module's own methods. Refusing it is a one line check
 in `visit_grab`; supporting it would mean carrying a local-name to canonical-name
 map through `visit_struct_instantiation` and `resolve_type_alias` both.
 
 `grab * as name` builds a `Value::Map` of every export and binds that, which is
-why the namespace form is used with brackets: `stats["total"](xs)`. Structs are
-not in it, for the same reason they are not in `exports`.
+why the namespace form is used with brackets: `stats["total"](xs)`. Structs and
+enums are not in it, for the same reason they are not in `exports`.
 
 ## Scoping
 

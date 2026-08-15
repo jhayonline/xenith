@@ -1,0 +1,3 @@
+# An enum without `export` cannot be imported, the same as a struct or a method.
+grab { Concealed } from "hidden_struct"
+echo("{Concealed::Only}")

@@ -28,6 +28,8 @@ pub struct Module {
     /// Structs the module marked `export`, with their declared fields. Kept
     /// apart from `exports` because a struct is a type and not a value.
     pub struct_exports: HashMap<String, Vec<(String, crate::types::Type)>>,
+    /// Enums the module marked `export`, with their variants.
+    pub enum_exports: HashMap<String, Vec<(String, Vec<crate::types::Type>)>>,
     pub ast: Node,
 }
 
@@ -149,11 +151,13 @@ impl ModuleRegistry {
         // Collect exports from the module's symbol table
         let exports = module_context.get_exports().clone();
         let struct_exports = module_context.get_struct_exports().clone();
+        let enum_exports = module_context.get_enum_exports().clone();
 
         let module = Module {
             name: module_path.to_string(),
             exports,
             struct_exports,
+            enum_exports,
             ast,
         };
 

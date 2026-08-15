@@ -34,6 +34,10 @@ pub struct Interpreter {
     pub struct_names: std::collections::HashSet<String>,
     /// Declared fields of each struct, in source order, used to check literals.
     pub struct_defs: HashMap<String, Vec<(String, Type)>>,
+    /// Declared variants of each enum, in source order, with the types each
+    /// carries. Used to check a variant is real and its payload is the right
+    /// shape, and by `match` to report what a pattern got wrong.
+    pub enum_defs: HashMap<String, Vec<(String, Vec<Type>)>>,
     /// Modules part way through loading, used to detect circular imports.
     pub loading_modules: Vec<String>,
     pub type_aliases: HashMap<String, Type>,
@@ -69,6 +73,7 @@ impl Interpreter {
             module_registry: None,
             struct_names: std::collections::HashSet::new(),
             struct_defs: HashMap::new(),
+            enum_defs: HashMap::new(),
             loading_modules: Vec::new(),
             type_aliases: HashMap::new(),
         }
@@ -139,6 +144,9 @@ impl Interpreter {
             Node::Grab(n) => self.visit_grab(n, context),
             Node::Export(n) => self.visit_export(n, context),
             Node::StructDef(n) => self.visit_struct_def(n, context),
+            Node::EnumDef(n) => self.visit_enum_def(n, context),
+            Node::EnumVariant(n) => self.visit_enum_variant(n, context),
+            Node::Match(n) => self.visit_match(n, context),
             Node::TypeAlias(n) => self.visit_type_alias(n, context),
             Node::BoolLiteral(n) => self.visit_bool_literal(n, context),
             Node::NullLiteral(n) => self.visit_null_literal(n, context),
@@ -171,6 +179,148 @@ impl Interpreter {
         );
 
         RuntimeResult::new().success(Value::Null)
+    }
+
+    fn visit_enum_def(
+        &mut self,
+        node: &crate::nodes::EnumDefNode,
+        context: &mut Context,
+    ) -> RuntimeResult {
+        let enum_name = node.name.value.as_ref().unwrap().clone();
+
+        let mut variants = Vec::new();
+        for variant in &node.variants {
+            let variant_name = variant.name.value.as_ref().unwrap().clone();
+            variants.push((variant_name, variant.payload_types.clone()));
+        }
+
+        self.enum_defs.insert(enum_name.clone(), variants);
+        // The name resolves to something, so using it where it was never
+        // declared is XEN002 rather than a silent miss. Same marker trick the
+        // struct definitions use.
+        context.symbol_table.set(
+            enum_name.clone(),
+            Value::String(XenithString::new(format!("__enum__{}", enum_name))),
+        );
+
+        RuntimeResult::new().success(Value::Null)
+    }
+
+    /// The declared payload types of one variant, or an error naming what went
+    /// wrong. Shared by construction and by pattern matching, so an unknown
+    /// enum or variant reads the same either way.
+    fn lookup_variant(
+        &self,
+        enum_name: &str,
+        variant_name: &str,
+        start: &Position,
+        end: &Position,
+        context: &Context,
+    ) -> Result<Vec<Type>, Error> {
+        let Some(variants) = self.enum_defs.get(enum_name) else {
+            return Err(RuntimeError::new(
+                start.clone(),
+                end.clone(),
+                &format!("no enum named '{}' is in scope", enum_name),
+                Some(context.clone()),
+            )
+            .with_code("XEN002")
+            .with_name("Undefined Variable")
+            .with_help("declare it with `enum`, or import it if it lives in another module")
+            .base);
+        };
+
+        match variants.iter().find(|(name, _)| name == variant_name) {
+            Some((_, payload_types)) => Ok(payload_types.clone()),
+            None => {
+                let known: Vec<&str> = variants.iter().map(|(name, _)| name.as_str()).collect();
+                Err(RuntimeError::new(
+                    start.clone(),
+                    end.clone(),
+                    &format!("enum '{}' has no variant '{}'", enum_name, variant_name),
+                    Some(context.clone()),
+                )
+                .with_code("XEN009")
+                .with_name("Variant Not Found")
+                .with_help(&format!("it has {}", known.join(", ")))
+                .base)
+            }
+        }
+    }
+
+    fn visit_enum_variant(
+        &mut self,
+        node: &crate::nodes::EnumVariantNode,
+        context: &mut Context,
+    ) -> RuntimeResult {
+        let mut result = RuntimeResult::new();
+
+        let payload_types = match self.lookup_variant(
+            &node.enum_name,
+            &node.variant_name,
+            &node.position_start,
+            &node.position_end,
+            context,
+        ) {
+            Ok(types) => types,
+            Err(error) => return result.failure(error),
+        };
+
+        if node.arguments.len() != payload_types.len() {
+            let error = if node.arguments.len() > payload_types.len() {
+                Error::too_many_arguments(
+                    payload_types.len(),
+                    node.arguments.len(),
+                    node.position_start.clone(),
+                    node.position_end.clone(),
+                )
+            } else {
+                Error::too_few_arguments(
+                    payload_types.len(),
+                    node.arguments.len(),
+                    node.position_start.clone(),
+                    node.position_end.clone(),
+                )
+            };
+            return result.failure(error.with_note(&format!(
+                "variant `{}::{}` carries {}",
+                node.enum_name,
+                node.variant_name,
+                describe_arity(payload_types.len())
+            )));
+        }
+
+        let mut payload = Vec::with_capacity(node.arguments.len());
+        for (index, argument) in node.arguments.iter().enumerate() {
+            let value = result.register(self.visit(argument, context));
+            if result.should_return() {
+                return result;
+            }
+
+            let expected = self.resolve_type_alias(&payload_types[index]);
+            if !Value::value_matches_type(&value, &expected) {
+                return result.failure(
+                    Error::type_mismatch(
+                        &expected.to_string(),
+                        &Value::get_type_name(&value),
+                        argument.position_start().clone(),
+                        argument.position_end().clone(),
+                    )
+                    .with_note(&format!(
+                        "in `{}::{}`",
+                        node.enum_name, node.variant_name
+                    )),
+                );
+            }
+
+            payload.push(value);
+        }
+
+        result.success(Value::Enum(Box::new(crate::values::EnumValue::new(
+            node.enum_name.clone(),
+            node.variant_name.clone(),
+            payload,
+        ))))
     }
 
     fn visit_struct_instantiation(
@@ -263,6 +413,203 @@ impl Interpreter {
     }
 
 
+    fn visit_match(
+        &mut self,
+        node: &crate::nodes::MatchNode,
+        context: &mut Context,
+    ) -> RuntimeResult {
+        let mut result = RuntimeResult::new();
+
+        let subject = result.register(self.visit(&node.subject, context));
+        if result.should_return() {
+            return result;
+        }
+
+        for arm in &node.arms {
+            for pattern in &arm.patterns {
+                let mut bindings = Vec::new();
+                match self.pattern_matches(pattern, &subject, &mut bindings, context) {
+                    Err(error) => return result.failure(error),
+                    Ok(false) => continue,
+                    Ok(true) => {}
+                }
+
+                // The arm's bindings are visible to its guard as well as its
+                // body, which is the whole point of `Circle(r) when r > 10.0`.
+                let mut arm_ctx = context.create_child("<match>", arm.position_start.clone());
+                for (name, value) in bindings {
+                    arm_ctx.symbol_table.set_local(name, value);
+                }
+
+                if let Some(guard) = &arm.guard {
+                    let passed = result.register(self.visit(guard, &mut arm_ctx));
+                    if result.should_return() {
+                        return result;
+                    }
+                    if !passed.is_true() {
+                        continue;
+                    }
+                }
+
+                let value = result.register(self.visit_arm_body(&arm.body, &mut arm_ctx));
+                if result.should_return() {
+                    return result;
+                }
+                return result.success(value);
+            }
+        }
+
+        // The checker proves this cannot happen for an enum whose variants it
+        // can see. It still can for a match on an int or a string with no
+        // catch-all, and for an enum the checker could not resolve.
+        result.failure(
+            RuntimeError::new(
+                node.position_start.clone(),
+                node.position_end.clone(),
+                &format!("no arm matched {}", value_to_string(&subject)),
+                Some(context.clone()),
+            )
+            .with_code("XEN023")
+            .with_name("No Matching Case")
+            .with_help("add an arm for it, or a `_` arm for everything else")
+            .base,
+        )
+    }
+
+    /// An arm's body is either one expression or a block.
+    ///
+    /// A block's value is its last statement's, rather than the list of every
+    /// statement's value that a `when` body produces. A match is an expression,
+    /// so its arms have to be worth something.
+    fn visit_arm_body(&mut self, body: &Node, context: &mut Context) -> RuntimeResult {
+        let Node::List(block) = body else {
+            return self.visit(body, context);
+        };
+
+        let mut result = RuntimeResult::new();
+        let mut last = Value::Null;
+        for statement in &block.element_nodes {
+            last = result.register(self.visit(statement, context));
+            if result.should_return() {
+                return result;
+            }
+        }
+        result.success(last)
+    }
+
+    /// Does `value` match `pattern`? Collects the names it binds along the way.
+    ///
+    /// Bindings are collected rather than written straight into a scope because
+    /// a pattern that fails half way through must not leave the names it did
+    /// match behind for the next arm to see.
+    fn pattern_matches(
+        &mut self,
+        pattern: &crate::nodes::Pattern,
+        value: &Value,
+        bindings: &mut Vec<(String, Value)>,
+        context: &mut Context,
+    ) -> Result<bool, Error> {
+        use crate::nodes::PatternKind;
+
+        match &pattern.kind {
+            PatternKind::Wildcard => Ok(true),
+
+            PatternKind::Binding(token) => {
+                if let Some(name) = token.value.clone() {
+                    bindings.push((name, value.clone()));
+                }
+                Ok(true)
+            }
+
+            PatternKind::Literal(literal) => {
+                let expected = {
+                    let outcome = self.visit(literal, context);
+                    if let Some(error) = outcome.error {
+                        return Err(*error);
+                    }
+                    outcome.value.unwrap_or(Value::Null)
+                };
+                match value.equals(&expected) {
+                    Ok(Value::Bool(same)) => Ok(same),
+                    // Comparing values of different types is not an error here,
+                    // it is simply a pattern that does not match.
+                    _ => Ok(false),
+                }
+            }
+
+            PatternKind::Tuple(elements) => {
+                let Value::Tuple(values) = value else {
+                    return Ok(false);
+                };
+                if values.len() != elements.len() {
+                    return Ok(false);
+                }
+                for (element, value) in elements.iter().zip(values.iter()) {
+                    if !self.pattern_matches(element, value, bindings, context)? {
+                        return Ok(false);
+                    }
+                }
+                Ok(true)
+            }
+
+            PatternKind::Variant {
+                enum_name,
+                variant_name,
+                sub_patterns,
+                has_parens,
+            } => {
+                // A pattern naming an enum or variant that does not exist is a
+                // mistake in the pattern, not a value that failed to match, so
+                // it is reported even when the subject is a different variant.
+                let payload_types = self.lookup_variant(
+                    enum_name,
+                    variant_name,
+                    &pattern.position_start,
+                    &pattern.position_end,
+                    context,
+                )?;
+
+                if *has_parens && sub_patterns.len() != payload_types.len() {
+                    return Err(RuntimeError::new(
+                        pattern.position_start.clone(),
+                        pattern.position_end.clone(),
+                        &format!(
+                            "pattern binds {} for `{}::{}`, which carries {}",
+                            describe_arity(sub_patterns.len()),
+                            enum_name,
+                            variant_name,
+                            describe_arity(payload_types.len())
+                        ),
+                        Some(context.clone()),
+                    )
+                    .with_code("XEN020")
+                    .with_name("Destructuring Mismatch")
+                    .base);
+                }
+
+                let Value::Enum(actual) = value else {
+                    return Ok(false);
+                };
+                if &actual.enum_name != enum_name || &actual.variant != variant_name {
+                    return Ok(false);
+                }
+
+                // `Empty` without parentheses matches whatever it carries; that
+                // is only reachable for a variant with no payload anyway.
+                if !has_parens {
+                    return Ok(true);
+                }
+
+                for (sub, value) in sub_patterns.iter().zip(actual.payload.clone().iter()) {
+                    if !self.pattern_matches(sub, value, bindings, context)? {
+                        return Ok(false);
+                    }
+                }
+                Ok(true)
+            }
+        }
+    }
+
     fn visit_type_alias(&mut self, node: &TypeAliasNode, context: &mut Context) -> RuntimeResult {
         let alias_name = node.name.value.as_ref().unwrap().clone();
         let alias_type = node.alias_type.clone();
@@ -349,6 +696,14 @@ impl Interpreter {
         if matches!(&*node.node, Node::StructDef(_)) {
             if let Some(fields) = self.struct_defs.get(&node.exported_name) {
                 context.add_struct_export(node.exported_name.clone(), fields.clone());
+            }
+            return inner_result;
+        }
+
+        // Same for an enum, and for the same reason.
+        if matches!(&*node.node, Node::EnumDef(_)) {
+            if let Some(variants) = self.enum_defs.get(&node.exported_name) {
+                context.add_enum_export(node.exported_name.clone(), variants.clone());
             }
             return inner_result;
         }
@@ -499,6 +854,29 @@ impl Interpreter {
                     context.symbol_table.set(
                         original_name.clone(),
                         Value::String(XenithString::new(format!("__struct__{}", original_name))),
+                    );
+                } else if let Some(variants) = module.enum_exports.get(original_name) {
+                    // An enum is named the same way a struct is, so renaming it
+                    // on import breaks in the same way and is refused likewise.
+                    if target_name != original_name {
+                        return result.failure(
+                            RuntimeError::new(
+                                spec.position_start.clone(),
+                                spec.position_end.clone(),
+                                &format!("enum '{}' cannot be renamed on import", original_name),
+                                Some(context.clone()),
+                            )
+                            .with_code("XEN012")
+                            .with_name("Module Not Found")
+                            .with_help("import it under its own name; an enum is identified by that name, so a renamed one would not match the methods that take it")
+                            .base,
+                        );
+                    }
+
+                    self.enum_defs.insert(original_name.clone(), variants.clone());
+                    context.symbol_table.set(
+                        original_name.clone(),
+                        Value::String(XenithString::new(format!("__enum__{}", original_name))),
                     );
                 } else {
                     return result.failure(
@@ -2557,6 +2935,15 @@ impl Interpreter {
 impl Default for Interpreter {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// "no payload", "1 value", "3 values" -- for arity messages about variants.
+pub fn describe_arity(count: usize) -> String {
+    match count {
+        0 => "no payload".to_string(),
+        1 => "1 value".to_string(),
+        n => format!("{} values", n),
     }
 }
 

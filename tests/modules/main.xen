@@ -33,3 +33,15 @@ method further(a: Point, b: Point) -> Point {
 }
 let winner: Point = further(moved, Point { x: 10, y: 10 })
 echo("further ({winner.x},{winner.y})")
+
+# An exported enum, built here and handed back to the module's own method.
+grab { Status, describe } from "status"
+
+echo(describe(Status::Ok(200)))
+echo(describe(Status::Failed(500, "boom")))
+
+let created: bool = match Status::Ok(201) {
+    Status::Ok(code) when code == 201 => true
+    _ => false
+}
+echo("created {created}")

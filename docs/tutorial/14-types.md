@@ -17,6 +17,7 @@ rules that the earlier pages showed one at a time.
 | `map<K, V>` | string keys, `V` values |
 | `(A, B, ...)` | a tuple of fixed size |
 | a struct name | a record you declared |
+| an enum name | one of the variants you declared |
 | `method(A, B) -> C` | a method value |
 
 ## Annotations and inference
@@ -267,7 +268,7 @@ echo("[{error}]")
 
 `echo` prints how many bytes there are rather than the bytes themselves, which
 would spray control characters at the terminal. See
-[The standard library](19-standard-library.md) for `std::bytes`.
+[The standard library](20-standard-library.md) for `std::bytes`.
 
 ## Type aliases
 
@@ -328,4 +329,4 @@ Methods that do work rather than compute a value declare `-> null` and release
 There is no optional type yet. The pattern for "might not have a value" is a
 tuple of the value and a flag, as shown in [Tuples](10-tuples.md).
 
-Next: [Modules](14-modules.md)
+Next: [Modules](15-modules.md)

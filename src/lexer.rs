@@ -581,6 +581,8 @@ impl Lexer {
             "list" => TokenType::TypeList,
             "map" => TokenType::TypeMap,
             "struct" => TokenType::TypeStruct,
+            "enum" => TokenType::TypeEnum,
+            "match" => TokenType::Match,
             "type" => TokenType::TypeAlias,
             "true" => TokenType::BoolTrue,
             "false" => TokenType::BoolFalse,

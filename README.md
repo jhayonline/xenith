@@ -82,11 +82,11 @@ indenting and the language server. With lazy.nvim:
 
 The server gives diagnostics as you type, including type errors, plus hover, go
 to definition, references, rename, document symbols and completion. Any LSP capable editor can use it; see
-[Editor setup](docs/tutorial/17-editor-setup.md).
+[Editor setup](docs/tutorial/18-editor-setup.md).
 
 ## Documentation
 
-- **[Tutorial](docs/tutorial/README.md)** to learn the language. Nineteen short
+- **[Tutorial](docs/tutorial/README.md)** to learn the language. Twenty short
   pages covering all of it.
 - **[Internals](docs/internals/README.md)** to work on the interpreter. Twelve
   pages on how it is built and what to fix next.
@@ -139,6 +139,19 @@ method add(a: int, b: int) -> int {
 
 method square(n: int) -> int => n * n          # single expression form
 
+enum Shape {                                   # one of several, each able to
+    Circle(float),                             # carry values of its own
+    Rect(float, float),
+    Empty
+}
+
+let label: string = match Shape::Circle(2.0) { # an expression, and checked for
+    Shape::Circle(r) when r > 10.0 => "big"    # completeness
+    Shape::Circle(r) => "circle of {r}"
+    Shape::Rect(w, h) => "{w} by {h}"
+    Shape::Empty => "nothing"
+}
+
 type Celsius = float                           # alias an existing type
 ```
 
@@ -146,19 +159,19 @@ type Celsius = float                           # alias an existing type
 
 Xenith works and is worth writing small programs in. It is not finished.
 
-**Solid:** the number semantics, structs and collections, the four loop forms,
-methods including closures and passing them as values, modules, a static checker
-that reports every type error before anything runs, and diagnostics that point at
-the right code and suggest a fix.
+**Solid:** the number semantics, structs and collections, enums with pattern
+matching and completeness checking, the four loop forms, methods including
+closures and passing them as values, modules, a static checker that reports every
+type error before anything runs, and diagnostics that point at the right code and
+suggest a fix.
 
 **Missing:** the standard library covers strings, maths, files, bytes and the
-environment, all written in Xenith. Time and randomness are not there,
-collections are waiting on a decision about generics, and the static pass does
-not follow imports, so an imported name is checked as it runs rather than
-before.
+environment, all written in Xenith. Time and randomness are not there, there are
+no generics so no `Result<T>` or `Option<T>`, and the static pass does not follow
+imports, so an imported name is checked as it runs rather than before.
 
 The full list, with what to do instead in each case, is
-[Known limitations](docs/tutorial/18-limitations.md).
+[Known limitations](docs/tutorial/19-limitations.md).
 
 ## Performance
 

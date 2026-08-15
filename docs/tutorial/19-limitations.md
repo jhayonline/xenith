@@ -21,7 +21,24 @@ They are all still checked, with the same errors and the same messages, when the
 line runs. What you lose is finding out before any output appears, and finding
 out about a branch that never executes.
 
-## A struct cannot be renamed on import
+## Patterns cover less than Rust's
+
+`match` handles `_`, bindings, literals, tuples, `Enum::Variant(...)`,
+`A | B` and `when` guards. It does not have struct patterns
+(`Point { x, y }`), list patterns (`[first, ..rest]`), ranges, or `@` bindings.
+
+**What to do:** match the variant, then read fields with `p.x`. See
+[Enums and match](13-enums.md).
+
+## No generics, so no Result or Option
+
+An enum's payload types are concrete, so `Result<T>` and `Option<T>` cannot be
+written. A concrete enum per case works: `enum Lookup { Found(int), Missing }`.
+
+This is the largest thing still missing, and it is the same decision that
+collections are waiting on.
+
+## A struct or enum cannot be renamed on import
 
 `grab { Point } from "shapes"` works. `grab { Point as Coordinate }` is refused,
 because a struct is identified by its name and a renamed one would not match the
@@ -57,7 +74,7 @@ struct literal, so `Line { from: a, to: b }` does not parse.
 shows up most when working with `bytes`.
 
 **What to do:** write it in decimal, or go through
-[`std::bytes`](19-standard-library.md) `from_hex` for a run of them.
+[`std::bytes`](20-standard-library.md) `from_hex` for a run of them.
 
 ## An expression cannot span lines
 
@@ -95,7 +112,7 @@ echo(ret([5, 6]))
 ## The standard library is small
 
 `std::string`, `std::math`, `std::fs`, `std::bytes` and `std::env` exist; see
-[The standard library](19-standard-library.md). There is no networking, no JSON,
+[The standard library](20-standard-library.md). There is no networking, no JSON,
 no time and no random.
 
 Collections are the interesting gap. Without generics there is no way to write
@@ -121,13 +138,15 @@ loop.
 Some absences are decisions rather than gaps:
 
 - **No exceptions.** Errors stop the program; recoverable failure is a returned
-  value. See [Errors](16-errors.md).
-- **No pattern matching.** A chain of `or when` covers it, and leaving `match`
-  out keeps the language small.
+  value. See [Errors](17-errors.md).
 - **No methods on structs.** Structs are data; behaviour is free methods that
   take them. See [Structs](12-structs.md).
-- **No generics.** Not currently planned, though a container type that is not
-  `list` or `map` would force the question.
 - **No inheritance or interfaces.**
 
-Next: [The standard library](19-standard-library.md)
+This page used to say pattern matching was not planned, on the grounds that a
+chain of `or when` covered it. That was wrong, and the reason it was wrong is
+worth keeping: `match` on its own really is only a tidier `or when`. It is
+[enums](13-enums.md) that make it worth having, and completeness checking is not
+something a chain of conditions can give you.
+
+Next: [The standard library](20-standard-library.md)

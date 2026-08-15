@@ -407,6 +407,84 @@ impl Collector<'_> {
                 });
             }
 
+            Node::EnumDef(n) => {
+                let children = n
+                    .variants
+                    .iter()
+                    .filter_map(|variant| {
+                        let name = variant.name.value.clone()?;
+                        let payload = variant
+                            .payload_types
+                            .iter()
+                            .map(|t| t.to_string())
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        Some(Symbol {
+                            name,
+                            kind: SymbolKind::ENUM_MEMBER,
+                            range: self
+                                .doc
+                                .range_of(&variant.position_start, &variant.position_end),
+                            selection_range: self.doc.range_of_token(&variant.name),
+                            detail: (!payload.is_empty()).then(|| format!("({})", payload)),
+                            children: Vec::new(),
+                        })
+                    })
+                    .collect();
+
+                let variants = n
+                    .variants
+                    .iter()
+                    .map(|v| v.name.value.clone().unwrap_or_default())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+
+                out.push(Symbol {
+                    name: n.name.value.clone().unwrap_or_default(),
+                    kind: SymbolKind::ENUM,
+                    range: self.doc.range_of(&n.position_start, &n.position_end),
+                    selection_range: self.doc.range_of_token(&n.name),
+                    detail: Some(format!("enum {{ {} }}", variants)),
+                    children,
+                });
+            }
+
+            Node::EnumVariant(n) => {
+                for argument in &n.arguments {
+                    self.walk(argument, out);
+                }
+            }
+
+            Node::Match(n) => {
+                self.walk(&n.subject, out);
+                for arm in &n.arms {
+                    // A pattern's bindings are local to its arm, so they go in
+                    // the arm's own list rather than the enclosing scope's.
+                    let mut arm_symbols = Vec::new();
+                    for pattern in &arm.patterns {
+                        let mut bound = Vec::new();
+                        pattern.bindings(&mut bound);
+                        for token in bound {
+                            if let Some(name) = token.value.clone() {
+                                arm_symbols.push(Symbol {
+                                    name,
+                                    kind: SymbolKind::VARIABLE,
+                                    range: self.doc.range_of_token(&token),
+                                    selection_range: self.doc.range_of_token(&token),
+                                    detail: Some("bound by a pattern".to_string()),
+                                    children: Vec::new(),
+                                });
+                            }
+                        }
+                    }
+                    if let Some(guard) = &arm.guard {
+                        self.walk(guard, &mut arm_symbols);
+                    }
+                    self.walk(&arm.body, &mut arm_symbols);
+                    out.extend(arm_symbols);
+                }
+            }
+
             Node::TypeAlias(n) => {
                 out.push(Symbol {
                     name: n.name.value.clone().unwrap_or_default(),

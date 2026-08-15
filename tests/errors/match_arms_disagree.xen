@@ -1,0 +1,10 @@
+# A match is an expression, so its arms have to agree about what they produce.
+enum Answer { Yes, No }
+
+let a: Answer = Answer::Yes
+
+let value = match a {
+    Answer::Yes => 1
+    Answer::No => "two"
+}
+echo("{value}")

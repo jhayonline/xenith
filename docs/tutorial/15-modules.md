@@ -54,6 +54,23 @@ A `Point` built here is the same type as one built inside `shapes.xen`. There is
 one `Point`, not a copy per file, which is the whole reason to export it rather
 than declare it twice.
 
+Enums export the same way:
+
+```xenith
+# status.xen
+
+export enum Status {
+    Ok(int),
+    Failed(int, string)
+}
+```
+
+```xenith
+grab { Status } from "status"
+
+let s: Status = Status::Ok(200)
+```
+
 ## Importing
 
 `grab` names from a file. The path is relative to the importing file and the
@@ -88,9 +105,9 @@ echo(hello("Ada"))
 Hello, Ada
 ```
 
-A struct cannot be renamed this way. A struct is identified by its name -- that
-is what makes one `Point` the same type as another -- so a renamed one would be
-rejected by the very methods the module exports to take it:
+A struct or an enum cannot be renamed this way. Both are identified by their
+name -- that is what makes one `Point` the same type as another -- so a renamed
+one would be rejected by the very methods the module exports to take it:
 
 ```xenith
 grab { Point as Coordinate } from "shapes"
@@ -232,4 +249,4 @@ total   242
 slowest 143
 ```
 
-Next: [Built in functions](15-builtins.md)
+Next: [Built in functions](16-builtins.md)

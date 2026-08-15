@@ -145,6 +145,7 @@ pub fn value_to_string(value: &Value) -> String {
             result.push('}');
             result
         }
+        Value::Enum(e) => render_enum(&e.enum_name, &e.variant, &e.payload),
         Value::Bool(b) => {
             if *b {
                 "true".to_string()
@@ -165,6 +166,16 @@ pub fn value_to_string(value: &Value) -> String {
             result
         }
     }
+}
+
+/// `Shape::Circle(1.0)` -- the same text you would have written to build it,
+/// which is what makes an echoed enum useful when debugging.
+fn render_enum(enum_name: &str, variant: &str, payload: &[Value]) -> String {
+    if payload.is_empty() {
+        return format!("{}::{}", enum_name, variant);
+    }
+    let rendered: Vec<String> = payload.iter().map(value_to_string).collect();
+    format!("{}::{}({})", enum_name, variant, rendered.join(", "))
 }
 
 /// Converts a Value to its string representation for interpolation
@@ -220,6 +231,7 @@ pub fn value_to_interpolated_string(value: &Value) -> String {
             result.push('}');
             result
         }
+        Value::Enum(e) => render_enum(&e.enum_name, &e.variant, &e.payload),
         Value::Bool(b) => {
             if *b {
                 "true".to_string()

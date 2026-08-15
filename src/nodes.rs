@@ -36,6 +36,10 @@ pub enum Node {
     Grab(Box<GrabNode>),
     Export(Box<ExportNode>),
     StructDef(Box<StructDefNode>),
+    EnumDef(Box<EnumDefNode>),
+    /// `Shape::Circle(1.0)`, or `Shape::Empty` for a variant with no payload.
+    EnumVariant(Box<EnumVariantNode>),
+    Match(Box<MatchNode>),
     TypeAlias(Box<TypeAliasNode>),
     BoolLiteral(BoolLiteralNode),
     NullLiteral(NullLiteralNode),
@@ -72,6 +76,9 @@ impl Node {
             Node::Grab(n) => &n.position_start,
             Node::Export(n) => &n.position_start,
             Node::StructDef(n) => &n.position_start,
+            Node::EnumDef(n) => &n.position_start,
+            Node::EnumVariant(n) => &n.position_start,
+            Node::Match(n) => &n.position_start,
             Node::TypeAlias(n) => &n.position_start,
             Node::BoolLiteral(n) => &n.position_start,
             Node::NullLiteral(n) => &n.position_start,
@@ -108,6 +115,9 @@ impl Node {
             Node::Grab(n) => &n.position_end,
             Node::Export(n) => &n.position_end,
             Node::StructDef(n) => &n.position_end,
+            Node::EnumDef(n) => &n.position_end,
+            Node::EnumVariant(n) => &n.position_end,
+            Node::Match(n) => &n.position_end,
             Node::TypeAlias(n) => &n.position_end,
             Node::BoolLiteral(n) => &n.position_end,
             Node::NullLiteral(n) => &n.position_end,
@@ -536,6 +546,128 @@ pub struct StructFieldNode {
     pub is_constant: bool,
     pub position_start: Position,
     pub position_end: Position,
+}
+
+/// `enum Shape { Circle(float), Rect(float, float), Empty }`
+#[derive(Debug, Clone)]
+pub struct EnumDefNode {
+    pub name: Token,
+    pub variants: Vec<EnumVariantDef>,
+    pub position_start: Position,
+    pub position_end: Position,
+}
+
+/// One variant of an enum, with the types it carries. Payloads are positional:
+/// `Circle(float)` rather than `Circle { radius: float }`.
+#[derive(Debug, Clone)]
+pub struct EnumVariantDef {
+    pub name: Token,
+    pub payload_types: Vec<Type>,
+    pub position_start: Position,
+    pub position_end: Position,
+}
+
+/// Building a value: `Shape::Circle(1.0)`.
+///
+/// The arguments are held here rather than the node being wrapped in a `Call`,
+/// because a variant is not a callable value -- there is nothing to look up in
+/// a scope, and `Shape::Circle` on its own with a payload is an error rather
+/// than a partially applied constructor.
+#[derive(Debug, Clone)]
+pub struct EnumVariantNode {
+    pub enum_name: String,
+    pub variant_name: String,
+    pub arguments: Vec<Box<Node>>,
+    pub position_start: Position,
+    pub position_end: Position,
+}
+
+/// `match subject { pattern => body ... }`
+///
+/// An expression, so every arm produces a value. That is what lets a `match`
+/// stand on the right of a `let`, which is most of the reason to have one.
+#[derive(Debug, Clone)]
+pub struct MatchNode {
+    pub subject: Box<Node>,
+    pub arms: Vec<MatchArm>,
+    pub position_start: Position,
+    pub position_end: Position,
+}
+
+#[derive(Debug, Clone)]
+pub struct MatchArm {
+    /// More than one when the arm was written `A | B`. They bind nothing, so
+    /// there is no question of the alternatives disagreeing about names.
+    pub patterns: Vec<Pattern>,
+    /// `when` guard. An arm with one never counts towards exhaustiveness,
+    /// because whether it matches cannot be decided by looking at it.
+    pub guard: Option<Box<Node>>,
+    pub body: Box<Node>,
+    pub position_start: Position,
+    pub position_end: Position,
+}
+
+#[derive(Debug, Clone)]
+pub struct Pattern {
+    pub kind: PatternKind,
+    pub position_start: Position,
+    pub position_end: Position,
+}
+
+#[derive(Debug, Clone)]
+pub enum PatternKind {
+    /// `_`
+    Wildcard,
+    /// A bare name, which matches anything and binds it.
+    Binding(Token),
+    /// A literal to compare against: `0`, `"GET"`, `true`, `null`.
+    Literal(Box<Node>),
+    /// `Shape::Circle(r)`, or `Shape::Empty` with no sub-patterns.
+    Variant {
+        enum_name: String,
+        variant_name: String,
+        sub_patterns: Vec<Pattern>,
+        /// Distinguishes `Empty` from `Empty()`, so the arity check can tell
+        /// "no payload" from "a payload of nothing".
+        has_parens: bool,
+    },
+    /// `(a, b)`
+    Tuple(Vec<Pattern>),
+}
+
+impl Pattern {
+    /// Does this pattern match every possible value of its type?
+    ///
+    /// Only irrefutable sub-patterns let a variant pattern count towards
+    /// exhaustiveness: `Circle(r)` covers every circle, but `Circle(0.0)` does
+    /// not, and treating the second as covering `Circle` would let a match with
+    /// a real hole in it through the checker.
+    pub fn is_irrefutable(&self) -> bool {
+        match &self.kind {
+            PatternKind::Wildcard | PatternKind::Binding(_) => true,
+            PatternKind::Literal(_) => false,
+            PatternKind::Variant { .. } => false,
+            PatternKind::Tuple(elements) => elements.iter().all(|p| p.is_irrefutable()),
+        }
+    }
+
+    /// Every name this pattern introduces, in the order they appear.
+    pub fn bindings(&self, out: &mut Vec<Token>) {
+        match &self.kind {
+            PatternKind::Binding(token) => out.push(token.clone()),
+            PatternKind::Variant { sub_patterns, .. } => {
+                for sub in sub_patterns {
+                    sub.bindings(out);
+                }
+            }
+            PatternKind::Tuple(elements) => {
+                for element in elements {
+                    element.bindings(out);
+                }
+            }
+            PatternKind::Wildcard | PatternKind::Literal(_) => {}
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

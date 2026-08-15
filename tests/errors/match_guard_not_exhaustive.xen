@@ -1,0 +1,11 @@
+# An arm with a guard covers nothing as far as the checker is concerned,
+# because whether it matches cannot be decided by looking at it.
+enum Answer { Yes, No }
+
+let a: Answer = Answer::Yes
+
+let text: string = match a {
+    Answer::Yes when 1 > 0 => "yes"
+    Answer::No => "no"
+}
+echo(text)

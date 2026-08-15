@@ -21,12 +21,13 @@ syn keyword xenithDeclaration let const
 " `struct`, `type` and `method` hand off to the name that follows, so the name
 " is highlighted as a definition whatever its capitalisation.
 syn keyword xenithDeclaration struct skipwhite nextgroup=xenithTypeDef
+syn keyword xenithDeclaration enum skipwhite nextgroup=xenithTypeDef
 syn keyword xenithDeclaration type skipwhite nextgroup=xenithTypeDef
 syn keyword xenithDeclaration method skipwhite nextgroup=xenithFunction
 syn match xenithTypeDef contained "\<\w\+\>"
 syn match xenithFunction contained "\<\w\+\>"
 
-syn keyword xenithConditional when otherwise
+syn keyword xenithConditional when otherwise match
 " `or when` lexes as a single token, so highlight the pair rather than a bare `or`.
 syn match   xenithConditional "\<or\_s\+when\>"
 syn keyword xenithRepeat for while in

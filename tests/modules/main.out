@@ -8,3 +8,6 @@ origin (0,0)
 shifted (4,5)
 (0,0) to (4,5)
 further (10,10)
+ok 200
+failed 500: boom
+created true

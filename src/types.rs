@@ -31,7 +31,17 @@ pub enum Type {
     Map(Box<Type>, Box<Type>),
     /// Function type
     Function(FunctionType),
-    /// Struct type (user-defined)
+    /// A named user-defined type: a struct, or an enum.
+    ///
+    /// Enums deliberately share this variant rather than getting one of their
+    /// own. A type annotation is written the same way for both (`let s: Shape`),
+    /// and the parser cannot tell them apart anyway -- an imported name is not
+    /// known to be either until the module has run. Everything that needs to
+    /// know looks the name up in its own table of structs and enums, and there
+    /// is exactly one place that has to disambiguate rather than one per phase.
+    ///
+    /// The field list is empty for an enum, and is only ever populated where a
+    /// struct's fields were known at the point the type was built.
     Struct(String, Vec<StructField>),
     /// Type alias reference
     Alias(String, Box<Type>),

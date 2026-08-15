@@ -18,6 +18,10 @@ pub struct Parser {
     pub token_index: usize,
     pub struct_registry: HashMap<String, StructInfo>,
     pub type_aliases: HashMap<String, Type>,
+    /// Variant names of each enum declared in this file, so a `match` can be
+    /// checked against them. An imported enum is not in here; the interpreter
+    /// knows about those and reports what it finds at run time.
+    pub enum_variants: HashMap<String, Vec<String>>,
 }
 
 impl Parser {
@@ -28,6 +32,7 @@ impl Parser {
             token_index: 0,
             struct_registry: HashMap::new(),
             type_aliases: HashMap::new(),
+            enum_variants: HashMap::new(),
         }
     }
 
@@ -854,6 +859,11 @@ impl Parser {
                     {
                         return self.exported_struct_def();
                     }
+                    if next.kind == TokenType::TypeEnum
+                        || next.matches(TokenType::Keyword, Some("enum"))
+                    {
+                        return self.exported_enum_def();
+                    }
                 }
                 return self.export_statement();
             }
@@ -884,6 +894,13 @@ impl Parser {
             if tok.kind == TokenType::TypeStruct || tok.matches(TokenType::Keyword, Some("struct"))
             {
                 return self.struct_definition();
+            }
+        }
+
+        // Check for enum definition
+        if let Some(tok) = self.current_token() {
+            if tok.kind == TokenType::TypeEnum || tok.matches(TokenType::Keyword, Some("enum")) {
+                return self.enum_definition();
             }
         }
 
@@ -3636,6 +3653,11 @@ impl Parser {
 
         match self.current_token() {
             Some(tok) => match tok.kind {
+                // An atom, so `let label = match x { ... }` parses and a bare
+                // `match` as a statement still works.
+                TokenType::Match => {
+                    return self.match_expression();
+                }
                 TokenType::Int | TokenType::Float => {
                     let node = Node::Number(NumberNode::new(tok.clone()));
                     self.advance();
@@ -3695,23 +3717,22 @@ impl Parser {
 
                     self.advance();
 
-                    // Check for static method call: Identifier::method
+                    // `Enum::Variant`, with its payload if it has one. This used
+                    // to build a `VarAccess` named "Enum::Variant" for a static
+                    // method call that never existed; `::` means exactly one
+                    // thing now.
                     if let Some(cc) = self.current_token() {
                         if cc.kind == TokenType::ColonColon {
                             self.advance(); // consume '::'
 
-                            let method_name = match self.current_token() {
-                                Some(t) if t.kind == TokenType::Identifier => {
-                                    let name = t.value.clone().unwrap();
-                                    self.advance();
-                                    name
-                                }
+                            let variant_token = match self.current_token() {
+                                Some(t) if t.kind == TokenType::Identifier => t.clone(),
                                 Some(t) => {
                                     return result.failure(
                                         InvalidSyntaxError::new(
                                             t.position_start.clone(),
                                             t.position_end.clone(),
-                                            "Expected method name after '::'",
+                                            "Expected a variant name after '::'",
                                         )
                                         .base,
                                     );
@@ -3721,30 +3742,63 @@ impl Parser {
                                         InvalidSyntaxError::new(
                                             Self::dummy_pos(),
                                             Self::dummy_pos(),
-                                            "Expected method name after '::'",
+                                            "Expected a variant name after '::'",
                                         )
                                         .base,
                                     );
                                 }
                             };
+                            let mut pos_end = variant_token.position_end.clone();
+                            self.advance();
 
-                            let combined = format!("{}::{}", struct_name, method_name);
-                            let node = Node::VarAccess(VarAccessNode {
-                        cache: std::cell::Cell::new(crate::nodes::SlotCache::EMPTY),
-                                variable_name_token: Token::new(
-                                    TokenType::Identifier,
-                                    Some(combined),
-                                    struct_pos_start.clone(),
-                                    Some(
-                                        self.current_token()
-                                            .map(|t| t.position_start.clone())
-                                            .unwrap_or(struct_pos_end.clone()),
-                                    ),
-                                ),
+                            let mut arguments: Vec<Box<Node>> = Vec::new();
+                            if let Some(t) = self.current_token() {
+                                if t.kind == TokenType::LParen {
+                                    self.advance();
+                                    loop {
+                                        self.skip_newlines();
+                                        if let Some(t) = self.current_token() {
+                                            if t.kind == TokenType::RParen {
+                                                pos_end = t.position_end.clone();
+                                                self.advance();
+                                                break;
+                                            }
+                                        } else {
+                                            return result.failure(
+                                                InvalidSyntaxError::new(
+                                                    struct_pos_start.clone(),
+                                                    struct_pos_start.clone(),
+                                                    "Expected ')' after the variant's payload",
+                                                )
+                                                .base,
+                                            );
+                                        }
+
+                                        let argument = result.register(&self.expr());
+                                        if result.error.is_some() {
+                                            return result;
+                                        }
+                                        if let Some(argument) = argument {
+                                            arguments.push(Box::new(argument));
+                                        }
+
+                                        self.skip_newlines();
+                                        if let Some(t) = self.current_token() {
+                                            if t.kind == TokenType::Comma {
+                                                self.advance();
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            return result.success(Node::EnumVariant(Box::new(EnumVariantNode {
+                                enum_name: struct_name,
+                                variant_name: variant_token.value.unwrap(),
+                                arguments,
                                 position_start: struct_pos_start,
-                                position_end: struct_pos_end,
-                            });
-                            return result.success(node);
+                                position_end: pos_end,
+                            })));
                         }
                     }
 
@@ -5269,6 +5323,655 @@ impl Parser {
             position_start: pos_start,
             position_end: pos_end,
         })))
+    }
+
+    /// Advances past any run of newlines. The same three lines were written out
+    /// at a dozen call sites before this existed.
+    fn skip_newlines(&mut self) {
+        while let Some(tok) = self.current_token() {
+            if Self::is_line_break(tok) {
+                self.advance();
+            } else {
+                break;
+            }
+        }
+    }
+
+    /// `enum Shape { Circle(float), Rect(float, float), Empty }`
+    fn enum_definition(&mut self) -> ParseResult {
+        let mut result = ParseResult::new();
+        let pos_start = self.current_token().unwrap().position_start.clone();
+
+        // Consume 'enum'
+        self.advance();
+
+        let enum_name = match self.current_token() {
+            Some(t) if t.kind == TokenType::Identifier => t.clone(),
+            Some(t) => {
+                return result.failure(
+                    InvalidSyntaxError::new(
+                        t.position_start.clone(),
+                        t.position_end.clone(),
+                        "Expected enum name",
+                    )
+                    .base,
+                );
+            }
+            None => {
+                return result.failure(
+                    InvalidSyntaxError::new(
+                        Self::dummy_pos(),
+                        Self::dummy_pos(),
+                        "Expected enum name",
+                    )
+                    .base,
+                );
+            }
+        };
+        self.advance();
+
+        match self.current_token() {
+            Some(t) if t.kind == TokenType::LBrace => {
+                self.advance();
+            }
+            Some(t) => {
+                return result.failure(
+                    InvalidSyntaxError::new(
+                        t.position_start.clone(),
+                        t.position_end.clone(),
+                        "Expected '{' after enum name",
+                    )
+                    .base,
+                );
+            }
+            None => {
+                return result.failure(
+                    InvalidSyntaxError::new(Self::dummy_pos(), Self::dummy_pos(), "Expected '{'")
+                        .base,
+                );
+            }
+        }
+
+        let mut variants: Vec<EnumVariantDef> = Vec::new();
+
+        loop {
+            self.skip_newlines();
+
+            if let Some(t) = self.current_token() {
+                if t.kind == TokenType::RBrace {
+                    self.advance();
+                    break;
+                }
+            } else {
+                return result.failure(
+                    InvalidSyntaxError::new(
+                        pos_start.clone(),
+                        pos_start.clone(),
+                        "Expected '}' to close the enum",
+                    )
+                    .base,
+                );
+            }
+
+            let variant_name = match self.current_token() {
+                Some(t) if t.kind == TokenType::Identifier => t.clone(),
+                Some(t) => {
+                    return result.failure(
+                        InvalidSyntaxError::new(
+                            t.position_start.clone(),
+                            t.position_end.clone(),
+                            "Expected a variant name",
+                        )
+                        .with_help("a variant is a name, optionally followed by the types it carries: `Circle(float)`")
+                        .base,
+                    );
+                }
+                None => {
+                    return result.failure(
+                        InvalidSyntaxError::new(
+                            Self::dummy_pos(),
+                            Self::dummy_pos(),
+                            "Expected a variant name",
+                        )
+                        .base,
+                    );
+                }
+            };
+            let variant_pos_start = variant_name.position_start.clone();
+            let mut variant_pos_end = variant_name.position_end.clone();
+            self.advance();
+
+            // Payload types, if any.
+            let mut payload_types = Vec::new();
+            if let Some(t) = self.current_token() {
+                if t.kind == TokenType::LParen {
+                    self.advance();
+
+                    loop {
+                        self.skip_newlines();
+
+                        if let Some(t) = self.current_token() {
+                            if t.kind == TokenType::RParen {
+                                variant_pos_end = t.position_end.clone();
+                                self.advance();
+                                break;
+                            }
+                        }
+
+                        let payload_type = match self.parse_single_type() {
+                            Ok(t) => t,
+                            Err(e) => return result.failure(e),
+                        };
+                        payload_types.push(payload_type);
+
+                        self.skip_newlines();
+                        if let Some(t) = self.current_token() {
+                            if t.kind == TokenType::Comma {
+                                self.advance();
+                                continue;
+                            }
+                        }
+                    }
+                }
+            }
+
+            variants.push(EnumVariantDef {
+                name: variant_name,
+                payload_types,
+                position_start: variant_pos_start,
+                position_end: variant_pos_end,
+            });
+
+            // A comma between variants is optional; a newline does as well.
+            self.skip_newlines();
+            if let Some(t) = self.current_token() {
+                if t.kind == TokenType::Comma {
+                    self.advance();
+                }
+            }
+        }
+
+        let enum_name_str = enum_name.value.as_ref().unwrap().clone();
+        self.enum_variants.insert(
+            enum_name_str,
+            variants
+                .iter()
+                .filter_map(|v| v.name.value.clone())
+                .collect(),
+        );
+
+        let pos_end = variants
+            .last()
+            .map(|v| v.position_end.clone())
+            .unwrap_or_else(|| pos_start.clone());
+
+        result.success(Node::EnumDef(Box::new(EnumDefNode {
+            name: enum_name,
+            variants,
+            position_start: pos_start,
+            position_end: pos_end,
+        })))
+    }
+
+    /// `export enum Shape { ... }`
+    fn exported_enum_def(&mut self) -> ParseResult {
+        let mut result = ParseResult::new();
+
+        // Consume 'export'
+        self.advance();
+
+        let enum_result = self.enum_definition();
+        if enum_result.error.is_some() {
+            return enum_result;
+        }
+
+        if let Some(Node::EnumDef(enum_def)) = enum_result.node {
+            let Some(exported_name) = enum_def.name.value.clone() else {
+                return result.failure(
+                    InvalidSyntaxError::new(
+                        enum_def.position_start.clone(),
+                        enum_def.position_end.clone(),
+                        "Cannot export an unnamed enum",
+                    )
+                    .base,
+                );
+            };
+
+            let pos_start = enum_def.position_start.clone();
+            let pos_end = enum_def.position_end.clone();
+
+            return result.success(Node::Export(Box::new(ExportNode {
+                exported_name,
+                node: Box::new(Node::EnumDef(enum_def)),
+                position_start: pos_start,
+                position_end: pos_end,
+            })));
+        }
+
+        result.failure(
+            InvalidSyntaxError::new(
+                Self::dummy_pos(),
+                Self::dummy_pos(),
+                "Expected an enum after export",
+            )
+            .base,
+        )
+    }
+
+    // -- match ---------------------------------------------------------------
+
+    /// `match subject { pattern => body ... }`
+    ///
+    /// Parsed as an atom, so it is an expression and can sit on the right of a
+    /// `let`. Arms are separated by newlines, and a comma between them is
+    /// allowed but not required.
+    fn match_expression(&mut self) -> ParseResult {
+        let mut result = ParseResult::new();
+        let pos_start = self.current_token().unwrap().position_start.clone();
+
+        // Consume 'match'
+        self.advance();
+
+        let subject = result.register(&self.expr());
+        if result.error.is_some() {
+            return result;
+        }
+        let Some(subject) = subject else {
+            return result.failure(
+                InvalidSyntaxError::new(
+                    pos_start.clone(),
+                    pos_start.clone(),
+                    "Expected something to match on",
+                )
+                .base,
+            );
+        };
+
+        match self.current_token() {
+            Some(t) if t.kind == TokenType::LBrace => {
+                self.advance();
+            }
+            Some(t) => {
+                return result.failure(
+                    InvalidSyntaxError::new(
+                        t.position_start.clone(),
+                        t.position_end.clone(),
+                        "Expected '{' to open the match arms",
+                    )
+                    .base,
+                );
+            }
+            None => {
+                return result.failure(
+                    InvalidSyntaxError::new(Self::dummy_pos(), Self::dummy_pos(), "Expected '{'")
+                        .base,
+                );
+            }
+        }
+
+        let mut arms: Vec<MatchArm> = Vec::new();
+        let mut pos_end = pos_start.clone();
+
+        loop {
+            self.skip_newlines();
+
+            match self.current_token() {
+                Some(t) if t.kind == TokenType::RBrace => {
+                    pos_end = t.position_end.clone();
+                    self.advance();
+                    break;
+                }
+                None => {
+                    return result.failure(
+                        InvalidSyntaxError::new(
+                            pos_start.clone(),
+                            pos_start.clone(),
+                            "Expected '}' to close the match",
+                        )
+                        .base,
+                    );
+                }
+                _ => {}
+            }
+
+            let arm_start = self.current_token().unwrap().position_start.clone();
+
+            // One or more patterns, separated by '|'.
+            let mut patterns = Vec::new();
+            loop {
+                let pattern = match self.parse_pattern() {
+                    Ok(p) => p,
+                    Err(e) => return result.failure(e),
+                };
+                patterns.push(pattern);
+
+                match self.current_token() {
+                    Some(t) if t.kind == TokenType::Pipe => {
+                        self.advance();
+                        self.skip_newlines();
+                    }
+                    _ => break,
+                }
+            }
+
+            // Optional guard.
+            let mut guard = None;
+            if let Some(t) = self.current_token() {
+                if t.matches(TokenType::Keyword, Some("when")) {
+                    self.advance();
+                    let condition = result.register(&self.expr());
+                    if result.error.is_some() {
+                        return result;
+                    }
+                    guard = condition.map(Box::new);
+                }
+            }
+
+            match self.current_token() {
+                Some(t) if t.kind == TokenType::FatArrow => {
+                    self.advance();
+                }
+                Some(t) => {
+                    return result.failure(
+                        InvalidSyntaxError::new(
+                            t.position_start.clone(),
+                            t.position_end.clone(),
+                            "Expected '=>' after the pattern",
+                        )
+                        .base,
+                    );
+                }
+                None => {
+                    return result.failure(
+                        InvalidSyntaxError::new(
+                            Self::dummy_pos(),
+                            Self::dummy_pos(),
+                            "Expected '=>'",
+                        )
+                        .base,
+                    );
+                }
+            }
+
+            self.skip_newlines();
+
+            // The body is either a block or a single expression. A `{` here is
+            // always a block, never a map literal; wrap a map in parentheses.
+            let is_block = matches!(self.current_token(), Some(t) if t.kind == TokenType::LBrace);
+            let body = if is_block {
+                result.register(&self.block())
+            } else {
+                result.register(&self.statement())
+            };
+            if result.error.is_some() {
+                return result;
+            }
+            let Some(body) = body else {
+                return result.failure(
+                    InvalidSyntaxError::new(
+                        arm_start.clone(),
+                        arm_start.clone(),
+                        "Expected a body after '=>'",
+                    )
+                    .base,
+                );
+            };
+
+            let arm_end = body.position_end().clone();
+            arms.push(MatchArm {
+                patterns,
+                guard,
+                body: Box::new(body),
+                position_start: arm_start,
+                position_end: arm_end,
+            });
+
+            // A comma between arms is allowed but not required.
+            self.skip_newlines();
+            if let Some(t) = self.current_token() {
+                if t.kind == TokenType::Comma {
+                    self.advance();
+                }
+            }
+        }
+
+        if arms.is_empty() {
+            return result.failure(
+                InvalidSyntaxError::new(
+                    pos_start.clone(),
+                    pos_end.clone(),
+                    "A match needs at least one arm",
+                )
+                .base,
+            );
+        }
+
+        result.success(Node::Match(Box::new(MatchNode {
+            subject: Box::new(subject),
+            arms,
+            position_start: pos_start,
+            position_end: pos_end,
+        })))
+    }
+
+    /// One pattern, without the `|` alternatives the arm handles.
+    fn parse_pattern(&mut self) -> Result<Pattern, Error> {
+        let token = match self.current_token() {
+            Some(t) => t.clone(),
+            None => {
+                return Err(InvalidSyntaxError::new(
+                    Self::dummy_pos(),
+                    Self::dummy_pos(),
+                    "Expected a pattern",
+                )
+                .base);
+            }
+        };
+
+        let pos_start = token.position_start.clone();
+
+        match token.kind {
+            TokenType::Underscore => {
+                self.advance();
+                Ok(Pattern {
+                    kind: PatternKind::Wildcard,
+                    position_start: pos_start,
+                    position_end: token.position_end,
+                })
+            }
+
+            // `(a, b)` -- a tuple pattern.
+            TokenType::LParen => {
+                self.advance();
+                let mut elements = Vec::new();
+                loop {
+                    self.skip_newlines();
+                    if let Some(t) = self.current_token() {
+                        if t.kind == TokenType::RParen {
+                            let pos_end = t.position_end.clone();
+                            self.advance();
+                            return Ok(Pattern {
+                                kind: PatternKind::Tuple(elements),
+                                position_start: pos_start,
+                                position_end: pos_end,
+                            });
+                        }
+                    }
+                    elements.push(self.parse_pattern()?);
+                    self.skip_newlines();
+                    if let Some(t) = self.current_token() {
+                        if t.kind == TokenType::Comma {
+                            self.advance();
+                        }
+                    }
+                }
+            }
+
+            TokenType::Identifier => {
+                let name = token.value.clone().unwrap();
+                self.advance();
+
+                // `Enum::Variant`, optionally with sub-patterns.
+                let is_qualified =
+                    matches!(self.current_token(), Some(t) if t.kind == TokenType::ColonColon);
+                if !is_qualified {
+                    // A bare name binds whatever it is matched against.
+                    let pos_end = token.position_end.clone();
+                    return Ok(Pattern {
+                        kind: PatternKind::Binding(token),
+                        position_start: pos_start,
+                        position_end: pos_end,
+                    });
+                }
+
+                self.advance(); // '::'
+                let variant_token = match self.current_token() {
+                    Some(t) if t.kind == TokenType::Identifier => t.clone(),
+                    Some(t) => {
+                        return Err(InvalidSyntaxError::new(
+                            t.position_start.clone(),
+                            t.position_end.clone(),
+                            "Expected a variant name after '::'",
+                        )
+                        .base);
+                    }
+                    None => {
+                        return Err(InvalidSyntaxError::new(
+                            Self::dummy_pos(),
+                            Self::dummy_pos(),
+                            "Expected a variant name after '::'",
+                        )
+                        .base);
+                    }
+                };
+                let mut pos_end = variant_token.position_end.clone();
+                self.advance();
+
+                let mut sub_patterns = Vec::new();
+                let mut has_parens = false;
+                if let Some(t) = self.current_token() {
+                    if t.kind == TokenType::LParen {
+                        has_parens = true;
+                        self.advance();
+                        loop {
+                            self.skip_newlines();
+                            if let Some(t) = self.current_token() {
+                                if t.kind == TokenType::RParen {
+                                    pos_end = t.position_end.clone();
+                                    self.advance();
+                                    break;
+                                }
+                            } else {
+                                return Err(InvalidSyntaxError::new(
+                                    pos_start.clone(),
+                                    pos_start.clone(),
+                                    "Expected ')' to close the pattern",
+                                )
+                                .base);
+                            }
+                            sub_patterns.push(self.parse_pattern()?);
+                            self.skip_newlines();
+                            if let Some(t) = self.current_token() {
+                                if t.kind == TokenType::Comma {
+                                    self.advance();
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Ok(Pattern {
+                    kind: PatternKind::Variant {
+                        enum_name: name,
+                        variant_name: variant_token.value.unwrap(),
+                        sub_patterns,
+                        has_parens,
+                    },
+                    position_start: pos_start,
+                    position_end: pos_end,
+                })
+            }
+
+            // Everything else has to be a literal to compare against.
+            _ => {
+                let literal = self.parse_pattern_literal()?;
+                let pos_end = literal.position_end().clone();
+                Ok(Pattern {
+                    kind: PatternKind::Literal(Box::new(literal)),
+                    position_start: pos_start,
+                    position_end: pos_end,
+                })
+            }
+        }
+    }
+
+    /// The literal forms a pattern may compare against.
+    fn parse_pattern_literal(&mut self) -> Result<Node, Error> {
+        let token = match self.current_token() {
+            Some(t) => t.clone(),
+            None => {
+                return Err(InvalidSyntaxError::new(
+                    Self::dummy_pos(),
+                    Self::dummy_pos(),
+                    "Expected a literal in the pattern",
+                )
+                .base);
+            }
+        };
+
+        // A negative number lexes as two tokens, so it is rebuilt here.
+        if token.kind == TokenType::Minus {
+            self.advance();
+            let number = match self.current_token() {
+                Some(t) if t.kind == TokenType::Int || t.kind == TokenType::Float => t.clone(),
+                _ => {
+                    return Err(InvalidSyntaxError::new(
+                        token.position_start.clone(),
+                        token.position_end.clone(),
+                        "Expected a number after '-' in the pattern",
+                    )
+                    .base);
+                }
+            };
+            self.advance();
+            let inner = Node::Number(NumberNode::new(number.clone()));
+            return Ok(Node::UnaryOp(Box::new(UnaryOpNode {
+                position_start: token.position_start.clone(),
+                position_end: number.position_end.clone(),
+                operator_token: token,
+                node: Box::new(inner),
+            })));
+        }
+
+        let node = match token.kind {
+            TokenType::Int | TokenType::Float => Node::Number(NumberNode::new(token.clone())),
+            TokenType::String => Node::String(StringNode::new(token.clone())),
+            TokenType::BoolTrue => Node::BoolLiteral(BoolLiteralNode {
+                value: true,
+                position_start: token.position_start.clone(),
+                position_end: token.position_end.clone(),
+            }),
+            TokenType::BoolFalse => Node::BoolLiteral(BoolLiteralNode {
+                value: false,
+                position_start: token.position_start.clone(),
+                position_end: token.position_end.clone(),
+            }),
+            TokenType::TypeNull => Node::NullLiteral(NullLiteralNode {
+                position_start: token.position_start.clone(),
+                position_end: token.position_end.clone(),
+            }),
+            _ => {
+                return Err(InvalidSyntaxError::new(
+                    token.position_start.clone(),
+                    token.position_end.clone(),
+                    &format!("{:?} cannot be used as a pattern", token.kind),
+                )
+                .with_help("a pattern is `_`, a name, a literal, a tuple, or `Enum::Variant`")
+                .base);
+            }
+        };
+        self.advance();
+        Ok(node)
     }
 
     pub fn register_struct(&mut self, struct_name: &str) {

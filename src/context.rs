@@ -32,6 +32,9 @@ pub struct Context {
     /// there is nothing to put in the map. What an importer needs is the field
     /// list, so that is what travels.
     pub struct_exports: HashMap<String, Vec<(String, Type)>>,
+    /// Enums this module marked `export`, with their variants. Here for the
+    /// same reason as `struct_exports`: an enum is a type, not a value.
+    pub enum_exports: HashMap<String, Vec<(String, Vec<Type>)>>,
     /// Nesting depth of this context, counted from the program root.
     pub depth: usize,
 }
@@ -56,6 +59,7 @@ impl Context {
             symbol_table,
             exports: HashMap::new(),
             struct_exports: HashMap::new(),
+            enum_exports: HashMap::new(),
             depth,
         }
     }
@@ -68,6 +72,7 @@ impl Context {
             symbol_table: Rc::new(SymbolTable::with_parent(self.symbol_table.clone())),
             exports: HashMap::new(),
             struct_exports: HashMap::new(),
+            enum_exports: HashMap::new(),
             depth: self.depth + 1,
         }
     }
@@ -91,5 +96,13 @@ impl Context {
 
     pub fn get_struct_exports(&self) -> &HashMap<String, Vec<(String, Type)>> {
         &self.struct_exports
+    }
+
+    pub fn add_enum_export(&mut self, name: String, variants: Vec<(String, Vec<Type>)>) {
+        self.enum_exports.insert(name, variants);
+    }
+
+    pub fn get_enum_exports(&self) -> &HashMap<String, Vec<(String, Vec<Type>)>> {
+        &self.enum_exports
     }
 }

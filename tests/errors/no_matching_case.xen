@@ -1,0 +1,14 @@
+# What the static pass cannot prove is caught as it runs.
+#
+# The checker does not follow `grab`, so it does not know what variants
+# `Visible` has and cannot see the hole here. The interpreter does, and reports
+# it at the point the match falls off the end.
+grab { Visible } from "hidden_struct"
+
+let value: Visible = Visible::Third
+
+let text: string = match value {
+    Visible::First(n) => "first {n}"
+    Visible::Second(s) => "second {s}"
+}
+echo(text)

@@ -1,0 +1,20 @@
+# Imported by main.xen. An enum crosses a module boundary the same way a struct
+# does, and one without `export` cannot leave this file.
+
+export enum Status {
+    Ok(int),
+    Redirect(string),
+    Failed(int, string)
+}
+
+enum Internal {
+    Hidden
+}
+
+export method describe(s: Status) -> string {
+    release match s {
+        Status::Ok(code) => "ok {code}"
+        Status::Redirect(target) => "go to {target}"
+        Status::Failed(code, why) => "failed {code}: {why}"
+    }
+}

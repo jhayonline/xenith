@@ -330,13 +330,15 @@ pub const BUILTIN_CONSTANTS: &[BuiltinConst] = &[
 ];
 
 /// Reserved words, grouped so editors can colour them by role.
-pub const KEYWORDS_DECLARATION: &[&str] = &["let", "const", "method", "struct", "type"];
+pub const KEYWORDS_DECLARATION: &[&str] =
+    &["let", "const", "method", "struct", "enum", "type"];
 
 /// Control flow. `when`/`or when`/`otherwise` are Xenith's if/else-if/else.
 pub const KEYWORDS_CONTROL: &[&str] = &[
     "when",
     "or",
     "otherwise",
+    "match",
     "for",
     "while",
     "in",
@@ -364,6 +366,8 @@ pub fn keyword_doc(keyword: &str) -> Option<&'static str> {
         "const" => "Used with `let` to declare an immutable binding.",
         "method" => "Defines a function. `method name(a: int) -> int { ... }`",
         "struct" => "Defines a plain data type with named, typed fields.",
+        "enum" => "Defines a type that is one of several named variants, each able to carry values. `enum Shape { Circle(float), Empty }`",
+        "match" => "Chooses a branch by pattern. An expression, and checked for completeness when the cases are known.",
         "type" => "Declares an alias for an existing type.",
         "when" => "Conditional branch. Pairs with `or when` and `otherwise`.",
         "or" => "Begins an `or when` branch, Xenith's else-if.",

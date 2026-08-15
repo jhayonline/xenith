@@ -1,0 +1,106 @@
+# Enums and match: what the language gives them.
+
+enum Shape {
+    Circle(float),
+    Rect(float, float),
+    Empty
+}
+
+let circle: Shape = Shape::Circle(2.0)
+let rect: Shape = Shape::Rect(3.0, 4.0)
+let nothing: Shape = Shape::Empty
+
+# An enum renders as the text that would build it.
+echo("{circle}")
+echo("{rect}")
+echo("{nothing}")
+
+# Match is an expression, so it can stand on the right of a `let`.
+method area(s: Shape) -> float {
+    release match s {
+        Shape::Circle(r) => MATH_PI * r * r
+        Shape::Rect(w, h) => w * h
+        Shape::Empty => 0.0
+    }
+}
+
+echo("{area(rect)} {area(nothing)}")
+
+# Guards, tried in order, and only where the pattern already matched.
+method size_of(s: Shape) -> string {
+    release match s {
+        Shape::Circle(r) when r > 10.0 => "a big circle"
+        Shape::Circle(r) => "a circle of {r}"
+        Shape::Rect(w, h) when w == h => "a square"
+        Shape::Rect(w, h) => "{w} by {h}"
+        Shape::Empty => "nothing"
+    }
+}
+
+echo(size_of(Shape::Circle(50.0)))
+echo(size_of(circle))
+echo(size_of(Shape::Rect(2.0, 2.0)))
+echo(size_of(rect))
+
+# Or-patterns, and `_` for the rest.
+method is_round(s: Shape) -> bool {
+    release match s {
+        Shape::Circle(r) => true
+        _ => false
+    }
+}
+echo("{is_round(circle)} {is_round(rect)}")
+
+# Equality compares the variant and everything it carries.
+echo("{circle == Shape::Circle(2.0)}")
+echo("{circle == Shape::Circle(9.0)}")
+echo("{circle == nothing}")
+
+# Matching literals, with an arm body that is a block.
+method describe(n: int) -> string {
+    release match n {
+        0 => "zero"
+        1 | 2 | 3 => "small"
+        -1 => "minus one"
+        other => {
+            let doubled: int = other * 2
+            "{other}, which doubles to {doubled}"
+        }
+    }
+}
+
+echo(describe(0))
+echo(describe(2))
+echo(describe(-1))
+echo(describe(7))
+
+# Both values of a bool are a complete set, so this needs no `_`.
+method yes_no(b: bool) -> string {
+    release match b {
+        true => "yes"
+        false => "no"
+    }
+}
+echo("{yes_no(true)} {yes_no(false)}")
+
+# Tuple patterns, and nesting a pattern inside a variant.
+enum Point {
+    At((int, int)),
+    Nowhere
+}
+
+method where_is(p: Point) -> string {
+    release match p {
+        Point::At((0, 0)) => "the origin"
+        Point::At((x, 0)) => "on the x axis at {x}"
+        Point::At((0, y)) => "on the y axis at {y}"
+        Point::At((x, y)) => "({x}, {y})"
+        Point::Nowhere => "nowhere"
+    }
+}
+
+echo(where_is(Point::At((0, 0))))
+echo(where_is(Point::At((5, 0))))
+echo(where_is(Point::At((0, 7))))
+echo(where_is(Point::At((1, 2))))
+echo(where_is(Point::Nowhere))

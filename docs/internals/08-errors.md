@@ -72,7 +72,7 @@ field name. Getting it backwards produces "field `Point` not found for struct
 
 ## Codes
 
-The full table is in the [tutorial](../tutorial/16-errors.md). The ranges:
+The full table is in the [tutorial](../tutorial/17-errors.md). The ranges:
 
 | Range | Meaning |
 | --- | --- |

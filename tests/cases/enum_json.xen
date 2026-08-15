@@ -1,0 +1,53 @@
+# A recursive enum, which is the shape JSON has and the reason sum types were
+# worth adding. A `map<string, Json>` could not be written before this: a map
+# is homogeneous, and a JSON object's values are not all the same type.
+
+enum Json {
+    Null,
+    Bool(bool),
+    Number(float),
+    Text(string),
+    Array(list<Json>),
+    Object(map<string, Json>)
+}
+
+method render(value: Json) -> string {
+    release match value {
+        Json::Null => "null"
+        Json::Bool(b) => b as string
+        Json::Number(n) => n as string
+        Json::Text(t) => "\"{t}\""
+        Json::Array(items) => render_array(items)
+        Json::Object(fields) => render_object(fields)
+    }
+}
+
+method render_array(items: list<Json>) -> string {
+    let out: string = "["
+    for (let i: int = 0; i < items.len(); i++) {
+        when i > 0 { out = out + "," }
+        out = out + render(items[i])
+    }
+    release out + "]"
+}
+
+method render_object(fields: map<string, Json>) -> string {
+    let out: string = "{{"
+    let first: bool = true
+    for key, value in fields {
+        when !first { out = out + "," }
+        first = false
+        out = out + "\"{key}\":" + render(value)
+    }
+    release out + "}}"
+}
+
+let doc: Json = Json::Object({
+    "name": Json::Text("Ada"),
+    "age": Json::Number(36.0),
+    "admin": Json::Bool(true),
+    "tags": Json::Array([Json::Text("a"), Json::Text("b")]),
+    "manager": Json::Null
+})
+
+echo(render(doc))

@@ -40,6 +40,8 @@ const KEYWORDS: &[&str] = &[
     "as",
     "from",
     "struct",
+    "enum",
+    "match",
     "type",
     "true",
     "false",

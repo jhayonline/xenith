@@ -1,0 +1,4 @@
+enum Shape { Circle(float), Empty }
+
+let s: Shape = Shape::Circle("big")
+echo("{s}")

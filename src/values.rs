@@ -35,6 +35,8 @@ pub enum Value {
     Map(Box<Map>),
     /// Boxed for the same reason: a `String` plus a `HashMap` is 72 bytes.
     Struct(Box<Struct>),
+    /// Boxed for the same reason again: two `String`s and a `Vec` is 72.
+    Enum(Box<EnumValue>),
     Bool(bool),
     Tuple(Vec<Value>),
     Null,
@@ -75,6 +77,9 @@ impl Value {
             Value::List(l) => !l.elements.is_empty(),
             Value::Map(m) => !m.pairs.is_empty(),
             Value::Struct(s) => !s.fields.is_empty(),
+            // A variant is a value that is there, whichever one it is. There is
+            // no sensible "empty" enum to call false.
+            Value::Enum(_) => true,
             Value::Function(_) => true,
             Value::BuiltInFunction(_) => true,
             Value::Bool(b) => *b,
@@ -396,6 +401,15 @@ impl Value {
                         b.fields.get(k).map(|o| v.eq_value(o)).unwrap_or(false)
                     })
             }
+            (Value::Enum(a), Value::Enum(b)) => {
+                a.enum_name == b.enum_name
+                    && a.variant == b.variant
+                    && a.payload.len() == b.payload.len()
+                    && a.payload
+                        .iter()
+                        .zip(b.payload.iter())
+                        .all(|(x, y)| x.eq_value(y))
+            }
             _ => false,
         }
     }
@@ -505,7 +519,13 @@ impl Value {
                 }
                 _ => false,
             },
-            Type::Struct(name, _) => matches!(value, Value::Struct(s) if &s.name == name),
+            // `Type::Struct` is the named user type, which covers enums too;
+            // see the note on the variant in `types.rs`.
+            Type::Struct(name, _) => match value {
+                Value::Struct(s) => &s.name == name,
+                Value::Enum(e) => &e.enum_name == name,
+                _ => false,
+            },
             Type::Function(_) => {
                 matches!(value, Value::Function(_) | Value::BuiltInFunction(_))
             }
@@ -524,6 +544,7 @@ impl Value {
             Value::List(_) => "list".to_string(),
             Value::Map(_) => "map".to_string(),
             Value::Struct(s) => s.name.clone(),
+            Value::Enum(e) => e.enum_name.clone(),
             Value::Function(_) => "method".to_string(),
             Value::BuiltInFunction(_) => "method".to_string(),
             Value::Null => "null".to_string(),
@@ -624,6 +645,27 @@ pub struct XenithString {
 impl XenithString {
     pub fn new(value: String) -> Self {
         Self { value }
+    }
+}
+
+/// One value of an enum: which variant, and what it carries.
+///
+/// The enum's name travels with it so that `value_matches_type` can answer
+/// without a table lookup, exactly as `Struct` carries its own name.
+#[derive(Debug, Clone)]
+pub struct EnumValue {
+    pub enum_name: String,
+    pub variant: String,
+    pub payload: Vec<Value>,
+}
+
+impl EnumValue {
+    pub fn new(enum_name: String, variant: String, payload: Vec<Value>) -> Self {
+        Self {
+            enum_name,
+            variant,
+            payload,
+        }
     }
 }
 
@@ -997,6 +1039,8 @@ impl BuiltInFunction {
                 Value::Struct(s) => {
                     print!("<struct {}>", s.name);
                 }
+                // `Shape::Circle(1.0)` -- the text that would have built it.
+                Value::Enum(_) => print!("{}", value_to_string(arg)),
                 Value::Function(f) => {
                     if let Some(name) = &f.name {
                         print!("<function {}>", name);

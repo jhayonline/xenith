@@ -139,7 +139,7 @@ gets a code, a note and a help line, and so its wording matches the others.
 ```rust
 pub fn my_error(detail: &str, pos_start: Position, pos_end: Position) -> Self {
     Self::new(pos_start, pos_end, "My Error", detail)
-        .with_code("XEN022")
+        .with_code("XEN024")
         .with_note("why this rule exists")
         .with_help("what to do instead")
 }
@@ -148,7 +148,7 @@ pub fn my_error(detail: &str, pos_start: Position, pos_end: Position) -> Self {
 Take the next free code. Do not reuse one, even for something that feels related.
 Codes are what users search for.
 
-Document it in `docs/tutorial/16-errors.md`.
+Document it in `docs/tutorial/17-errors.md`.
 
 ## Style
 

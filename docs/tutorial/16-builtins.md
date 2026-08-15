@@ -4,7 +4,7 @@ Everything on this page is available in every file with no import.
 
 These are the primitives: the operations the language provides because they
 cannot be written in it. Anything that can be written in Xenith belongs in
-[the standard library](19-standard-library.md) instead.
+[the standard library](20-standard-library.md) instead.
 
 ## Output
 
@@ -217,7 +217,7 @@ run("setup.xen")
 echo("setup finished")
 ```
 
-Use [modules](14-modules.md) instead when you want definitions from another file.
+Use [modules](15-modules.md) instead when you want definitions from another file.
 `run` is for the case where you want the file's effects.
 
 ## Built in constants
@@ -267,7 +267,7 @@ echo("{cos(0.0)} {exp(0.0)} {log10(1000.0)}")
 They will not take an int. The language does not convert between int and float
 anywhere else, so `sqrt(n as float)` says what it does.
 
-[std::math](19-standard-library.md) has `abs`, `floor`, `round`, `sqrt` and the
+[std::math](20-standard-library.md) has `abs`, `floor`, `round`, `sqrt` and the
 rest, written in Xenith on top of these.
 
 ## Filesystem primitives
@@ -276,7 +276,7 @@ rest, written in Xenith on top of these.
 `fs_is_dir`, `fs_size`, `fs_list`, `fs_create_dir` and `fs_remove_dir`.
 
 Unlike the others on this page these carry a prefix, and
-[std::fs](19-standard-library.md) wraps them under plain names. The rule: an
+[std::fs](20-standard-library.md) wraps them under plain names. The rule: an
 operation on a built in type is global under its own name, a service is prefixed
 and imported. Reading a file is something a program asks the world to do, and it
 should be visible in the imports that it does.
@@ -294,7 +294,7 @@ operations for a file that is not text.
 
 Deliberately few, for the same reason as the string ones: `len`, indexing, `+`,
 `==` and `as` already cover most of what byte handling needs, and
-[std::bytes](19-standard-library.md) is written on top of these.
+[std::bytes](20-standard-library.md) is written on top of these.
 
 `bytes_to_string` exists alongside `raw as string` because `as` stops the program
 on invalid UTF-8, and bytes that came from a file or a socket are exactly where a
@@ -320,7 +320,7 @@ hi []
 `env_exit`.
 
 Prefixed and imported for the same reason as the filesystem ones, and wrapped
-under plain names by [std::env](19-standard-library.md), which is what to use.
+under plain names by [std::env](20-standard-library.md), which is what to use.
 
 ## format(text)
 
@@ -386,4 +386,4 @@ echo("{name} has {count} items")
 Ada has 3 items
 ```
 
-Next: [Errors](16-errors.md)
+Next: [Errors](17-errors.md)

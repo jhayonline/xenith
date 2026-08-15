@@ -160,7 +160,7 @@ true
 ```
 
 That `(value, bool)` shape is the convention across the whole library for
-anything that can come up empty. See [Errors](16-errors.md).
+anything that can come up empty. See [Errors](17-errors.md).
 
 ### Splitting and joining
 
@@ -680,7 +680,7 @@ Alan
 | `exit(code)` | stops immediately; nothing after it runs |
 
 `exit` is for the end of a program. It is not a way to report a failure up a
-call chain, because nothing gets to see it happen. See [Errors](16-errors.md).
+call chain, because nothing gets to see it happen. See [Errors](17-errors.md).
 
 ## What is not here yet
 

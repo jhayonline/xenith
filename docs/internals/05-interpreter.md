@@ -242,6 +242,40 @@ match its field's type. Without those checks a literal could invent fields, omit
 them, or hold anything at all, and the mistake surfaced much later as a confusing
 read.
 
+## Enums and match
+
+`visit_enum_def` records the variants in
+`enum_defs: HashMap<String, Vec<(String, Vec<Type>)>>`, the direct counterpart of
+`struct_defs`.
+
+`visit_enum_variant` builds a value, checking the variant exists and its payload
+is the right length and the right types. `lookup_variant` is shared with pattern
+matching, so an unknown enum or variant reads the same whether it was written in
+an expression or in a pattern.
+
+`visit_match` evaluates the subject once, then tries each arm in order:
+
+1. `pattern_matches` answers yes or no, collecting the names the pattern binds
+   into a `Vec` rather than writing them anywhere.
+2. On a match, a child context is created and the bindings are set in it, so the
+   guard and the body both see them.
+3. The guard, if there is one, runs in that context. Failing it moves to the
+   next arm.
+4. The body runs in it too.
+
+The bindings are collected rather than written straight into a scope because a
+pattern that fails part way through must not leave the names it did match behind
+for the next arm to find.
+
+`visit_arm_body` gives a block arm the value of its last statement. That differs
+from a `when` body, which is a `Node::List` and evaluates to a list of every
+statement's value -- fine for a statement, wrong for a match, which is an
+expression and has to be worth something.
+
+Falling off the end is XEN023. The checker proves that impossible for any enum
+it can see; it stays reachable for an imported enum and for a match on an `int`
+with no catch-all.
+
 ## Where type checking happens
 
 The interpreter checks as it runs, at the moment each operation is reached:

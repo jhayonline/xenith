@@ -344,6 +344,6 @@ start 0, moved 5
 
 `export` does not currently work on a struct definition. A module can export
 methods and `let` bindings only, so a struct that is needed in two files has to
-be defined in each. See [Modules](14-modules.md).
+be defined in each. See [Modules](15-modules.md).
 
-Next: [The type system](13-types.md)
+Next: [Enums and match](13-enums.md)

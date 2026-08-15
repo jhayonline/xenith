@@ -1,0 +1,15 @@
+# A match that leaves a variant out. This is the error that makes enums worth
+# having: add a variant, and every match with a hole in it stops compiling.
+enum Shape {
+    Circle(float),
+    Rect(float, float),
+    Empty
+}
+
+let s: Shape = Shape::Empty
+
+let label: string = match s {
+    Shape::Circle(r) => "circle"
+    Shape::Empty => "nothing"
+}
+echo(label)

@@ -92,7 +92,28 @@ reported later than it could be.
 | Struct literals | missing, unknown and wrongly typed fields |
 | Field access | a field the struct does not declare |
 | Index types | `list[string]`, `map[int]` |
+| Enum variants | unknown variant, payload arity, payload types |
+| Match completeness | XEN022, where the set of cases is knowable |
+| Match patterns | a variant of the wrong enum, a literal of the wrong type |
+| Match arms | every arm has to produce the same type |
 | Interpolated expressions | everything above, inside a `{}` |
+
+### Completeness in particular
+
+`check_exhaustive` is the one check here that catches something no amount of
+care catches by hand, so it is worth knowing when it stays quiet:
+
+- An arm with a `when` guard proves nothing, because whether it matches depends
+  on a value. It never counts towards coverage.
+- `Circle(r)` covers `Circle`; `Circle(0.0)` does not. Only a variant pattern
+  whose sub-patterns are all irrefutable counts, which is what
+  `Pattern::is_irrefutable` answers.
+- A `bool` subject is a complete set of two, so `true` and `false` arms need no
+  `_`. An `int` or `string` subject always needs one.
+- An enum the checker cannot see -- an imported one -- is skipped entirely
+  rather than guessed at, because demanding arms for variants it does not know
+  about would be a false positive, and those are the one thing this pass must
+  not produce. The interpreter catches those as XEN023 instead.
 
 ## What it does not check
 

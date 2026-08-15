@@ -1,0 +1,22 @@
+Shape::Circle(2.0)
+Shape::Rect(3.0, 4.0)
+Shape::Empty
+12.0 0.0
+a big circle
+a circle of 2.0
+a square
+3.0 by 4.0
+true false
+true
+false
+false
+zero
+small
+minus one
+7, which doubles to 14
+yes no
+the origin
+on the x axis at 5
+on the y axis at 7
+(1, 2)
+nowhere

@@ -41,6 +41,7 @@ which is most of the time.
 | XEN004 | Index Out of Bounds | a list index was past the end, or negative |
 | XEN009 | Field Not Found | a struct has no such field, or a literal named an unknown one |
 | XEN009 | Missing Field | a struct literal left a declared field out |
+| XEN009 | Variant Not Found | an enum has no such variant |
 | XEN011 | Invalid Type Conversion | `as` could not convert the value |
 | XEN015 | Too Many Arguments | a call passed more arguments than the method takes |
 | XEN016 | Too Few Arguments | a call passed fewer |
@@ -48,6 +49,8 @@ which is most of the time.
 | XEN018 | Constant Reassignment | something declared `const let` was assigned to |
 | XEN019 | Recursion Limit | calls nested more than 10000 deep |
 | XEN020 | Destructuring Mismatch | the pattern and the tuple have different sizes |
+| XEN022 | Match Not Exhaustive | a `match` leaves a case uncovered |
+| XEN023 | No Matching Case | no arm of a `match` matched, at run time |
 
 ### Module errors
 
@@ -177,7 +180,7 @@ error XEN001: Type Mismatch
 ```
 
 What the checker cannot prove ahead of time is caught as it runs, which stops the
-program at that point. [Known limitations](18-limitations.md) has the detail.
+program at that point. [Known limitations](19-limitations.md) has the detail.
 
 The language server runs the same checks, so the editor shows what the command
 line will.
@@ -191,4 +194,4 @@ scripts and CI can test for it:
 xenith program.xen && echo "worked"
 ```
 
-Next: [Editor setup](17-editor-setup.md)
+Next: [Editor setup](18-editor-setup.md)
