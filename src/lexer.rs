@@ -126,7 +126,7 @@ impl Lexer {
                         self.advance();
                     }
                     '"' => {
-                        tokens.push(self.make_string());
+                        tokens.push(self.make_string()?);
                     }
                     // In the match statement for characters, add these cases:
                     '+' => {
@@ -424,7 +424,7 @@ impl Lexer {
                         self.advance();
                     }
                     '`' => {
-                        tokens.push(self.make_backtick_string());
+                        tokens.push(self.make_backtick_string()?);
                     }
                     '_' => {
                         tokens.push(Token::new(
@@ -459,13 +459,23 @@ impl Lexer {
         Ok(tokens)
     }
 
-    fn make_backtick_string(&mut self) -> Token {
+    /// A raw string, which is not interpolated. Runs to the closing backtick,
+    /// and fails if there is not one -- the same silent swallow a double quoted
+    /// string used to have.
+    fn make_backtick_string(&mut self) -> Result<Token, ExpectedCharError> {
         let mut string_val = String::new();
         let pos_start = self.position.copy();
 
         self.advance(); // Skip opening backtick
 
-        while let Some(c) = self.current_character {
+        loop {
+            let Some(c) = self.current_character else {
+                return Err(ExpectedCharError::new(
+                    pos_start,
+                    self.position.clone(),
+                    "'`' to close the raw string",
+                ));
+            };
             if c == '`' {
                 self.advance(); // Skip closing backtick
                 break;
@@ -474,12 +484,12 @@ impl Lexer {
             self.advance();
         }
 
-        Token::new(
+        Ok(Token::new(
             TokenType::BacktickString,
             Some(string_val),
             pos_start,
             Some(self.position.clone()),
-        )
+        ))
     }
 
     /// Looks at the next character without advancing
@@ -597,8 +607,13 @@ impl Lexer {
         Token::new(kind, Some(id_str), pos_start, Some(self.position.clone()))
     }
 
-    /// Creates a string token with escape sequence handling
-    pub fn make_string(&mut self) -> Token {
+    /// Creates a string token with escape sequence handling.
+    ///
+    /// Fails on a string that is never closed, and on an interpolation that is
+    /// never closed. Both used to be silent: the scanner simply ran to the end
+    /// of the file and handed back whatever it had collected, so `"{"` ate
+    /// every line after it and reported the confusion somewhere else entirely.
+    pub fn make_string(&mut self) -> Result<Token, ExpectedCharError> {
         let mut string_val = String::new();
         let mut interpolation_parts = Vec::new();
         let pos_start = self.position.copy();
@@ -645,28 +660,79 @@ impl Lexer {
                 interpolation_parts.push(("text".to_string(), string_val.clone()));
                 string_val.clear();
 
+                let brace_position = self.position.copy();
+
                 // Parse the expression inside braces
                 self.advance(); // skip {
 
                 let mut expr_str = String::new();
                 let mut brace_count = 1;
+                // An expression may contain a string of its own, which is what
+                // makes `"{ages["ada"]}"` work. Quotes inside one do not end
+                // the interpolation, so they have to be tracked.
+                let mut in_nested_string = false;
+                let mut nested_escape = false;
 
-                while let Some(expr_c) = self.current_character {
-                    if expr_c == '{' {
-                        brace_count += 1;
-                        expr_str.push(expr_c);
-                        self.advance();
-                    } else if expr_c == '}' {
-                        brace_count -= 1;
-                        if brace_count == 0 {
-                            self.advance(); // skip closing }
-                            break;
+                loop {
+                    let Some(expr_c) = self.current_character else {
+                        return Err(Self::unclosed_interpolation(
+                            brace_position,
+                            self.position.clone(),
+                        ));
+                    };
+
+                    // The expression has to finish on the line it started on.
+                    //
+                    // This is the check that was missing. Without it the scan
+                    // walks straight past the string's own closing quote
+                    // hunting for a `}`, so `let out: string = "{"` swallowed
+                    // every following line until some unrelated `}` turned up,
+                    // and the error was then reported against whatever code
+                    // happened to be standing there.
+                    if expr_c == '\n' {
+                        return Err(Self::unclosed_interpolation(
+                            brace_position,
+                            self.position.clone(),
+                        ));
+                    }
+
+                    if in_nested_string {
+                        if nested_escape {
+                            nested_escape = false;
+                        } else if expr_c == '\\' {
+                            nested_escape = true;
+                        } else if expr_c == '"' {
+                            in_nested_string = false;
                         }
                         expr_str.push(expr_c);
                         self.advance();
-                    } else {
-                        expr_str.push(expr_c);
-                        self.advance();
+                        continue;
+                    }
+
+                    match expr_c {
+                        '"' => {
+                            in_nested_string = true;
+                            expr_str.push(expr_c);
+                            self.advance();
+                        }
+                        '{' => {
+                            brace_count += 1;
+                            expr_str.push(expr_c);
+                            self.advance();
+                        }
+                        '}' => {
+                            brace_count -= 1;
+                            if brace_count == 0 {
+                                self.advance(); // skip closing }
+                                break;
+                            }
+                            expr_str.push(expr_c);
+                            self.advance();
+                        }
+                        _ => {
+                            expr_str.push(expr_c);
+                            self.advance();
+                        }
                     }
                 }
 
@@ -688,9 +754,16 @@ impl Lexer {
             self.advance();
         }
 
-        if self.current_character == Some('"') {
-            self.advance(); // Skip closing quote
+        if self.current_character != Some('"') {
+            // Ran out of input without a closing quote. This used to hand back
+            // the token anyway, so the rest of the file arrived as one string.
+            return Err(ExpectedCharError::new(
+                pos_start,
+                self.position.clone(),
+                "'\"' to close the string",
+            ));
         }
+        self.advance(); // Skip closing quote
 
         if is_interpolated {
             // Add the last text part if there is any
@@ -710,20 +783,20 @@ impl Lexer {
                     crate::nodes::escape_interpolation_part(&content)
                 ));
             }
-            Token::new(
+            Ok(Token::new(
                 TokenType::InterpolatedString,
                 Some(encoded),
                 pos_start,
                 Some(self.position.clone()),
-            )
+            ))
         } else {
             // For regular strings, just use string_val
-            Token::new(
+            Ok(Token::new(
                 TokenType::String,
                 Some(string_val),
                 pos_start,
                 Some(self.position.clone()),
-            )
+            ))
         }
     }
 
@@ -742,6 +815,23 @@ impl Lexer {
     }
 
     /// Creates a not-equals token
+    /// An interpolation that never closed.
+    ///
+    /// The span is the `{` that opened it rather than wherever the scan gave
+    /// up, because that is the character to go and look at. The help mentions
+    /// `{{`, since wanting a literal brace is the usual reason to be here.
+    fn unclosed_interpolation(
+        brace_position: Position,
+        end: Position,
+    ) -> ExpectedCharError {
+        let mut error = ExpectedCharError::new(brace_position, end, "'}' to close the interpolation");
+        error.base = error
+            .base
+            .with_note("an interpolated expression has to finish on the line it started on")
+            .with_help("write `{{` for a literal `{`, or close the expression with `}`");
+        error
+    }
+
     pub fn make_not_equals(&mut self) -> Result<Token, ExpectedCharError> {
         let pos_start = self.position.copy();
         self.advance();

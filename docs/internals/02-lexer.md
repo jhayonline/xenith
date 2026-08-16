@@ -114,6 +114,39 @@ An escape that is not in the map yields the character itself, so `\q` is `q`.
 
 `{{` and `}}` produce a single literal brace.
 
+### Where an unterminated one stops
+
+Both `make_string` and `make_backtick_string` return a `Result`, and both used
+not to. They ran their loop with `while let Some(c) = self.current_character` and
+handed back whatever they had collected when the input ran out, so a string with
+no closing quote quietly became the rest of the file.
+
+The interpolation scanner had the sharper version of the same bug: looking for
+its closing `}`, it walked straight past the string's own closing quote. So
+
+```xenith
+let out: string = "{"
+let first: bool = true
+```
+
+consumed both lines and everything after them until some unrelated `}` turned
+up, and then reported an undefined `first` — a name that is declared right
+there, in an error pointing at code that was never the problem.
+
+Two conditions end the scan now:
+
+- **End of input**, for all three.
+- **A newline inside an interpolation.** An expression has to finish on the line
+  it started on, which is what stops the scan escaping the string.
+
+The scan cannot simply stop at the next `"`, because an interpolated expression
+may contain a string of its own — `"{ages["ada"]}"` is ordinary and appears in
+the tutorial. So it tracks whether it is inside a nested string, with its own
+backslash handling, and only counts braces when it is not.
+
+The error points at the `{` that opened the interpolation rather than at the
+character where the scan gave up, since that is the one to go and look at.
+
 ### How interpolation is encoded
 
 This is the least obvious part of the lexer.

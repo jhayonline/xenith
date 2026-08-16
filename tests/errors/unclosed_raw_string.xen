@@ -1,0 +1,2 @@
+# A raw string that is never closed.
+let greeting: string = `hello

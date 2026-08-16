@@ -1,0 +1,23 @@
+# Braces in strings: what is an expression and what is text.
+
+let name: string = "Ada"
+
+# A brace opens an interpolated expression.
+echo("hello {name}")
+
+# Two ways to write a literal brace.
+echo("{{")
+echo("\{")
+echo("a JSON object looks like {{\"key\": 1}}")
+
+# An expression may contain a string of its own, quotes and all. This is the
+# reason the scanner cannot simply stop at the next quote.
+let ages: map<string, int> = {"ada": 36}
+echo("{ages["ada"]}")
+echo("{"a" + "b"}")
+echo("{ages["ada"] + ages["ada"]}")
+
+# A raw string is not interpolated at all, so its braces survive.
+let raw: string = `Hello {name}!`
+echo(raw)
+echo(format(raw))

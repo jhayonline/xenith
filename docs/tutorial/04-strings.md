@@ -84,6 +84,33 @@ echo("a JSON object looks like {{\"key\": 1}}")
 a JSON object looks like {"key": 1}
 ```
 
+A single `{` is always the start of an expression, so one you meant as text is
+an error rather than something that quietly goes wrong:
+
+```xenith
+let out: string = "{"
+```
+
+```
+error XEN101: Expected Character
+  '}' to close the interpolation
+  note: an interpolated expression has to finish on the line it started on
+  💡 write `{{` for a literal `{`, or close the expression with `}`
+```
+
+An expression may contain a string of its own, quotes included, which is why
+the closing quote alone cannot end it:
+
+```xenith
+let ages: map<string, int> = {"ada": 36}
+
+echo("ada is {ages["ada"]}")
+```
+
+```
+ada is 36
+```
+
 ## Raw strings
 
 A string in backticks is raw. No escape processing, no interpolation, everything

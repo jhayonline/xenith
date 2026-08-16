@@ -1,0 +1,7 @@
+# A `{` that never closes. This used to be silent: the scanner ran past the
+# string's own closing quote hunting for a `}`, swallowed every line after it,
+# and reported the confusion against whatever code happened to be standing
+# where it finally gave up.
+let out: string = "{"
+let first: bool = true
+echo(out + "}")
