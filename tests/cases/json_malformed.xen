@@ -1,0 +1,93 @@
+# std::json on documents that are wrong.
+#
+# None of these stop the program. A document arrives from outside and being
+# malformed is a case to handle, not a bug in the code that called `parse`, so
+# every one of them comes back as an error string with a position in it.
+
+grab { parse, stringify, type_name } from "std::json"
+grab { repeat } from "std::string"
+
+method check(label: string, text: string) {
+    let (value, error) = parse(text)
+    when error != "" {
+        echo("{label}: {error}")
+    } otherwise {
+        echo("{label}: parsed as {stringify(value)}")
+    }
+}
+
+echo("--- nothing to parse ---")
+check("empty", ``)
+check("blank", `   `)
+
+echo("--- numbers ---")
+check("leading zero", `01`)
+check("bare minus", `-`)
+check("no digits", `-.5`)
+check("trailing point", `1.`)
+check("bare exponent", `1e`)
+check("exponent sign only", `1e+`)
+check("leading plus", `+1`)
+check("hex", `0x10`)
+check("infinity", `inf`)
+check("nan", `NaN`)
+check("too large", `1e999`)
+
+echo("--- strings ---")
+check("unclosed", `"abc`)
+check("bad escape", `"\q"`)
+check("short hex", `"\u12"`)
+check("not hex", `"\uzzzz"`)
+check("lone high surrogate", `"\ud83d"`)
+check("lone low surrogate", `"\ude00"`)
+check("half a pair", `"\ud83dx"`)
+check("raw tab", "\"a\tb\"")
+check("dangling backslash", `"a\`)
+
+echo("--- arrays ---")
+check("unclosed", `[1, 2`)
+check("trailing comma", `[1,]`)
+check("missing comma", `[1 2]`)
+check("just a comma", `[,]`)
+check("closed wrong", `[1}`)
+
+echo("--- objects ---")
+check("unclosed", `{"a": 1`)
+check("bare key", `{a: 1}`)
+check("no colon", `{"a" 1}`)
+check("no value", `{"a":}`)
+check("trailing comma", `{"a": 1,}`)
+check("missing comma", `{"a": 1 "b": 2}`)
+
+echo("--- words ---")
+check("truncated", `tru`)
+check("capitalised", `True`)
+check("undefined", `undefined`)
+
+echo("--- more than one value ---")
+check("two values", `1 2`)
+check("trailing text", `{"a": 1} and more`)
+check("two documents", `{}{}`)
+
+echo("--- too deep ---")
+# The interpreter stops a runaway recursion by ending the program. `parse` has
+# its own limit, reached first, so a document designed to blow the stack comes
+# back as an error like any other.
+#
+# Reported without the document, which at this depth is all brackets.
+method check_depth(label: string, levels: int) {
+    let (value, error) = parse(repeat("[", levels) + "1" + repeat("]", levels))
+    when error != "" {
+        echo("{label} ({levels}): {error}")
+    } otherwise {
+        echo("{label} ({levels}): parsed")
+    }
+}
+
+check_depth("at the limit", 200)
+check_depth("past it", 201)
+check_depth("hostile", 5000)
+
+echo("--- and the program is still running ---")
+let (recovered, error) = parse(`{"ok": true}`)
+echo("recovered {stringify(recovered)} [{error}]")

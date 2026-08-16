@@ -111,9 +111,9 @@ echo(ret([5, 6]))
 
 ## The standard library is small
 
-`std::string`, `std::math`, `std::fs`, `std::bytes` and `std::env` exist; see
-[The standard library](20-standard-library.md). There is no networking, no JSON,
-no time and no random.
+`std::string`, `std::math`, `std::fs`, `std::bytes`, `std::env` and `std::json`
+exist; see [The standard library](20-standard-library.md). There is no
+networking, no time and no random.
 
 Collections are the interesting gap. Without generics there is no way to write
 one `map` or `filter` that works for a `list<int>` and a `list<string>` both, so

@@ -1,0 +1,816 @@
+# std::json
+#
+# JSON as a Xenith value, and back again.
+#
+#     grab { Json, parse, stringify, get, as_text } from "std::json"
+#
+#     let (doc, error) = parse("{\"name\": \"Ada\"}")
+#     let (name, found) = get(doc, "name")
+#     let (text, is_text) = as_text(name)
+#
+# The whole library is written on top of `enum Json`, which is the shape a JSON
+# document actually has: a value is exactly one of seven things. A map cannot
+# stand in for an object, because a map is homogeneous and an object's values
+# are not; this module is the reason sum types were added to the language.
+#
+# ---------------------------------------------------------------------------
+#
+# Two number variants, not one
+#
+# JSON itself has a single number type, and most libraries in most languages
+# make it a double. This one does not, because Xenith has a real 64 bit `int`
+# and throwing it away costs more than it saves:
+#
+#   - `{"id": 9007199254740993}` survives a parse and a stringify unchanged.
+#     Through a double it comes back as ...92. Identifiers from other systems
+#     are exactly the values that live in that range.
+#   - `{"age": 36}` writes back out as `36`, not `36.0`.
+#
+# So a number without a fraction or an exponent parses to `Json::Int` when it
+# fits in an `int`, and to `Json::Float` otherwise. Anything written with a `.`
+# or an `e` is a `Json::Float` whatever its value, because that is what the
+# document said. `as_float` accepts either variant, so code that does not care
+# does not have to look.
+#
+# The cost is that a `match` over `Json` has seven arms rather than six, and
+# the checker will hold you to all of them.
+#
+# ---------------------------------------------------------------------------
+#
+# Conventions, the same ones the rest of the library uses
+#
+#   - Something that can fail to find a value returns `(value, bool)`.
+#   - `parse` returns `(value, string)`, where the string is empty on success.
+#     It never stops the program: a document from outside is data, not a bug.
+#   - `panic` is only for a mistake in the calling code.
+
+grab { is_digit, is_space, repeat } from "std::string"
+
+export enum Json {
+    Null,
+    Bool(bool),
+    Int(int),
+    Float(float),
+    Text(string),
+    Array(list<Json>),
+    Object(map<string, Json>)
+}
+
+# `{` and `}` open an interpolation inside a string, so a literal one is
+# written twice. Naming them here keeps that out of the parsing code.
+const let OPEN_OBJECT: string = "{{"
+const let CLOSE_OBJECT: string = "}}"
+
+# How deeply values may nest before `parse` gives up. The interpreter stops a
+# runaway recursion itself at ten thousand frames, but it does that by ending
+# the program, which is the wrong answer for a document that arrived over a
+# socket. This limit is reached first and comes back as an ordinary error.
+const let MAX_DEPTH: int = 200
+
+const let FLOAT_MAX: float = "1.7976931348623157e308" as float
+
+# 2^53, the last point at which every whole number has its own float.
+const let SAFE_INT: float = "9007199254740992" as float
+
+const let INT_MAX_TEXT: string = "9223372036854775807"
+const let INT_MIN_TEXT: string = "9223372036854775808"
+
+# ---------------------------------------------------------------------------
+# Looking at a value
+# ---------------------------------------------------------------------------
+
+# What this value is, in the words the error messages use.
+export method type_name(value: Json) -> string {
+    release match value {
+        Json::Null => "null"
+        Json::Bool(_) => "bool"
+        Json::Int(_) => "int"
+        Json::Float(_) => "float"
+        Json::Text(_) => "string"
+        Json::Array(_) => "array"
+        Json::Object(_) => "object"
+    }
+}
+
+export method is_null(value: Json) -> bool {
+    release match value {
+        Json::Null => true
+        _ => false
+    }
+}
+
+export method is_bool(value: Json) -> bool {
+    release match value {
+        Json::Bool(_) => true
+        _ => false
+    }
+}
+
+# True for either number variant.
+export method is_number(value: Json) -> bool {
+    release match value {
+        Json::Int(_) => true
+        Json::Float(_) => true
+        _ => false
+    }
+}
+
+export method is_text(value: Json) -> bool {
+    release match value {
+        Json::Text(_) => true
+        _ => false
+    }
+}
+
+export method is_array(value: Json) -> bool {
+    release match value {
+        Json::Array(_) => true
+        _ => false
+    }
+}
+
+export method is_object(value: Json) -> bool {
+    release match value {
+        Json::Object(_) => true
+        _ => false
+    }
+}
+
+# How many elements an array has, or fields an object has. Zero for everything
+# else, since nothing else has parts.
+export method size(value: Json) -> int {
+    release match value {
+        Json::Array(items) => items.len()
+        Json::Object(fields) => fields.len()
+        _ => 0
+    }
+}
+
+# ---------------------------------------------------------------------------
+# Getting Xenith values back out
+#
+# Each of these answers "is it this, and if so what is it" in one call, so the
+# type test and the read cannot drift apart.
+# ---------------------------------------------------------------------------
+
+export method as_bool(value: Json) -> (bool, bool) {
+    release match value {
+        Json::Bool(b) => (b, true)
+        _ => (false, false)
+    }
+}
+
+# An `int` if the value is one, or a float that is a whole number small enough
+# to be one exactly. `36.0` reads as `36`; `36.5` and `1e30` do not.
+export method as_int(value: Json) -> (int, bool) {
+    release match value {
+        Json::Int(n) => (n, true)
+        Json::Float(x) => {
+            let out: (int, bool) = (0, false)
+            when x >= 0.0 - SAFE_INT && x <= SAFE_INT && x == ((x as int) as float) {
+                out = (x as int, true)
+            }
+            out
+        }
+        _ => (0, false)
+    }
+}
+
+# A `float` from either number variant. This is the one to reach for when the
+# distinction does not matter, which is most of the time.
+export method as_float(value: Json) -> (float, bool) {
+    release match value {
+        Json::Float(x) => (x, true)
+        Json::Int(n) => (n as float, true)
+        _ => (0.0, false)
+    }
+}
+
+export method as_text(value: Json) -> (string, bool) {
+    release match value {
+        Json::Text(t) => (t, true)
+        _ => ("", false)
+    }
+}
+
+export method as_array(value: Json) -> (list<Json>, bool) {
+    let none: list<Json> = []
+    release match value {
+        Json::Array(items) => (items, true)
+        _ => (none, false)
+    }
+}
+
+export method as_object(value: Json) -> (map<string, Json>, bool) {
+    let none: map<string, Json> = {}
+    release match value {
+        Json::Object(fields) => (fields, true)
+        _ => (none, false)
+    }
+}
+
+# ---------------------------------------------------------------------------
+# Reaching into a document
+# ---------------------------------------------------------------------------
+
+# A field of an object. False when the value is not an object at all, so a
+# caller walking a document does not have to check the shape at every step.
+export method get(value: Json, key: string) -> (Json, bool) {
+    release match value {
+        Json::Object(fields) => {
+            let out: (Json, bool) = (Json::Null, false)
+            when fields.has_key(key) {
+                out = (fields[key], true)
+            }
+            out
+        }
+        _ => (Json::Null, false)
+    }
+}
+
+# An element of an array, with the index checked rather than trusted.
+export method at(value: Json, index: int) -> (Json, bool) {
+    release match value {
+        Json::Array(items) => {
+            let out: (Json, bool) = (Json::Null, false)
+            when index >= 0 && index < items.len() {
+                out = (items[index], true)
+            }
+            out
+        }
+        _ => (Json::Null, false)
+    }
+}
+
+# The field names of an object, empty for anything else.
+export method keys(value: Json) -> list<string> {
+    let none: list<string> = []
+    release match value {
+        Json::Object(fields) => fields.keys()
+        _ => none
+    }
+}
+
+# ---------------------------------------------------------------------------
+# Writing
+# ---------------------------------------------------------------------------
+
+# A value as compact JSON, on one line.
+#
+# The output is always valid JSON. The one way it can differ from what you put
+# in is a float that is infinite or NaN: JSON cannot write those, and they come
+# out as `null`. Call `check` first if that would be a silent loss rather than
+# a case that cannot arise.
+export method stringify(value: Json) -> string {
+    release match value {
+        Json::Null => "null"
+        Json::Bool(b) => b as string
+        Json::Int(n) => n as string
+        Json::Float(x) => write_float(x)
+        Json::Text(t) => quote(t)
+        Json::Array(items) => {
+            let out: string = "["
+            for (let i: int = 0; i < items.len(); i++) {
+                when i > 0 {
+                    out = out + ","
+                }
+                out = out + stringify(items[i])
+            }
+            out + "]"
+        }
+        Json::Object(fields) => {
+            let out: string = OPEN_OBJECT
+            let first: bool = true
+            for key, field in fields {
+                when !first {
+                    out = out + ","
+                }
+                first = false
+                out = out + quote(key) + ":" + stringify(field)
+            }
+            out + CLOSE_OBJECT
+        }
+    }
+}
+
+# The same document across several lines, each level indented by `indent`
+# spaces. `pretty(doc, 2)` is the usual call.
+export method pretty(value: Json, indent: int) -> string {
+    when indent < 0 {
+        panic("pretty needs an indent of zero or more")
+    }
+    release write_pretty(value, indent, 0)
+}
+
+method write_pretty(value: Json, indent: int, level: int) -> string {
+    release match value {
+        Json::Array(items) => {
+            let out: string = "[]"
+            when items.len() > 0 {
+                let inner: string = repeat(" ", indent * (level + 1))
+                out = "[\n"
+                for (let i: int = 0; i < items.len(); i++) {
+                    when i > 0 {
+                        out = out + ",\n"
+                    }
+                    out = out + inner + write_pretty(items[i], indent, level + 1)
+                }
+                out = out + "\n" + repeat(" ", indent * level) + "]"
+            }
+            out
+        }
+        Json::Object(fields) => {
+            let out: string = OPEN_OBJECT + CLOSE_OBJECT
+            when fields.len() > 0 {
+                let inner: string = repeat(" ", indent * (level + 1))
+                out = OPEN_OBJECT + "\n"
+                let first: bool = true
+                for key, field in fields {
+                    when !first {
+                        out = out + ",\n"
+                    }
+                    first = false
+                    out = out + inner + quote(key) + ": " + write_pretty(field, indent, level + 1)
+                }
+                out = out + "\n" + repeat(" ", indent * level) + CLOSE_OBJECT
+            }
+            out
+        }
+        _ => stringify(value)
+    }
+}
+
+# Empty when every float in the document can be written as JSON, and otherwise
+# the first one that cannot. `stringify` turns those into `null`; this is how
+# you find out before it happens.
+export method check(value: Json) -> string {
+    release match value {
+        Json::Float(x) => {
+            let out: string = ""
+            when !is_finite(x) {
+                out = "{x} cannot be written as JSON"
+            }
+            out
+        }
+        Json::Array(items) => {
+            let out: string = ""
+            for (let i: int = 0; i < items.len(); i++) {
+                when out == "" {
+                    out = check(items[i])
+                }
+            }
+            out
+        }
+        Json::Object(fields) => {
+            let out: string = ""
+            for key, field in fields {
+                when out == "" {
+                    out = check(field)
+                }
+            }
+            out
+        }
+        _ => ""
+    }
+}
+
+method write_float(x: float) -> string {
+    when !is_finite(x) {
+        release "null"
+    }
+    # A Xenith float always prints with a decimal point and never in exponent
+    # form, and both of those are valid JSON.
+    release x as string
+}
+
+# NaN is the only value that is not equal to itself, and anything past the
+# largest float is an infinity.
+method is_finite(x: float) -> bool {
+    when x != x {
+        release false
+    }
+    release x <= FLOAT_MAX && x >= 0.0 - FLOAT_MAX
+}
+
+# A string as a JSON string, quotes included.
+#
+# Only what JSON requires is escaped: the quote, the backslash, and the control
+# characters. Text outside ASCII is written through as UTF-8 rather than as
+# `\u` escapes, which is shorter and is what every reader expects now.
+method quote(text: string) -> string {
+    let out: string = "\""
+    for (let i: int = 0; i < text.len(); i++) {
+        let c: string = text[i]
+        let code: int = code_at(c, 0)
+
+        when c == "\"" {
+            out = out + "\\\""
+        } or when c == "\\" {
+            out = out + "\\\\"
+        } or when code == 10 {
+            out = out + "\\n"
+        } or when code == 13 {
+            out = out + "\\r"
+        } or when code == 9 {
+            out = out + "\\t"
+        } or when code == 8 {
+            out = out + "\\b"
+        } or when code == 12 {
+            out = out + "\\f"
+        } or when code < 32 {
+            out = out + "\\u00" + hex_digit(code / 16) + hex_digit(code % 16)
+        } otherwise {
+            out = out + c
+        }
+    }
+    release out + "\""
+}
+
+method hex_digit(value: int) -> string {
+    when value < 10 {
+        release from_code(48 + value)
+    }
+    release from_code(97 + value - 10)
+}
+
+# ---------------------------------------------------------------------------
+# Reading
+#
+# An ordinary recursive descent parser. Every step takes the text and a
+# position and hands back a value, the position after it, and an error which is
+# empty when there was not one; nothing here mutates a cursor, because there is
+# no way to pass one by reference.
+#
+# Positions are character positions, counted the way `len()` counts, so they
+# line up with what `text[i]` would give you.
+# ---------------------------------------------------------------------------
+
+# A document as a value, and an error which is empty on success.
+#
+# The whole text has to be one JSON value. Anything after it is an error rather
+# than something quietly ignored, because trailing text almost always means the
+# document was truncated or two of them were concatenated.
+export method parse(text: string) -> (Json, string) {
+    let (value, next, error) = parse_value(text, 0, 0)
+    when error != "" {
+        release (Json::Null, "{error} at position {next}")
+    }
+
+    let end: int = skip_space(text, next)
+    when end < text.len() {
+        release (Json::Null, "unexpected text after the value at position {end}")
+    }
+    release (value, "")
+}
+
+method skip_space(text: string, from_index: int) -> int {
+    let i: int = from_index
+    while i < text.len() && is_space(text[i]) {
+        i = i + 1
+    }
+    release i
+}
+
+method parse_value(text: string, from_index: int, depth: int) -> (Json, int, string) {
+    when depth > MAX_DEPTH {
+        release (Json::Null, from_index, "values nest more than {MAX_DEPTH} deep")
+    }
+
+    let i: int = skip_space(text, from_index)
+    when i >= text.len() {
+        release (Json::Null, i, "expected a value but the text ended")
+    }
+
+    let c: string = text[i]
+
+    when c == OPEN_OBJECT {
+        release parse_object(text, i, depth)
+    }
+    when c == "[" {
+        release parse_array(text, i, depth)
+    }
+    when c == "\"" {
+        let (word, next, error) = parse_string(text, i)
+        when error != "" {
+            release (Json::Null, next, error)
+        }
+        release (Json::Text(word), next, "")
+    }
+    when c == "t" {
+        release parse_word(text, i, "true", Json::Bool(true))
+    }
+    when c == "f" {
+        release parse_word(text, i, "false", Json::Bool(false))
+    }
+    when c == "n" {
+        release parse_word(text, i, "null", Json::Null)
+    }
+    when c == "-" || is_digit(c) {
+        release parse_number(text, i)
+    }
+    release (Json::Null, i, "`{c}` does not start a value")
+}
+
+# One of the three bare words. Checked in full rather than by its first
+# character, so `tru` is an error and not a `true`.
+method parse_word(text: string, from_index: int, word: string, value: Json) -> (Json, int, string) {
+    let ends_at: int = from_index + word.len()
+    when ends_at > text.len() || substring(text, from_index, ends_at) != word {
+        release (Json::Null, from_index, "expected `{word}`")
+    }
+    release (value, ends_at, "")
+}
+
+method parse_array(text: string, from_index: int, depth: int) -> (Json, int, string) {
+    let items: list<Json> = []
+    let i: int = skip_space(text, from_index + 1)
+
+    when i < text.len() && text[i] == "]" {
+        release (Json::Array(items), i + 1, "")
+    }
+
+    while i < text.len() {
+        let (item, next, error) = parse_value(text, i, depth + 1)
+        when error != "" {
+            release (Json::Null, next, error)
+        }
+        items.append(item)
+
+        i = skip_space(text, next)
+        when i >= text.len() {
+            release (Json::Null, i, "an array was never closed")
+        }
+        when text[i] == "]" {
+            release (Json::Array(items), i + 1, "")
+        }
+        when text[i] != "," {
+            release (Json::Null, i, "expected `,` or `]` in an array")
+        }
+        i = i + 1
+    }
+    release (Json::Null, i, "an array was never closed")
+}
+
+method parse_object(text: string, from_index: int, depth: int) -> (Json, int, string) {
+    let fields: map<string, Json> = {}
+    let i: int = skip_space(text, from_index + 1)
+
+    when i < text.len() && text[i] == CLOSE_OBJECT {
+        release (Json::Object(fields), i + 1, "")
+    }
+
+    while i < text.len() {
+        when text[i] != "\"" {
+            release (Json::Null, i, "expected a quoted field name")
+        }
+        let (key, after_key, key_error) = parse_string(text, i)
+        when key_error != "" {
+            release (Json::Null, after_key, key_error)
+        }
+
+        i = skip_space(text, after_key)
+        when i >= text.len() || text[i] != ":" {
+            release (Json::Null, i, "expected `:` after a field name")
+        }
+
+        let (field, next, error) = parse_value(text, i + 1, depth + 1)
+        when error != "" {
+            release (Json::Null, next, error)
+        }
+        # A repeated name keeps the last value, which is what a map does and
+        # what every other parser does with a document that has one.
+        fields[key] = field
+
+        i = skip_space(text, next)
+        when i >= text.len() {
+            release (Json::Null, i, "an object was never closed")
+        }
+        when text[i] == CLOSE_OBJECT {
+            release (Json::Object(fields), i + 1, "")
+        }
+        when text[i] != "," {
+            release (Json::Null, i, "expected `,` or `}` in an object")
+        }
+        i = skip_space(text, i + 1)
+    }
+    release (Json::Null, i, "an object was never closed")
+}
+
+# The text of a string, and the position after its closing quote.
+method parse_string(text: string, from_index: int) -> (string, int, string) {
+    let out: string = ""
+    let i: int = from_index + 1
+
+    while i < text.len() {
+        let c: string = text[i]
+
+        when c == "\"" {
+            release (out, i + 1, "")
+        }
+        when c == "\\" {
+            let (piece, next, error) = parse_escape(text, i)
+            when error != "" {
+                release ("", next, error)
+            }
+            out = out + piece
+            i = next
+        } or when code_at(c, 0) < 32 {
+            release ("", i, "a control character has to be escaped inside a string")
+        } otherwise {
+            out = out + c
+            i = i + 1
+        }
+    }
+    release ("", i, "a string was never closed")
+}
+
+# What one backslash escape stands for, and the position after it.
+method parse_escape(text: string, from_index: int) -> (string, int, string) {
+    let after: int = from_index + 1
+    when after >= text.len() {
+        release ("", from_index, "a string ends with a lone backslash")
+    }
+
+    let c: string = text[after]
+    when c == "\"" {
+        release ("\"", after + 1, "")
+    }
+    when c == "\\" {
+        release ("\\", after + 1, "")
+    }
+    when c == "/" {
+        release ("/", after + 1, "")
+    }
+    when c == "b" {
+        release (from_code(8), after + 1, "")
+    }
+    when c == "f" {
+        release (from_code(12), after + 1, "")
+    }
+    when c == "n" {
+        release ("\n", after + 1, "")
+    }
+    when c == "r" {
+        release ("\r", after + 1, "")
+    }
+    when c == "t" {
+        release ("\t", after + 1, "")
+    }
+    when c != "u" {
+        release ("", from_index, "`\\{c}` is not an escape")
+    }
+
+    let (first, first_ok) = hex4(text, after + 1)
+    when !first_ok {
+        release ("", from_index, "`\\u` needs four hex digits after it")
+    }
+
+    # Outside the surrogate range a code unit is already the character.
+    when first < 55296 || first > 57343 {
+        release (from_code(first), after + 5, "")
+    }
+    when first > 56319 {
+        release ("", from_index, "a low surrogate has nothing in front of it")
+    }
+
+    # A high surrogate is half of a character and the other half has to follow,
+    # because UTF-8 has nowhere to put one on its own.
+    let pair_at: int = after + 5
+    when pair_at + 1 >= text.len() || text[pair_at] != "\\" || text[pair_at + 1] != "u" {
+        release ("", from_index, "a high surrogate needs a `\\u` after it")
+    }
+    let (second, second_ok) = hex4(text, pair_at + 2)
+    when !second_ok {
+        release ("", from_index, "`\\u` needs four hex digits after it")
+    }
+    when second < 56320 || second > 57343 {
+        release ("", from_index, "a high surrogate needs a low one after it")
+    }
+
+    release (from_code(65536 + (first - 55296) * 1024 + (second - 56320)), pair_at + 6, "")
+}
+
+method hex4(text: string, from_index: int) -> (int, bool) {
+    when from_index + 4 > text.len() {
+        release (0, false)
+    }
+    let total: int = 0
+    for (let i: int = 0; i < 4; i++) {
+        let (digit, ok) = hex_value(text[from_index + i])
+        when !ok {
+            release (0, false)
+        }
+        total = total * 16 + digit
+    }
+    release (total, true)
+}
+
+method hex_value(c: string) -> (int, bool) {
+    let code: int = code_at(c, 0)
+    when code >= 48 && code <= 57 {
+        release (code - 48, true)
+    }
+    when code >= 97 && code <= 102 {
+        release (code - 97 + 10, true)
+    }
+    when code >= 65 && code <= 70 {
+        release (code - 65 + 10, true)
+    }
+    release (0, false)
+}
+
+# A number, following JSON's grammar exactly rather than handing the text to
+# `as float` and hoping. That matters twice over: `as` on text that is not a
+# number stops the program, and Rust would happily read `inf` and `0x10`, which
+# are not JSON.
+method parse_number(text: string, from_index: int) -> (Json, int, string) {
+    let i: int = from_index
+    let negative: bool = false
+
+    when text[i] == "-" {
+        negative = true
+        i = i + 1
+    }
+
+    when i >= text.len() || !is_digit(text[i]) {
+        release (Json::Null, i, "a number needs a digit here")
+    }
+
+    # A leading zero stands alone: `01` is not a JSON number.
+    let digits_from: int = i
+    when text[i] == "0" {
+        i = i + 1
+    } otherwise {
+        while i < text.len() && is_digit(text[i]) {
+            i = i + 1
+        }
+    }
+    let digits_to: int = i
+
+    let fractional: bool = false
+
+    when i < text.len() && text[i] == "." {
+        fractional = true
+        i = i + 1
+        when i >= text.len() || !is_digit(text[i]) {
+            release (Json::Null, i, "a decimal point needs a digit after it")
+        }
+        while i < text.len() && is_digit(text[i]) {
+            i = i + 1
+        }
+    }
+
+    when i < text.len() && (text[i] == "e" || text[i] == "E") {
+        fractional = true
+        i = i + 1
+        when i < text.len() && (text[i] == "+" || text[i] == "-") {
+            i = i + 1
+        }
+        when i >= text.len() || !is_digit(text[i]) {
+            release (Json::Null, i, "an exponent needs a digit after it")
+        }
+        while i < text.len() && is_digit(text[i]) {
+            i = i + 1
+        }
+    }
+
+    let raw: string = substring(text, from_index, i)
+
+    when !fractional && fits_int(substring(text, digits_from, digits_to), negative) {
+        release (Json::Int(raw as int), i, "")
+    }
+
+    let x: float = raw as float
+    when !is_finite(x) {
+        release (Json::Null, from_index, "`{raw}` is too large for a float")
+    }
+    release (Json::Float(x), i, "")
+}
+
+# Whether a whole number written as `digits` fits in an `int`.
+#
+# Comparing the text rather than converting and catching the failure, because
+# there is nothing to catch: `as int` on something too large stops the program.
+# Nineteen digit values are compared against the limit itself instead of being
+# waved through, since that is exactly where identifiers from other systems sit.
+method fits_int(digits: string, negative: bool) -> bool {
+    when digits.len() < INT_MAX_TEXT.len() {
+        release true
+    }
+    when digits.len() > INT_MAX_TEXT.len() {
+        release false
+    }
+
+    let limit: string = INT_MAX_TEXT
+    when negative {
+        limit = INT_MIN_TEXT
+    }
+    for (let i: int = 0; i < digits.len(); i++) {
+        let here: int = code_at(digits, i)
+        let allowed: int = code_at(limit, i)
+        when here != allowed {
+            release here < allowed
+        }
+    }
+    release true
+}

@@ -11,24 +11,22 @@ decisions still open. That is most of what is below.
 
 ## 1. Pick up here
 
-**Uncommitted:** the string-lexer bug fix, plus 8 new test fixtures. Everything
-else is committed (`bbce4e6 feat: sum types and match`).
-
-```sh
-git status              # the lexer fix + tests/cases/string_braces.* + tests/errors/unclosed_*
-cargo test              # green as of the end of the session
-```
-
-Suggested message for it:
+**Uncommitted:** `std::json` — `src/stdlib/json.xen`, its line in
+`src/stdlib/mod.rs`, three fixtures (`tests/cases/json_read`, `json_write`,
+`json_malformed`), the `std::json` section of
+`docs/tutorial/20-standard-library.md`, and the module lists in
+`19-limitations.md` and `tutorial/README.md`. `cargo test` is green.
 
 ```
-fix: an unterminated string or interpolation no longer eats the rest of the file
-
-Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+feat: std::json
 ```
 
-**Next piece of work:** `std::json`, written in Xenith on top of the `Json` enum
-that is now expressible. See §6.
+The string-lexer fix landed as `6a4c676`, on top of `bbce4e6 feat: sum types and
+match`.
+
+**Next piece of work:** copy-on-write collections — roadmap item 3, which
+writing `std::json` promoted from "do before benchmarking" to "do next". See the
+measurements in §7.
 
 ---
 
@@ -81,6 +79,59 @@ never occur there, and that all arms produce the same type.
 
 `export enum` works across modules like `export struct`.
 
+### `std::json`
+
+`enum Json` plus a recursive descent parser, a serialiser and the accessors, all
+in Xenith. `parse` returns `(Json, string)` and never stops the program.
+
+**It has seven variants, not six.** The sketch in §3 had `Number(float)`; the
+shipped enum splits it into `Int(int)` and `Float(float)`:
+
+```xenith
+export enum Json {
+    Null, Bool(bool), Int(int), Float(float), Text(string),
+    Array(list<Json>), Object(map<string, Json>)
+}
+```
+
+Xenith has a real i64 and collapsing it into a double throws away things nobody
+gets back: `{"id": 9007199254740993}` round-trips exactly, and `{"age": 36}`
+writes back out as `36` rather than `36.0`. Identifiers from other systems live
+in exactly the range a double loses. The rule is that a number with no `.` and
+no `e` is an `Int` when it fits and a `Float` when it does not; anything written
+with a `.` or an `e` stays a `Float` whatever its value. `as_float` accepts
+either, so code that does not care never looks. The cost is a seventh arm in
+every exhaustive match, which is the right trade at this size.
+
+Decisions worth keeping:
+
+- **`parse` is strict.** Trailing commas, unquoted keys, leading zeros, `NaN`,
+  `inf`, hex, raw control characters in strings, and any text after the value
+  are all errors. Trailing text especially: it means a truncated document or two
+  concatenated, and ignoring it hides that.
+- **Its own depth limit of 200.** The interpreter stops runaway recursion at
+  10000 frames by *ending the program*, which is the wrong answer for something
+  that arrived over a socket. 200 is reached first and comes back as an ordinary
+  error. `tests/cases/json_malformed.xen` posts it 5000 open brackets.
+- **Numbers are validated before `as float` touches them**, because `as` on text
+  that is not a number stops the program, and Rust's parser accepts `inf` and
+  `0x10`, which are not JSON. `fits_int` compares the digit text against
+  `9223372036854775807` rather than converting and catching a failure — there is
+  nothing to catch.
+- **`stringify` never emits invalid JSON.** An infinity or NaN becomes `null`,
+  since JSON cannot write them. `check` reports one before it happens. (Note
+  that `1.0 / 0.0` is an error in Xenith, so a non-finite float only arrives via
+  overflow like `exp(1000.0)` or `"inf" as float`.)
+- **Escaping on output is the minimum JSON requires.** Text outside ASCII goes
+  through as UTF-8, not `\u` escapes.
+- **`\uXXXX` surrogate pairs are combined**, and an unpaired half is an error —
+  UTF-8 has nowhere to put one, and `from_code` rejects it.
+
+**Write JSON literals in Xenith with backtick raw strings.** In double quotes
+every `"` needs escaping and every `{` needs doubling, because `{` opens an
+interpolation. `` `{"a": 1}` `` is just the document. All three fixtures and
+every doc example are written that way; it is the first thing anyone hits.
+
 ### The string-lexer bug
 
 `make_string`'s interpolation scanner had no terminator — not the closing quote,
@@ -107,7 +158,9 @@ Xenith could not be used for backend work because of, in rough order of severity
    request body is copied through every middleware layer.
 6. No project tooling — `resolve_local` guesses among three directories.
 
-1, 3 are done. 2 is done. 4, 5, 6 remain.
+1, 3 are done. 2 is done, and `std::json` is now written on top of it. 4, 5, 6
+remain — and 5 turned out to be worse than "a body copied through every layer":
+it makes building any list or map quadratic, which is measured in §7.
 
 ### Why not `async`/`await` — the important one
 
@@ -263,19 +316,22 @@ Not yet decided. Listed with my leaning.
 
 ## 6. Roadmap
 
-Item 1 done. Remaining, in the order argued for above.
+Items 1 and 4 done. Remaining, in the order argued for above — except that 3 has
+moved to the front, for the reason in §7.
 
-**2. Concurrency semantics.** The decision that blocks the stdlib. Also requires
-dropping `panic = "abort"` from `Cargo.toml`.
+**3. Copy-on-write collections. Do this next.** `append` and map insertion are
+each O(n), so building an n element collection is O(n²). Measured, not guessed:
+§7. This is no longer "before benchmarking anything server-shaped"; it is the
+thing standing between `std::json` and being able to use it.
 
-**3. Copy-on-write collections.** `args[i].clone()` (`values.rs`, in
-`Function::execute`) deep-copies lists, maps and structs into every call. Move to
-`Rc` + COW before benchmarking anything server-shaped, or you will draw wrong
-conclusions about where time goes.
+**2. Concurrency semantics.** The decision that blocks the rest of the stdlib.
+Also requires dropping `panic = "abort"` from `Cargo.toml`.
 
-**4. `std::json`.** Now writable. **This is the next concrete task.** Write the
-value type as an enum, the parser and serialiser in Xenith first; move the hot
-parts to Rust builtins later if measurement says so.
+**4. `std::json`.** Done. Written entirely in Xenith, as argued; if profiling
+later says the character loop in `parse_string` or `parse_number` is the cost,
+those move to Rust builtins without the signatures changing. Do not do that
+before item 3, or you will move the wrong thing — the collection copying is a
+much larger term than the scanning.
 
 **5. `std::time`, `std::crypto`, `std::rand`.**
 
@@ -300,6 +356,41 @@ Cheap and worth folding in early, since they hurt daily:
 
 ## 7. Known issues found along the way
 
+**Building a collection is quadratic.** The largest thing found this session, and
+the reason roadmap item 3 moved to the front.
+
+`xs.append(x)` and `m[k] = v` each cost O(n) in the size of the collection, so
+filling one is O(n²). Timings, on the release build:
+
+| Program | Time |
+| --- | --- |
+| 2000 × `xs.append(i)` | 0.27s |
+| 8000 × `xs.append(i)` | 3.99s |
+| 2000 × `m["k{i}"] = i` | 0.56s |
+| 8000 × `m["k{i}"] = i` | 8.70s |
+
+Four times the work, fifteen times the time, both of them. `append`ing a 200
+character string instead of an int costs 7.5× more than the int at the same
+count, so the copy is deep, not a pointer shuffle.
+
+The effect on `std::json`, parsing a JSON array of objects:
+
+| Document | Parse |
+| --- | --- |
+| 6.4KB | 0.55s |
+| 12.8KB | 1.06s |
+| 25.8KB | 2.78s |
+| 51.9KB | 9.06s |
+
+Doubling the document more than triples the time. Two things it is *not*: string
+arguments are not cloned per call (20000 calls passing a 25KB string cost the
+same as passing an int), and character indexing is only mildly position
+dependent. It is the collections.
+
+This is `args[i].clone()` in `Function::execute` (`values.rs`) — the item already
+on the roadmap — and it caps every list- or map-building program in the language,
+not just this one. `std::string`'s `split` has the same shape.
+
 **The static pass does not follow `grab`.** An imported method call, struct
 literal or enum `match` is checked as it *runs*, not before. Same errors, same
 messages; what is lost is finding out before output appears, and finding out
@@ -316,6 +407,15 @@ fix: `flush().unwrap()` → `.ok()` in `echo` and `clear` in `values.rs`. Not do
 
 **`bytes` is now a reserved word.** It broke one fixture that used it as a
 variable name.
+
+**No exponent literals.** `1.0e20` lexes as `1.0` followed by an undefined
+variable `e20`. `"1e20" as float` is the workaround, and is how `std::json`
+writes its float constants. Belongs with the hex-literal gap in §6.
+
+**An empty `[]` or `{}` has no type in a `match` arm.** `_ => []` where the
+method returns `list<string>` is XEN001, "expected `list<string>`, found
+`null`". A typed `let none: list<string> = []` outside the match and `_ => none`
+works. Three methods in `std::json` are written that way.
 
 **Fixed this session:** unterminated strings, raw strings, and interpolations no
 longer swallow the rest of the file. The scanner cannot simply stop at the next
@@ -354,6 +454,7 @@ its output pasted from the run, rather than written from memory.
 | Completeness checking | `check_exhaustive` in `checker.rs` |
 | Pattern grammar | `parse_pattern`, `match_expression` in `parser.rs` |
 | The string scanner | `make_string` in `lexer.rs` |
+| JSON | `src/stdlib/json.xen`, all of it Xenith |
 | New builtins | `builtins/registry.rs` + an arm in `BuiltInFunction::execute` |
 | Stdlib modules | `src/stdlib/*.xen`, registered in `mod.rs` |
 

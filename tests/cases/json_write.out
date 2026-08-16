@@ -1,0 +1,49 @@
+{"admin":true,"age":36,"manager":null,"name":"Ada","score":99.5,"tags":["founder","analyst"]}
+{
+  "admin": true,
+  "age": 36,
+  "manager": null,
+  "name": "Ada",
+  "score": 99.5,
+  "tags": [
+    "founder",
+    "analyst"
+  ]
+}
+{
+"admin": true,
+"age": 36,
+"manager": null,
+"name": "Ada",
+"score": 99.5,
+"tags": [
+"founder",
+"analyst"
+]
+}
+{
+    "deep": [
+        [
+            [
+                9
+            ]
+        ]
+    ],
+    "empty_list": [],
+    "empty_object": {},
+    "rows": [
+        {
+            "id": 1
+        },
+        {
+            "id": 2
+        }
+    ]
+}
+["a\"b","c\\d","line\nbreak","tab\there","\r\b\f","\u0001\u001f","héllo 中 😀","a/slash"]
+round trip [] same true
+{"fine":1.5,"inf":null,"nan":null}
+check [inf cannot be written as JSON]
+check clean []
+[0,-7,9223372036854775807,-9223372036854775807,0.5,36.0,-0.25]
+unchanged true

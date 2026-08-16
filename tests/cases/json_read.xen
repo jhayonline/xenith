@@ -1,0 +1,121 @@
+# std::json, reading. A raw string in backticks is the readable way to write a
+# JSON document in Xenith source: no escaping, and `{` stays a brace.
+
+grab { Json, parse, stringify, type_name } from "std::json"
+grab { get, at, keys, size, is_null, is_number } from "std::json"
+grab { as_bool, as_int, as_float, as_text, as_array, as_object } from "std::json"
+
+let (doc, error) = parse(`
+{
+    "name": "Ada",
+    "age": 36,
+    "score": 99.5,
+    "admin": true,
+    "manager": null,
+    "tags": ["founder", "analyst"]
+}
+`)
+
+echo("error [{error}]")
+echo("type {type_name(doc)} with {size(doc)} fields")
+echo("{ret(keys(doc))}")
+
+# Reaching in. `get` says whether the field was there, and `as_` says whether it
+# was the type you wanted, so neither can be assumed.
+let (name_value, has_name) = get(doc, "name")
+let (name, name_is_text) = as_text(name_value)
+echo("name {name} {has_name} {name_is_text}")
+
+let (age_value, _) = get(doc, "age")
+let (age, age_is_int) = as_int(age_value)
+echo("age {age} {age_is_int}")
+
+let (score_value, _) = get(doc, "score")
+let (score, _) = as_float(score_value)
+echo("score {score}")
+
+let (admin_value, _) = get(doc, "admin")
+let (admin, _) = as_bool(admin_value)
+echo("admin {admin}")
+
+let (manager_value, _) = get(doc, "manager")
+echo("manager is null: {is_null(manager_value)}")
+
+let (tags_value, _) = get(doc, "tags")
+let (tags, is_list) = as_array(tags_value)
+echo("tags {size(tags_value)} {is_list}")
+for tag in tags {
+    let (word, _) = as_text(tag)
+    echo("  {word}")
+}
+
+let (first, in_range) = at(tags_value, 0)
+let (first_text, _) = as_text(first)
+echo("first {first_text} {in_range}")
+
+let (missing, found_missing) = at(tags_value, 9)
+echo("ninth {found_missing} {type_name(missing)}")
+
+# A field that is not there, and a field read as the wrong type. Neither stops
+# the program.
+let (nothing, found) = get(doc, "salary")
+echo("salary {found}")
+
+let (as_a_number, was_number) = as_int(name_value)
+echo("name as int {as_a_number} {was_number}")
+
+# An object read back out of the value.
+let (fields, is_map) = as_object(doc)
+echo("object {fields.len()} {is_map}")
+
+# ---------------------------------------------------------------------------
+# Numbers keep the type they were written with.
+# ---------------------------------------------------------------------------
+
+let (numbers, _) = parse(`[1, -2, 3.5, 1e3, 0, 36.0]`)
+let (list_of, _) = as_array(numbers)
+for value in list_of {
+    echo("  {type_name(value)} {stringify(value)} number={is_number(value)}")
+}
+
+# An `int` too large for a float to hold exactly survives the round trip,
+# which is the reason there are two number variants rather than one.
+let (ids, _) = parse(`{"id": 9007199254740993}`)
+echo("{stringify(ids)}")
+
+let (id_value, _) = get(ids, "id")
+let (id, id_is_int) = as_int(id_value)
+echo("id {id} {id_is_int}")
+
+# One too large for an `int` becomes a float instead of failing.
+let (overflowed, _) = parse(`9223372036854775808`)
+echo("overflow {type_name(overflowed)} {stringify(overflowed)}")
+
+# A float that is not a whole number is not offered as an int.
+let (half, _) = parse(`36.5`)
+let (halved, half_is_int) = as_int(half)
+echo("36.5 as int {halved} {half_is_int}")
+
+# ---------------------------------------------------------------------------
+# Strings
+# ---------------------------------------------------------------------------
+
+let (escaped, escape_error) = parse(`["a\"b", "c\\d", "e\/f", "g\th", "Aé中", "😀"]`)
+echo("escapes [{escape_error}]")
+let (pieces, _) = as_array(escaped)
+for piece in pieces {
+    let (word, _) = as_text(piece)
+    echo("  [{word}] {word.len()}")
+}
+
+# Whitespace between every token is allowed and means nothing.
+let (spaced, _) = parse("  [ 1 , \{ \"a\" : true } ]  ")
+echo("{stringify(spaced)}")
+
+# A repeated field name keeps the last value.
+let (repeated, _) = parse(`{"a": 1, "a": 2}`)
+echo("{stringify(repeated)}")
+
+# Empty containers.
+let (empties, _) = parse(`[[], {}, ""]`)
+echo("{stringify(empties)}")

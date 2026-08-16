@@ -30,7 +30,7 @@ The whole language is about thirty keywords. These pages cover all of it.
 | 17 | [Errors](17-errors.md) | Reading diagnostics, error codes, `panic` |
 | 18 | [Editor setup](18-editor-setup.md) | The language server and the Neovim plugin |
 | 19 | [Known limitations](19-limitations.md) | What does not work yet, and why |
-| 20 | [The standard library](20-standard-library.md) | `std::string`, `std::bytes`, `std::env`, and how they are built |
+| 20 | [The standard library](20-standard-library.md) | `std::string`, `std::bytes`, `std::json`, and how they are built |
 
 ## The whole language on one page
 

@@ -682,6 +682,243 @@ Alan
 `exit` is for the end of a program. It is not a way to report a failure up a
 call chain, because nothing gets to see it happen. See [Errors](17-errors.md).
 
+## std::json
+
+JSON as a Xenith value, and back again.
+
+```xenith
+grab { parse, get, as_text, as_int } from "std::json"
+
+let (doc, error) = parse(`{"name": "Ada", "age": 36}`)
+when error != "" {
+    echo("not JSON: {error}")
+}
+
+let (name_value, found) = get(doc, "name")
+let (name, is_text) = as_text(name_value)
+
+echo("{name} is here: {found}")
+```
+
+```
+Ada is here: true
+```
+
+Note the backticks. A document written in double quotes needs every `"` escaped
+and every `{` doubled; a [raw string](04-strings.md#raw-strings) takes it exactly
+as written, which is how the examples here and the tests are all written.
+
+### The value type
+
+Everything in the module is built on one exported enum:
+
+```xenith
+export enum Json {
+    Null,
+    Bool(bool),
+    Int(int),
+    Float(float),
+    Text(string),
+    Array(list<Json>),
+    Object(map<string, Json>)
+}
+```
+
+That is the shape a JSON document actually has: a value is exactly one of those
+things. A `map` cannot stand in for an object, because a map is homogeneous and
+an object's values are not — which is the reason [enums](13-enums.md) exist in
+the language at all.
+
+It is an ordinary exported enum, so you can `match` on it and build values with
+it directly. `grab { Json }` and the variants are yours.
+
+### Two number variants
+
+JSON has one number type and most libraries make it a double. This one does not,
+because Xenith has a real 64 bit `int` and losing it costs more than it saves:
+
+```xenith
+grab { parse, stringify, type_name, get } from "std::json"
+
+let (doc, _) = parse(`{"id": 9007199254740993, "ratio": 36.0}`)
+
+let (id, _) = get(doc, "id")
+let (ratio, _) = get(doc, "ratio")
+
+echo("{type_name(id)} {type_name(ratio)}")
+echo(stringify(doc))
+```
+
+```
+int float
+{"id":9007199254740993,"ratio":36.0}
+```
+
+Through a double that identifier would come back as `...92`, and `36` would come
+back as `36.0`. The rule is: a number with no `.` and no `e` is a `Json::Int` if
+it fits in an `int`, and a `Json::Float` otherwise. Anything written with a `.`
+or an `e` stays a `Json::Float` whatever its value, because that is what the
+document said.
+
+`as_float` accepts either, so code that does not care never has to look.
+
+### Getting values out
+
+Each of these answers "is it this, and if so what is it" in one call, so the
+check and the read cannot drift apart:
+
+| Function | |
+| --- | --- |
+| `as_bool(v)` | `(bool, ok)` |
+| `as_int(v)` | `(int, ok)`; a whole `Json::Float` like `36.0` reads as `36` |
+| `as_float(v)` | `(float, ok)` from either number variant |
+| `as_text(v)` | `(string, ok)` |
+| `as_array(v)` | `(list<Json>, ok)` |
+| `as_object(v)` | `(map<string, Json>, ok)` |
+
+And for finding them:
+
+| Function | |
+| --- | --- |
+| `get(v, key)` | `(value, found)`, false for anything that is not an object |
+| `at(v, index)` | `(value, in_range)`, false for anything that is not an array |
+| `keys(v)` | the field names, empty for anything else |
+| `size(v)` | elements or fields, `0` for anything else |
+| `type_name(v)` | `"null"`, `"bool"`, `"int"`, `"float"`, `"string"`, `"array"`, `"object"` |
+| `is_null`, `is_bool`, `is_number`, `is_text`, `is_array`, `is_object` | |
+
+`get` and `at` return false rather than stopping when the value is the wrong
+shape, so walking a document you did not write does not need a type check at
+every step:
+
+```xenith
+grab { parse, get, as_array, as_text, is_null, size } from "std::json"
+
+let (doc, _) = parse(`{"rows": [{"user": "ada"}, {"user": "alan"}], "next": null}`)
+
+let (rows, _) = get(doc, "rows")
+echo("{size(rows)} rows")
+
+let (items, _) = as_array(rows)
+for row in items {
+    let (user, _) = get(row, "user")
+    let (word, _) = as_text(user)
+    echo("  {word}")
+}
+
+let (next, _) = get(doc, "next")
+echo("more pages: {!is_null(next)}")
+```
+
+```
+2 rows
+  ada
+  alan
+more pages: false
+```
+
+### Writing
+
+```xenith
+grab { Json, stringify, pretty } from "std::json"
+
+let doc: Json = Json::Object({
+    "name": Json::Text("Ada"),
+    "age": Json::Int(36),
+    "tags": Json::Array([Json::Text("founder")])
+})
+
+echo(stringify(doc))
+echo(pretty(doc, 2))
+```
+
+```
+{"age":36,"name":"Ada","tags":["founder"]}
+{
+  "age": 36,
+  "name": "Ada",
+  "tags": [
+    "founder"
+  ]
+}
+```
+
+Fields come out in order of name, because that is the order a Xenith map keeps
+them in. It costs nothing and makes output you can diff.
+
+`stringify` escapes only what JSON requires — the quote, the backslash and the
+control characters. Text outside ASCII is written as itself rather than as `\u`
+escapes, which is shorter and what every reader expects.
+
+### The one thing `stringify` cannot write
+
+JSON has no way to write an infinity or a NaN. `stringify` never produces
+invalid JSON, so those come out as `null`, and `check` is how you find out
+before that happens:
+
+```xenith
+grab { Json, stringify, check } from "std::json"
+
+# A computation that overflows. Division by zero is an error in Xenith, so this
+# is the way a float actually becomes infinite.
+let scaled: float = exp(1000.0)
+let doc: Json = Json::Object({"scaled": Json::Float(scaled)})
+
+echo("{scaled}")
+echo(stringify(doc))
+echo(check(doc))
+```
+
+```
+inf
+{"scaled":null}
+inf cannot be written as JSON
+```
+
+`check` gives an empty string for a document that is safe.
+
+### When a document is wrong
+
+`parse` never stops the program. A document arrives from outside, so being
+malformed is a case to handle rather than a bug in the code that called it:
+
+```xenith
+grab { parse } from "std::json"
+
+let (doc, error) = parse(`{"a": [1, 2,]}`)
+echo("[{error}]")
+
+let (other, other_error) = parse(`{"a": 1} trailing`)
+echo("[{other_error}]")
+```
+
+```
+[`]` does not start a value at position 12]
+[unexpected text after the value at position 9]
+```
+
+Positions are character positions, counted the way `len()` counts.
+
+The parser is strict, which for a format this widely mis-implemented is the
+useful setting. It rejects trailing commas, unquoted field names, leading zeros,
+single quotes, `NaN` and `inf`, hex, control characters sitting raw inside a
+string, and any text after the value. Text after the value is worth calling out:
+it almost always means the document was truncated or two of them were run
+together, and a parser that ignores it hides that.
+
+Values may nest 200 deep. Past that `parse` returns an error rather than
+recursing until the interpreter ends the program, which matters the first time
+somebody posts you five thousand open brackets.
+
+### What it costs
+
+The parser is Xenith walking the text a character at a time, so it is slow:
+roughly 25KB in a couple of seconds, and worse than linear as documents grow,
+because `append` and map insertion currently copy the collection. That is fine
+for configuration files and small request bodies, and not yet fine for a busy
+server. Both are interpreter problems rather than library ones, and the
+signatures here will not change when they are fixed.
+
 ## What is not here yet
 
 Time and randomness. Collections are waiting on a decision about generics:

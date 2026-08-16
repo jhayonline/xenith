@@ -1,0 +1,52 @@
+--- nothing to parse ---
+empty: expected a value but the text ended at position 0
+blank: expected a value but the text ended at position 3
+--- numbers ---
+leading zero: unexpected text after the value at position 1
+bare minus: a number needs a digit here at position 1
+no digits: a number needs a digit here at position 1
+trailing point: a decimal point needs a digit after it at position 2
+bare exponent: an exponent needs a digit after it at position 2
+exponent sign only: an exponent needs a digit after it at position 3
+leading plus: `+` does not start a value at position 0
+hex: unexpected text after the value at position 1
+infinity: `i` does not start a value at position 0
+nan: `N` does not start a value at position 0
+too large: `1e999` is too large for a float at position 0
+--- strings ---
+unclosed: a string was never closed at position 4
+bad escape: `\q` is not an escape at position 1
+short hex: `\u` needs four hex digits after it at position 1
+not hex: `\u` needs four hex digits after it at position 1
+lone high surrogate: a high surrogate needs a `\u` after it at position 1
+lone low surrogate: a low surrogate has nothing in front of it at position 1
+half a pair: a high surrogate needs a `\u` after it at position 1
+raw tab: a control character has to be escaped inside a string at position 2
+dangling backslash: a string ends with a lone backslash at position 2
+--- arrays ---
+unclosed: an array was never closed at position 5
+trailing comma: `]` does not start a value at position 3
+missing comma: expected `,` or `]` in an array at position 3
+just a comma: `,` does not start a value at position 1
+closed wrong: expected `,` or `]` in an array at position 2
+--- objects ---
+unclosed: an object was never closed at position 7
+bare key: expected a quoted field name at position 1
+no colon: expected `:` after a field name at position 5
+no value: `}` does not start a value at position 5
+trailing comma: expected a quoted field name at position 8
+missing comma: expected `,` or `}` in an object at position 8
+--- words ---
+truncated: expected `true` at position 0
+capitalised: `T` does not start a value at position 0
+undefined: `u` does not start a value at position 0
+--- more than one value ---
+two values: unexpected text after the value at position 2
+trailing text: unexpected text after the value at position 9
+two documents: unexpected text after the value at position 2
+--- too deep ---
+at the limit (200): parsed
+past it (201): values nest more than 200 deep at position 201
+hostile (5000): values nest more than 200 deep at position 201
+--- and the program is still running ---
+recovered {"ok":true} []

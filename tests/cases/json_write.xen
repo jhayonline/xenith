@@ -1,0 +1,97 @@
+# std::json, writing.
+
+grab { Json, parse, stringify, pretty, check } from "std::json"
+
+# A document built by hand rather than parsed. `Json` is an ordinary exported
+# enum, so its variants are the constructors.
+let doc: Json = Json::Object({
+    "name": Json::Text("Ada"),
+    "age": Json::Int(36),
+    "score": Json::Float(99.5),
+    "admin": Json::Bool(true),
+    "manager": Json::Null,
+    "tags": Json::Array([Json::Text("founder"), Json::Text("analyst")])
+})
+
+echo(stringify(doc))
+echo(pretty(doc, 2))
+echo(pretty(doc, 0))
+
+# Nesting, and the empty container cases that indentation usually gets wrong.
+let nested: Json = Json::Object({
+    "rows": Json::Array([
+        Json::Object({"id": Json::Int(1)}),
+        Json::Object({"id": Json::Int(2)})
+    ]),
+    "empty_list": Json::Array([]),
+    "empty_object": Json::Object({}),
+    "deep": Json::Array([Json::Array([Json::Array([Json::Int(9)])])])
+})
+
+echo(pretty(nested, 4))
+
+# ---------------------------------------------------------------------------
+# Escaping
+#
+# Only what JSON requires: the quote, the backslash and the control characters.
+# Text outside ASCII goes through as itself.
+# ---------------------------------------------------------------------------
+
+let awkward: Json = Json::Array([
+    Json::Text("a\"b"),
+    Json::Text("c\\d"),
+    Json::Text("line\nbreak"),
+    Json::Text("tab\there"),
+    Json::Text("{from_code(13)}{from_code(8)}{from_code(12)}"),
+    Json::Text("{from_code(1)}{from_code(31)}"),
+    Json::Text("héllo 中 😀"),
+    Json::Text("a/slash")
+])
+
+echo(stringify(awkward))
+
+# Whatever it writes, it can read back.
+let (again, error) = parse(stringify(awkward))
+echo("round trip [{error}] same {stringify(again) == stringify(awkward)}")
+
+# ---------------------------------------------------------------------------
+# A float JSON cannot write
+#
+# `stringify` never produces invalid JSON, so an infinity or a NaN comes out as
+# `null`. `check` is how you find out before that happens.
+# ---------------------------------------------------------------------------
+
+let nan: float = "NaN" as float
+let infinite: float = "inf" as float
+
+let unwritable: Json = Json::Object({
+    "fine": Json::Float(1.5),
+    "nan": Json::Float(nan),
+    "inf": Json::Float(infinite)
+})
+
+echo(stringify(unwritable))
+echo("check [{check(unwritable)}]")
+echo("check clean [{check(doc)}]")
+
+# ---------------------------------------------------------------------------
+# Numbers are written the way they are held.
+# ---------------------------------------------------------------------------
+
+let numbers: Json = Json::Array([
+    Json::Int(0),
+    Json::Int(-7),
+    Json::Int(9223372036854775807),
+    Json::Int(-9223372036854775807),
+    Json::Float(0.5),
+    Json::Float(36.0),
+    Json::Float(0.0 - 0.25)
+])
+
+echo(stringify(numbers))
+
+# A parsed document written back out is unchanged, as long as it was compact
+# and its fields were already in order.
+let source: string = `{"a":[1,2.5,"x",null,true],"b":{"c":-0.5}}`
+let (parsed, _) = parse(source)
+echo("unchanged {stringify(parsed) == source}")

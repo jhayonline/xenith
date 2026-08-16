@@ -1,0 +1,36 @@
+error []
+type object with 6 fields
+[admin, age, manager, name, score, tags]
+name Ada true true
+age 36 true
+score 99.5
+admin true
+manager is null: true
+tags 2 true
+  founder
+  analyst
+first founder true
+ninth false null
+salary false
+name as int 0 false
+object 6 true
+  int 1 number=true
+  int -2 number=true
+  float 3.5 number=true
+  float 1000.0 number=true
+  int 0 number=true
+  float 36.0 number=true
+{"id":9007199254740993}
+id 9007199254740993 true
+overflow float 9223372036854775808.0
+36.5 as int 0 false
+escapes []
+  [a"b] 3
+  [c\d] 3
+  [e/f] 3
+  [g	h] 3
+  [Aé中] 3
+  [😀] 1
+[1,{"a":true}]
+{"a":2}
+[[],{},""]
