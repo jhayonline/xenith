@@ -9,5 +9,5 @@ let names: StringList = ["Alice", "Bob", "Charlie"]
 let config: NameMap = {"host": "localhost", "port": "8080"}
 
 echo("Double 5: {double(5)}")
-echo("Names: {ret(names)}")
+echo("Names: {names}")
 echo("Host: {config["host"]}")

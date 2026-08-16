@@ -175,7 +175,7 @@ impl Interpreter {
         self.struct_defs.insert(struct_name.clone(), field_types);
         context.symbol_table.set(
             struct_name.clone(),
-            Value::String(XenithString::new(format!("__struct__{}", struct_name))),
+            Value::string_of(XenithString::new(format!("__struct__{}", struct_name))),
         );
 
         RuntimeResult::new().success(Value::Null)
@@ -200,7 +200,7 @@ impl Interpreter {
         // struct definitions use.
         context.symbol_table.set(
             enum_name.clone(),
-            Value::String(XenithString::new(format!("__enum__{}", enum_name))),
+            Value::string_of(XenithString::new(format!("__enum__{}", enum_name))),
         );
 
         RuntimeResult::new().success(Value::Null)
@@ -853,7 +853,7 @@ impl Interpreter {
                     self.struct_defs.insert(original_name.clone(), fields.clone());
                     context.symbol_table.set(
                         original_name.clone(),
-                        Value::String(XenithString::new(format!("__struct__{}", original_name))),
+                        Value::string_of(XenithString::new(format!("__struct__{}", original_name))),
                     );
                 } else if let Some(variants) = module.enum_exports.get(original_name) {
                     // An enum is named the same way a struct is, so renaming it
@@ -876,7 +876,7 @@ impl Interpreter {
                     self.enum_defs.insert(original_name.clone(), variants.clone());
                     context.symbol_table.set(
                         original_name.clone(),
-                        Value::String(XenithString::new(format!("__enum__{}", original_name))),
+                        Value::string_of(XenithString::new(format!("__enum__{}", original_name))),
                     );
                 } else {
                     return result.failure(
@@ -950,7 +950,7 @@ impl Interpreter {
         _context: &mut Context,
     ) -> RuntimeResult {
         let value = node.token.value.as_ref().unwrap();
-        RuntimeResult::new().success(Value::String(XenithString::new(value.clone())))
+        RuntimeResult::new().success(Value::string_of(XenithString::new(value.clone())))
     }
 
     fn visit_list(
@@ -1418,14 +1418,50 @@ impl Interpreter {
             {
                 let mut result = RuntimeResult::new();
 
-                let container = result.register(self.visit(&bin_op.left_node, context));
-                if let Some(error) = result.error {
-                    return Some(*error);
-                }
+                // The container is lifted out of its variable rather than
+                // copied out of it, for the reason given in `visit_call`: it
+                // leaves this the only reference, so the copy-on-write below
+                // has nothing to copy and `m[key] = value` costs the same
+                // whatever the size of `m`. It goes back at the end of this
+                // branch, and every path out in between is an error, which ends
+                // the program.
+                //
+                // The index is evaluated first, because it may name the same
+                // variable -- `xs[xs.len() - 1] = v` has to see `xs` rather
+                // than the `Null` left in its place.
+                let lifted_from = match &*bin_op.left_node {
+                    Node::VarAccess(var) => var.variable_name_token.value.as_deref(),
+                    _ => None,
+                };
+
+                let container = if lifted_from.is_none() {
+                    let value = result.register(self.visit(&bin_op.left_node, context));
+                    if let Some(error) = result.error {
+                        return Some(*error);
+                    }
+                    Some(value)
+                } else {
+                    None
+                };
+
                 let index = result.register(self.visit(&bin_op.right_node, context));
                 if let Some(error) = result.error {
                     return Some(*error);
                 }
+
+                let container = match container {
+                    Some(value) => value,
+                    None => match lifted_from.and_then(|name| context.symbol_table.take(name)) {
+                        Some(value) => value,
+                        None => {
+                            let value = result.register(self.visit(&bin_op.left_node, context));
+                            if let Some(error) = result.error {
+                                return Some(*error);
+                            }
+                            value
+                        }
+                    },
+                };
 
                 let position_start = bin_op.position_start.clone();
                 let position_end = bin_op.position_end.clone();
@@ -1835,11 +1871,11 @@ impl Interpreter {
                             .base,
                         );
                     };
-                    match text.value.chars().nth(position) {
-                        Some(character) => Ok(Value::String(XenithString::new(character.to_string()))),
+                    match text.char_at(position) {
+                        Some(character) => Ok(Value::string_of(XenithString::new(character.to_string()))),
                         None => Err(Error::index_out_of_bounds(
                             position,
-                            text.value.chars().count(),
+                            text.char_len(),
                             node.position_start.clone(),
                             node.position_end.clone(),
                         )),
@@ -1890,7 +1926,7 @@ impl Interpreter {
                         }),
                     },
                     (Value::Number(n), "string") => {
-                        Ok(Value::String(XenithString::new(n.to_string())))
+                        Ok(Value::string_of(XenithString::new(n.to_string())))
                     }
                     (Value::Number(n), "bool") => Ok(Value::Bool(!n.is_zero())),
 
@@ -1935,7 +1971,7 @@ impl Interpreter {
                     // failure instead of stopping.
                     (Value::Bytes(b), "string") => {
                         String::from_utf8(b.data.clone())
-                            .map(|text| Value::String(XenithString::new(text)))
+                            .map(|text| Value::string_of(XenithString::new(text)))
                             .map_err(|e| {
                                 convert_err(format!(
                                     "bytes are not valid UTF-8 (at byte {})",
@@ -1948,7 +1984,7 @@ impl Interpreter {
                     // ---- bool conversions ----
                     (Value::Bool(b), "int") => Ok(Value::int(if *b { 1 } else { 0 })),
                     (Value::Bool(b), "float") => Ok(Value::float(if *b { 1.0 } else { 0.0 })),
-                    (Value::Bool(b), "string") => Ok(Value::String(XenithString::new(
+                    (Value::Bool(b), "string") => Ok(Value::string_of(XenithString::new(
                         if *b { "true" } else { "false" }.to_string(),
                     ))),
                     (Value::Bool(b), "bool") => Ok(Value::Bool(*b)),
@@ -2097,7 +2133,7 @@ impl Interpreter {
             }
         }
 
-        result.success(Value::String(XenithString::new(final_string)))
+        result.success(Value::string_of(XenithString::new(final_string)))
     }
 
 
@@ -2194,7 +2230,7 @@ impl Interpreter {
                     let parts: Vec<String> =
                         var_name.split(',').map(|s| s.trim().to_string()).collect();
 
-                    for item in &list.elements {
+                    for item in list.elements.iter() {
                         if let Value::List(pair) = item {
                             if pair.elements.len() == 2 && parts.len() == 2 {
                                 let mut loop_ctx = context.create_child("<for>", Self::dummy_pos());
@@ -2226,7 +2262,7 @@ impl Interpreter {
                         }
                     }
                 } else {
-                    for item in &list.elements {
+                    for item in list.elements.iter() {
                         let mut loop_ctx = context.create_child("<for>", Self::dummy_pos());
                         loop_ctx
                             .symbol_table
@@ -2278,13 +2314,13 @@ impl Interpreter {
                     if let Some(ref p) = parts {
                         loop_ctx.symbol_table.set(
                             p[0].clone(),
-                            Value::String(XenithString::new(key_str.clone())),
+                            Value::string_of(XenithString::new(key_str.clone())),
                         );
                         loop_ctx.symbol_table.set(p[1].clone(), val.clone());
                     } else {
                         loop_ctx.symbol_table.set(
                             var_name.to_string(),
-                            Value::String(XenithString::new(key_str.clone())),
+                            Value::string_of(XenithString::new(key_str.clone())),
                         );
                     }
 
@@ -2502,7 +2538,7 @@ impl Interpreter {
         let method_name = node.method_name.value.as_ref().unwrap().clone();
 
         // Return a special wrapper that represents a method to be called
-        result.success(Value::String(XenithString::new(format!(
+        result.success(Value::string_of(XenithString::new(format!(
             "__METHOD__:{}",
             method_name
         ))))
@@ -2517,11 +2553,43 @@ impl Interpreter {
 
 // Check if this is a method call (node_to_call is a MethodAccess)
         if let Node::MethodAccess(method_node) = &*node.node_to_call {
-            // Evaluate the object
-            let object = result.register(self.visit(&method_node.object, context));
-            if result.should_return() {
-                return result;
-            }
+            // A method that rewrites its receiver is given the receiver
+            // outright rather than a copy of it: the value is lifted out of the
+            // variable, leaving `Null`, so that this is the only reference to
+            // it. That is what lets the copy-on-write in `List` and `Map` skip
+            // the copy. Without it `xs.append(x)` duplicates the whole list on
+            // every call and filling one is quadratic.
+            //
+            // Only a plain variable is worth doing this for. Anything deeper,
+            // like `record.items.append(v)`, still goes the copying way; it is
+            // correct either way, and this keeps the fast path easy to follow.
+            //
+            // All three of these either hand the receiver back or fail, and a
+            // failure ends the program, so the emptied variable is never
+            // visible to Xenith code.
+            let lifted_from = match (&*method_node.object, method_node.method_name.value.as_deref())
+            {
+                (Node::VarAccess(var), Some("append" | "pop" | "remove")) => {
+                    var.variable_name_token.value.as_deref()
+                }
+                _ => None,
+            };
+
+            // The receiver is lifted *after* the arguments are evaluated, since
+            // an argument may name the same variable -- `xs.append(xs.len())`
+            // has to see `xs`, not the `Null` left in its place. Reading a
+            // variable has no side effects, so deferring it past the arguments
+            // changes nothing else. Anything not being lifted keeps the
+            // original order and is evaluated first.
+            let object = if lifted_from.is_none() {
+                let value = result.register(self.visit(&method_node.object, context));
+                if result.should_return() {
+                    return result;
+                }
+                Some(value)
+            } else {
+                None
+            };
 
             // Evaluate arguments
             let mut args = Vec::new();
@@ -2533,10 +2601,26 @@ impl Interpreter {
                 args.push(arg);
             }
 
+            let object = match object {
+                Some(value) => value,
+                None => match lifted_from.and_then(|name| context.symbol_table.take(name)) {
+                    Some(value) => value,
+                    // Not a variable that exists. Evaluating it gives the right
+                    // error.
+                    None => {
+                        let value = result.register(self.visit(&method_node.object, context));
+                        if result.should_return() {
+                            return result;
+                        }
+                        value
+                    }
+                },
+            };
+
             // Call the method on the object
             let method_name = method_node.method_name.value.as_ref().unwrap();
             let (mut call_result, mutated) =
-                self.call_method(object.clone(), method_name, args, context);
+                self.call_method(object, method_name, args, context);
 
             // `call_method` builds its errors without positions, the way the
             // value-level operators do. Attach the call's real span so a
@@ -2754,7 +2838,7 @@ impl Interpreter {
                 )
             }
             (Value::String(s), "len") => (
-                RuntimeResult::new().success(Value::int(s.value.chars().count() as i64)),
+                RuntimeResult::new().success(Value::int(s.char_len() as i64)),
                 None,
             ),
             (_, name) => fail(&format!("Method '{}' not found on object", name)),

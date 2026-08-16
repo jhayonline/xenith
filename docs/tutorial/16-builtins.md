@@ -34,23 +34,6 @@ echo "no parentheses needed"
 no parentheses needed
 ```
 
-### ret(value)
-
-Turns any value into a string without printing it. This is what you want when
-putting a list or a map inside interpolation.
-
-```xenith
-let numbers: list<int> = [1, 2, 3]
-
-echo("the numbers are {ret(numbers)}")
-```
-
-```
-the numbers are [1, 2, 3]
-```
-
-`ret` on a one element list drops the brackets: `ret([5])` is `5`.
-
 ## Size
 
 ### len(value)
@@ -99,8 +82,8 @@ unlike the `.append()` and `.pop()` methods described in [Lists](08-lists.md).
 let base: list<int> = [1, 2]
 let bigger: list<int> = append(base, 3)
 
-echo("{ret(bigger)}")
-echo("{ret(base)}")
+echo("{bigger}")
+echo("{base}")
 ```
 
 ```
@@ -114,7 +97,7 @@ echo("{ret(base)}")
 let a: list<int> = [1, 2]
 let joined: list<int> = extend(a, [3, 4])
 
-echo("{ret(joined)}")
+echo("{joined}")
 ```
 
 ```
@@ -130,7 +113,7 @@ let values: list<int> = [10, 20, 30]
 let first: int = pop(values, 0)
 
 echo("{first}")
-echo("{ret(values)}")
+echo("{values}")
 ```
 
 ```

@@ -147,7 +147,7 @@ echo("")
 echo("8. LISTS (Modern Syntax):")
 
 let fruits: list<string> = ["apple", "banana", "orange"]
-echo("   Original list: {ret(fruits)}")
+echo("   Original list: {fruits}")
 
 # Modern indexing with []
 echo("   fruits[0] = {fruits[0]}")
@@ -156,11 +156,11 @@ echo("   fruits[2] = {fruits[2]}")
 
 # Modern method syntax - modifies in place
 fruits.append("grape")
-echo("   After append: {ret(fruits)}")
+echo("   After append: {fruits}")
 
 let popped: string = fruits.pop(1)
 echo("   Popped index 1: {popped}")
-echo("   List after pop: {ret(fruits)}")
+echo("   List after pop: {fruits}")
 
 echo("   List length: {fruits.len()}")
 
@@ -168,7 +168,7 @@ echo("   List length: {fruits.len()}")
 let list1: list<int> = [1, 2, 3]
 let list2: list<int> = [4, 5, 6]
 let combined: list<int> = list1 + list2
-echo("   Concatenated: {ret(combined)}")
+echo("   Concatenated: {combined}")
 
 # Nested list indexing
 let matrix: list<list<int>> = [[1, 2], [3, 4], [5, 6]]
@@ -260,7 +260,7 @@ method range(n: int) -> list<int> {
     release result
 }
 
-echo("   range(5) = {ret(range(5))}")
+echo("   range(5) = {range(5)}")
 
 # type IntFunction = method(int) -> int
 # let my_double: IntFunction = double
@@ -286,11 +286,11 @@ let user: map<string, int> = {"age": 25}
 let scores: map<string, list<int>> = {"Alice": [100, 95, 90]}
 
 echo("   User age: {user["age"]}")
-echo("   Alice's scores: {ret(scores["Alice"])}")
+echo("   Alice's scores: {scores["Alice"]}")
 
 # Map operations
-echo("   Map keys: {ret(user.keys())}")
-echo("   Map values: {ret(user.values())}")
+echo("   Map keys: {user.keys()}")
+echo("   Map values: {user.values()}")
 echo("   Map has age? {user.has_key("age")}")
 echo("")
 

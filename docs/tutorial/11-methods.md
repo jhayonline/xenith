@@ -170,8 +170,8 @@ method apply_to_each(values: list<int>, fn: IntFn) -> list<int> {
     release out
 }
 
-echo("{ret(apply_to_each([1, 2, 3], square))}")
-echo("{ret(apply_to_each([1, 2, 3], negate))}")
+echo("{apply_to_each([1, 2, 3], square)}")
+echo("{apply_to_each([1, 2, 3], negate)}")
 ```
 
 ```

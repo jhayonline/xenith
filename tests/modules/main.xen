@@ -9,7 +9,7 @@ echo("{h["twice"](5)}")
 
 # A module's exports reaching its own private helpers.
 grab { double_all, summary } from "private_helper"
-echo("{ret(double_all([1, 2, 3]))}")
+echo("{double_all([1, 2, 3])}")
 echo(summary(4))
 
 # An exported struct: named in an annotation, built here, and passed back to

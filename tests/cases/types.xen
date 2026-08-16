@@ -26,7 +26,7 @@ let marks: Scores = [88, 92]
 let table: Lookup = {"a": 1}
 let double: IntFn = method(n: int) -> int => n * 2
 
-echo("{temp} {ret(marks)} {table["a"]} {double(4)}")
+echo("{temp} {marks} {table["a"]} {double(4)}")
 
 # An alias is interchangeable with the type it names.
 method is_freezing(t: Celsius) -> bool => t <= 0.0

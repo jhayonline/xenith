@@ -136,6 +136,31 @@ impl SymbolTable {
         }
     }
 
+    /// Takes a value out of the table, leaving `Null` behind.
+    ///
+    /// This exists so a mutation can be done in place. `xs.append(x)` reads
+    /// `xs`, changes it, and writes it back; if the table still held its own
+    /// reference to the elements while the change happened, the copy-on-write
+    /// in [`List::elements_mut`](crate::values::List::elements_mut) would see a
+    /// shared list and copy the whole thing. Emptying the binding first makes
+    /// the caller the only holder, so the append is O(1) and filling a list is
+    /// linear rather than quadratic.
+    ///
+    /// The caller is responsible for putting a value back. The window in
+    /// between is not observable from Xenith: nothing else runs during it, and
+    /// an error in the middle ends the program.
+    pub fn take(&self, name: &str) -> Option<Value> {
+        if let Some(&slot) = self.index.borrow().get(name) {
+            let mut entries = self.entries.borrow_mut();
+            let entry = entries.get_mut(slot as usize)?;
+            return Some(std::mem::replace(&mut entry.value, Value::Null));
+        }
+        match &self.parent {
+            Some(parent) => parent.take(name),
+            None => None,
+        }
+    }
+
     /// Gets a value and says where it was found, so the caller can remember the
     /// position and go straight there next time.
     pub fn locate(&self, name: &str) -> Option<(u16, u32, Value)> {

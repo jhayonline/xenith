@@ -23,9 +23,9 @@ echo("{add(2, 3)} {square(9)}")
 banner("hi")
 echo("{classify(-1)} {classify(0)} {classify(5)}")
 echo("{factorial(10)}")
-echo("{ret(apply_each([1, 2, 3], square))}")
+echo("{apply_each([1, 2, 3], square)}")
 let triple: IntFn = method(n: int) -> int => n * 3
-echo("{ret(apply_each([1, 2], triple))}")
+echo("{apply_each([1, 2], triple)}")
 let counter: int = 0
 method bump() -> null { counter = counter + 1 release null }
 bump()

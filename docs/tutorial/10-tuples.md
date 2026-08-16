@@ -8,8 +8,8 @@ order".
 let point = (10, 20)
 let person = ("Ada", 36)
 
-echo("{ret(point)}")
-echo("{ret(person)}")
+echo("{point}")
+echo("{person}")
 ```
 
 ```

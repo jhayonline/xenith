@@ -1,20 +1,20 @@
 let xs: list<int> = [3, 1, 2]
-echo("{ret(xs)} {xs.len()} {xs[0]}")
+echo("{xs} {xs.len()} {xs[0]}")
 xs.append(9)
-echo("{ret(xs)}")
+echo("{xs}")
 xs[0] = 99
-echo("{ret(xs)}")
+echo("{xs}")
 let popped: int = xs.pop(0)
-echo("popped {popped} left {ret(xs)}")
-echo("{ret([1, 2] + [3])}")
+echo("popped {popped} left {xs}")
+echo("{[1, 2] + [3]}")
 let grid: list<list<int>> = [[1, 2, 3], [4, 5, 6]]
 echo("{grid[1][2]}")
 grid[0][0] = 7
-echo("{ret(grid[0])}")
+echo("{grid[0]}")
 let multi: list<string> = [
     "a",
     "b",
 ]
-echo("{ret(multi)}")
+echo("{multi}")
 let base: list<int> = [1, 2]
-echo("{ret(append(base, 3))} {ret(extend(base, [8]))} {pop(base, 0)} {ret(base)}")
+echo("{append(base, 3)} {extend(base, [8])} {pop(base, 0)} {base}")

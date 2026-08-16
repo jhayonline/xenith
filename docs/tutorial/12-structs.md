@@ -163,7 +163,7 @@ let b: Basket = Basket { items: ["apple"] }
 b.items.append("pear")
 b.items[0] = "plum"
 
-echo("{ret(b.items)}")
+echo("{b.items}")
 ```
 
 ```

@@ -1,0 +1,17 @@
+append via copy:  a=[1, 2] b=[1, 2, 3]
+and the other way: a=[1, 2, 99] b=[1, 2, 3]
+index assign:     c=[1, 2, 3] d=[100, 2, 3]
+pop:              p=[1, 2, 3] q=[1, 2] popped=3
+map:              m=1 n=1 m still has x: true
+argument:         grew to 3, caller still [1, 2]
+nested list:      outer=[[1, 2], [3, 4]] inner=[1, 2, 9]
+struct field:     box=[1, 2] taken=[1, 2, 3]
+field append:     box=[1, 2, 7] taken=[1, 2, 3]
+map of lists:     holder=[1, 2] got=[1, 2, 3]
+constant:         FIXED=[1, 2] copy=[1, 2, 3]
+self argument:    [1, 2, 3, 3]
+self index:       [5, 99]
+self map index:   a=1 b=1
+built:            500 items, last 499
+filled:           500 pairs, k499=499
+rows:             [[0, 0], [1, 10], [2, 20]]

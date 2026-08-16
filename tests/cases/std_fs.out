@@ -14,7 +14,7 @@ copy []
 copied 4 characters
 create []
 is_dir true
-listing deep []
+listing [deep] []
 remove_dir []
 remove_dir again reported true
 remove []

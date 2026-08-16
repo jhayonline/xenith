@@ -84,6 +84,50 @@ mutate the caller's list, so `call_method` returns the new list and `visit_call`
 stores it back into the variable the receiver came from. It is also why
 `assign_into` unwinds through nested containers on `grid[1][2] = 9`.
 
+### Copied, but not deep copied
+
+That is the semantics. The representation is copy-on-write, because taking it
+literally made every collection quadratic to build:
+
+```rust
+String(Rc<XenithString>),
+List  -> elements: Rc<Vec<Value>>
+Map   -> pairs:    Rc<HashMap<String, Value>>
+```
+
+Cloning any of them is a refcount bump. A write goes through `Rc::make_mut`
+(`List::elements_mut`, `Map::pairs_mut`), which copies only when somebody else
+is holding the same data, so no holder ever sees another's change. Strings need
+no `make_mut` at all: nothing modifies one in place, `a + b` builds a new one.
+
+Cheap clones are not enough on their own. `xs.append(x)` reads `xs`, changes it
+and writes it back, and while it was reading it the symbol table still held the
+same elements — two holders, so `make_mut` copied, and appending stayed O(n).
+`SymbolTable::take` fixes that: for `append`, `pop` and `remove` on a plain
+variable, `visit_call` lifts the value out of the binding and leaves `Null`, so
+the mutation has the only reference. `assign_into` does the same for
+`m[key] = value`. Both evaluate the arguments and the index *before* lifting,
+because `xs.append(xs.len())` has to see `xs` rather than the hole.
+
+Anything deeper than a plain variable, such as `record.items.append(v)`, still
+takes the copying path. It is correct either way and the fast path stays legible.
+
+Measured on the release build, filling a collection an element at a time:
+
+| | before | after |
+| --- | --- | --- |
+| 8000 × `xs.append(i)` | 3.99s | 0.02s |
+| 8000 × `m[key] = i` | 8.70s | 0.03s |
+
+### Strings know their own length
+
+`XenithString` carries a character count and an all-ASCII flag, both settled at
+construction. Xenith counts and indexes strings by character while a `String`
+holds UTF-8, so `len()` walked the whole string and `text[i]` walked as far as
+`i`. Every scanner in the standard library is written `while i < text.len()`,
+which made all of them quadratic before they had done anything. On ASCII, which
+is the case that matters, indexing and `substring` are now byte ranges.
+
 ## Function
 
 ```rust

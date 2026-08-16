@@ -23,7 +23,13 @@ use crate::utils::value_to_string;
 #[derive(Debug, Clone)]
 pub enum Value {
     Number(Number),
-    String(XenithString),
+    /// Shared, not owned. Cloning a `Value` happens on every call, every
+    /// symbol-table read and every assignment; with the text owned inline, a
+    /// document or a request body was copied in full each time, which made
+    /// passing one through a few functions cost more than reading it. An `Rc`
+    /// makes the clone a refcount bump. Strings are never modified in place --
+    /// `a + b` builds a new one -- so there is no copy-on-write to do.
+    String(Rc<XenithString>),
     /// Raw bytes. Held inline: a `Vec<u8>` is 24 bytes, the same as the
     /// `String` and `Vec<Value>` already here, so this costs nothing.
     Bytes(Bytes),
@@ -48,6 +54,11 @@ impl Value {
         Value::Number(Number::Int(i))
     }
 
+    /// Creates a string value from an already-built [`XenithString`].
+    pub fn string_of(value: XenithString) -> Self {
+        Value::String(Rc::new(value))
+    }
+
     /// Creates a float value
     pub fn float(f: f64) -> Self {
         Value::Number(Number::Float(f))
@@ -55,7 +66,7 @@ impl Value {
 
     /// Creates a string value
     pub fn string(s: &str) -> Self {
-        Value::String(XenithString::new(s.to_string()))
+        Value::string_of(XenithString::new(s.to_string()))
     }
 
     /// Creates a bytes value
@@ -213,7 +224,7 @@ impl Value {
             (Value::String(a), Value::String(b)) => {
                 let mut new = a.value.clone();
                 new.push_str(&b.value);
-                Ok(Value::String(XenithString::new(new)))
+                Ok(Value::string_of(XenithString::new(new)))
             }
             (Value::Bytes(a), Value::Bytes(b)) => {
                 let mut new = a.data.clone();
@@ -222,7 +233,7 @@ impl Value {
             }
             (Value::List(a), Value::List(b)) => {
                 let mut new = a.clone();
-                new.elements.extend(b.elements.clone());
+                new.elements_mut().extend(b.elements.iter().cloned());
                 Ok(Value::List(new))
             }
             _ => Err(Self::arith_err(&format!(
@@ -267,7 +278,7 @@ impl Value {
                 if *n < 0 {
                     return Err(Self::arith_err("cannot repeat a string a negative number of times"));
                 }
-                Ok(Value::String(XenithString::new(a.value.repeat(*n as usize))))
+                Ok(Value::string_of(XenithString::new(a.value.repeat(*n as usize))))
             }
             _ => Err(Self::arith_err(&format!(
                 "cannot multiply {} and {}",
@@ -640,11 +651,66 @@ impl std::fmt::Display for Number {
 #[derive(Debug, Clone)]
 pub struct XenithString {
     pub value: String,
+    /// How many characters, and whether all of them are ASCII. Both are settled
+    /// once, when the string is made.
+    ///
+    /// Xenith counts and indexes strings by character while a `String` holds
+    /// UTF-8, so `len()` used to walk the whole string and `text[i]` used to
+    /// walk as far as `i`. A loop of the shape `while i < text.len()`, which is
+    /// how every scanner in the standard library is written, was therefore
+    /// quadratic before it had done anything. Caching the count fixes that one;
+    /// the ASCII flag fixes indexing, since a string of only ASCII can be
+    /// indexed by byte.
+    char_len: usize,
+    is_ascii: bool,
 }
 
 impl XenithString {
     pub fn new(value: String) -> Self {
-        Self { value }
+        // `is_ascii` is a memchr-style scan and the count comes free with it,
+        // so this costs one cheap pass over a string that was just built.
+        let is_ascii = value.is_ascii();
+        let char_len = if is_ascii {
+            value.len()
+        } else {
+            value.chars().count()
+        };
+        Self {
+            value,
+            char_len,
+            is_ascii,
+        }
+    }
+
+    /// The number of characters, which is what `len()` reports in Xenith.
+    pub fn char_len(&self) -> usize {
+        self.char_len
+    }
+
+    /// The character at a position, counted the way [`char_len`] counts.
+    ///
+    /// [`char_len`]: XenithString::char_len
+    pub fn char_at(&self, position: usize) -> Option<char> {
+        if self.is_ascii {
+            return self.value.as_bytes().get(position).map(|byte| *byte as char);
+        }
+        self.value.chars().nth(position)
+    }
+
+    /// The characters from `start` up to but not including `end`, both clamped.
+    pub fn slice(&self, start: usize, end: usize) -> String {
+        let end = end.min(self.char_len);
+        if start >= end {
+            return String::new();
+        }
+        if self.is_ascii {
+            return self.value[start..end].to_string();
+        }
+        self.value
+            .chars()
+            .skip(start)
+            .take(end - start)
+            .collect()
     }
 }
 
@@ -708,25 +774,41 @@ impl Bytes {
     }
 }
 
-/// List runtime value
+/// List runtime value.
+///
+/// The elements are behind an `Rc` so that cloning a list is a refcount bump
+/// rather than a deep copy. A list is still a value and still has value
+/// semantics: `elements_mut` goes through `Rc::make_mut`, which copies only
+/// when somebody else is holding the same elements. That is the difference
+/// between `xs.append(x)` costing O(1) and costing O(len(xs)), and so between
+/// filling a list being linear and being quadratic.
 #[derive(Debug, Clone)]
 pub struct List {
-    pub elements: Vec<Value>,
+    pub elements: Rc<Vec<Value>>,
 }
 
 impl List {
     pub fn new(elements: Vec<Value>) -> Self {
-        Self { elements }
+        Self {
+            elements: Rc::new(elements),
+        }
+    }
+
+    /// The elements, to write to. Copies them first if this list is not the
+    /// only holder, so a shared list is never modified underneath its other
+    /// holders.
+    pub fn elements_mut(&mut self) -> &mut Vec<Value> {
+        Rc::make_mut(&mut self.elements)
     }
 
     pub fn append(&mut self, value: Value) {
-        self.elements.push(value);
+        self.elements_mut().push(value);
     }
 
     pub fn pop(&mut self, index: Option<usize>) -> Option<Value> {
         let idx = index.unwrap_or(self.elements.len() - 1);
         if idx < self.elements.len() {
-            Some(self.elements.remove(idx))
+            Some(self.elements_mut().remove(idx))
         } else {
             None
         }
@@ -742,7 +824,7 @@ impl List {
 
     pub fn set(&mut self, index: usize, value: Value) -> bool {
         if index < self.elements.len() {
-            self.elements[index] = value;
+            self.elements_mut()[index] = value;
             true
         } else {
             false
@@ -930,7 +1012,6 @@ impl BuiltInFunction {
     ) -> RuntimeResult {
         match self.name.as_str() {
             "echo" => self.echo(args, call_pos),
-            "ret" => self.ret(args, call_pos),
             "input" => self.input(call_pos),
             "input_int" => self.input_int(call_pos),
             "clear" => self.clear(call_pos),
@@ -1075,18 +1156,10 @@ impl BuiltInFunction {
         RuntimeResult::new().success(Value::Null)
     }
 
-    fn ret(&self, args: Vec<Value>, _call_pos: Position) -> RuntimeResult {
-        if let Some(arg) = args.first() {
-            RuntimeResult::new().success(Value::String(XenithString::new(value_to_string(arg))))
-        } else {
-            RuntimeResult::new().success(Value::String(XenithString::new("".to_string())))
-        }
-    }
-
     fn input(&self, _call_pos: Position) -> RuntimeResult {
         let mut input = String::new();
         io::stdin().read_line(&mut input).unwrap();
-        RuntimeResult::new().success(Value::String(XenithString::new(input.trim().to_string())))
+        RuntimeResult::new().success(Value::string_of(XenithString::new(input.trim().to_string())))
     }
 
     fn input_int(&self, _call_pos: Position) -> RuntimeResult {
@@ -1145,7 +1218,7 @@ impl BuiltInFunction {
         match (&args[0], &args[1]) {
             (Value::List(list), value) => {
                 let mut new_list = list.clone();
-                new_list.elements.push(value.clone());
+                new_list.elements_mut().push(value.clone());
                 RuntimeResult::new().success(Value::List(new_list))
             }
             _ => RuntimeResult::new().failure(
@@ -1193,7 +1266,7 @@ impl BuiltInFunction {
                     );
                 }
                 let mut new_list = list.clone();
-                let popped = new_list.elements.remove(idx_usize);
+                let popped = new_list.elements_mut().remove(idx_usize);
                 RuntimeResult::new().success(popped)
             }
             _ => RuntimeResult::new().failure(
@@ -1224,7 +1297,7 @@ impl BuiltInFunction {
         match (&args[0], &args[1]) {
             (Value::List(list_a), Value::List(list_b)) => {
                 let mut new_list = list_a.clone();
-                new_list.elements.extend(list_b.elements.clone());
+                new_list.elements_mut().extend(list_b.elements.iter().cloned());
                 RuntimeResult::new().success(Value::List(new_list))
             }
             _ => RuntimeResult::new().failure(
@@ -1329,7 +1402,7 @@ impl BuiltInFunction {
     fn err_pair(empty: Value, message: String) -> RuntimeResult {
         RuntimeResult::new().success(Value::Tuple(vec![
             empty,
-            Value::String(XenithString::new(message)),
+            Value::string_of(XenithString::new(message)),
         ]))
     }
 
@@ -1337,7 +1410,7 @@ impl BuiltInFunction {
         match result {
             Ok(()) => RuntimeResult::new().success(Value::string("")),
             Err(e) => RuntimeResult::new()
-                .success(Value::String(XenithString::new(e.to_string()))),
+                .success(Value::string_of(XenithString::new(e.to_string()))),
         }
     }
 
@@ -1348,7 +1421,7 @@ impl BuiltInFunction {
         };
 
         match std::fs::read_to_string(&path) {
-            Ok(contents) => Self::ok_pair(Value::String(XenithString::new(contents))),
+            Ok(contents) => Self::ok_pair(Value::string_of(XenithString::new(contents))),
             Err(e) => Self::err_pair(Value::string(""), e.to_string()),
         }
     }
@@ -1571,7 +1644,7 @@ impl BuiltInFunction {
         };
 
         match String::from_utf8(raw.data) {
-            Ok(text) => Self::ok_pair(Value::String(XenithString::new(text))),
+            Ok(text) => Self::ok_pair(Value::string_of(XenithString::new(text))),
             Err(e) => Self::err_pair(
                 Value::string(""),
                 format!(
@@ -1669,7 +1742,7 @@ impl BuiltInFunction {
 
         match std::env::var(&name) {
             Ok(value) => RuntimeResult::new().success(Value::Tuple(vec![
-                Value::String(XenithString::new(value)),
+                Value::string_of(XenithString::new(value)),
                 Value::Bool(true),
             ])),
             Err(_) => RuntimeResult::new()
@@ -1721,7 +1794,7 @@ impl BuiltInFunction {
     fn env_vars(&self) -> RuntimeResult {
         let mut map = Map::new();
         for (name, value) in std::env::vars() {
-            map.set(name, Value::String(XenithString::new(value)));
+            map.set(name, Value::string_of(XenithString::new(value)));
         }
         RuntimeResult::new().success(Value::Map(Box::new(map)))
     }
@@ -1733,14 +1806,14 @@ impl BuiltInFunction {
     fn env_args(&self) -> RuntimeResult {
         let args: Vec<Value> = std::env::args()
             .skip(1)
-            .map(|arg| Value::String(XenithString::new(arg)))
+            .map(|arg| Value::string_of(XenithString::new(arg)))
             .collect();
         RuntimeResult::new().success(Value::list(args))
     }
 
     fn env_cwd(&self) -> RuntimeResult {
         match std::env::current_dir() {
-            Ok(path) => Self::ok_pair(Value::String(XenithString::new(
+            Ok(path) => Self::ok_pair(Value::string_of(XenithString::new(
                 path.to_string_lossy().to_string(),
             ))),
             Err(e) => Self::err_pair(Value::string(""), e.to_string()),
@@ -1799,8 +1872,7 @@ impl BuiltInFunction {
             return fail("substring expects int positions");
         };
 
-        let characters: Vec<char> = text.value.chars().collect();
-        let length = characters.len() as i64;
+        let length = text.char_len() as i64;
 
         let (Some(start), Some(end)) = (start.to_i64(), end.to_i64()) else {
             return fail("substring positions must be whole numbers");
@@ -1808,13 +1880,17 @@ impl BuiltInFunction {
         let from = start.clamp(0, length) as usize;
         let to = end.clamp(0, length) as usize;
 
+        // `slice` is a byte range on ASCII, so taking a short piece out of a
+        // long string does not walk the whole of it. Collecting every character
+        // into a `Vec<char>` first, as this used to, made `substring` cost the
+        // length of its input rather than the length of its output.
         let slice: String = if from >= to {
             String::new()
         } else {
-            characters[from..to].iter().collect()
+            text.slice(from, to)
         };
 
-        RuntimeResult::new().success(Value::String(XenithString::new(slice)))
+        RuntimeResult::new().success(Value::string_of(XenithString::new(slice)))
     }
 
     /// The Unicode code point at an index, which is what lets classification
@@ -1843,11 +1919,11 @@ impl BuiltInFunction {
             return fail("a string index must be a non-negative int");
         };
 
-        match text.value.chars().nth(position) {
+        match text.char_at(position) {
             Some(character) => RuntimeResult::new().success(Value::int(character as i64)),
             None => RuntimeResult::new().failure(Error::index_out_of_bounds(
                 position,
-                text.value.chars().count(),
+                text.char_len(),
                 call_pos.clone(),
                 call_pos,
             )),
@@ -1880,7 +1956,7 @@ impl BuiltInFunction {
         };
 
         RuntimeResult::new()
-            .success(Value::String(XenithString::new(character.to_string())))
+            .success(Value::string_of(XenithString::new(character.to_string())))
     }
 
     fn len(&self, args: Vec<Value>, call_pos: Position) -> RuntimeResult {
@@ -1895,7 +1971,7 @@ impl BuiltInFunction {
                 RuntimeResult::new().success(Value::int(list.elements.len() as i64))
             }
             Value::String(s) => {
-                RuntimeResult::new().success(Value::int(s.value.chars().count() as i64))
+                RuntimeResult::new().success(Value::int(s.char_len() as i64))
             }
             // Bytes, not characters. `len` on a string counts characters, and
             // the whole point of holding something as bytes is that its length
@@ -1961,16 +2037,28 @@ impl BuiltInFunction {
     }
 }
 
+/// Map runtime value.
+///
+/// Behind an `Rc` for the same reason as [`List`]: cloning is a refcount bump,
+/// and `pairs_mut` copies only when the pairs are shared. Without it,
+/// `m[key] = value` copied the whole map every time and filling one was
+/// quadratic.
 #[derive(Debug, Clone)]
 pub struct Map {
-    pub pairs: HashMap<String, Value>,
+    pub pairs: Rc<HashMap<String, Value>>,
 }
 
 impl Map {
     pub fn new() -> Self {
         Self {
-            pairs: HashMap::new(),
+            pairs: Rc::new(HashMap::new()),
         }
+    }
+
+    /// The pairs, to write to. Copies them first if this map is not the only
+    /// holder.
+    pub fn pairs_mut(&mut self) -> &mut HashMap<String, Value> {
+        Rc::make_mut(&mut self.pairs)
     }
 
     pub fn get(&self, key: &str) -> Option<&Value> {
@@ -1978,11 +2066,11 @@ impl Map {
     }
 
     pub fn set(&mut self, key: String, value: Value) {
-        self.pairs.insert(key, value);
+        self.pairs_mut().insert(key, value);
     }
 
     pub fn remove(&mut self, key: &str) -> Option<Value> {
-        self.pairs.remove(key)
+        self.pairs_mut().remove(key)
     }
 
     pub fn len(&self) -> usize {
@@ -2001,7 +2089,7 @@ impl Map {
             .into_iter()
             .map(|(key, value)| {
                 Value::List(List::new(vec![
-                    Value::String(XenithString::new(key.clone())),
+                    Value::string_of(XenithString::new(key.clone())),
                     value.clone(),
                 ]))
             })
@@ -2015,7 +2103,7 @@ impl Map {
         keys.sort();
         let mut result = Vec::new();
         for key in keys {
-            result.push(Value::String(XenithString::new(key)));
+            result.push(Value::string_of(XenithString::new(key)));
         }
         List::new(result)
     }

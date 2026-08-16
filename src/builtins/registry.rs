@@ -35,11 +35,6 @@ pub const BUILTIN_FUNCTIONS: &[BuiltinFn] = &[
         doc: "Applies `{}` interpolation to a string that did not get it already, which is what makes a backtick raw string useful. Evaluated in the scope it is called from.",
     },
     BuiltinFn {
-        name: "ret",
-        signature: "ret(value) -> string",
-        doc: "Renders a value as a string without printing it.",
-    },
-    BuiltinFn {
         name: "input",
         signature: "input() -> string",
         doc: "Reads one line from standard input.",

@@ -326,6 +326,71 @@ list and discarding it:
 Memory now stays flat however long a loop runs. If a loop-expression form is ever
 added, this is the flag to turn back on, and only for that form.
 
+## Collections were quadratic to build
+
+Everything above is about constant factors. This one was a complexity class, and
+it went unnoticed because the programs that had been measured — counting loops,
+`fib` — never build a collection.
+
+`xs.append(x)` copied the whole list. Four times, in fact: reading `xs` out of
+the symbol table cloned it, `visit_call` cloned it again for `call_method`,
+`call_method` cloned the result to return it, and the write back stored it. So
+filling a list was O(n²), and the same for `m[key] = value`. Writing `std::json`
+made it obvious: parsing 6KB took half a second, and 52KB took nine.
+
+The fix has two halves, and neither works without the other.
+
+**Share the storage.** `List`, `Map` and `String` hold their contents behind an
+`Rc`, so a clone is a refcount bump. Writes go through `Rc::make_mut`, which
+copies only when the data is genuinely shared — value semantics preserved
+exactly. See [Values](07-values.md#copied-but-not-deep-copied).
+
+That alone took 8000 appends from 3.99s to 1.59s and left it quadratic, which is
+the trap worth remembering: **copy-on-write does nothing if the mutation always
+finds the data shared.** While `append` was changing the list, the symbol table
+still held it, so `make_mut` copied every time.
+
+**Take the value out of the binding.** `SymbolTable::take` lifts the value out
+and leaves `Null`, so the mutation has the only reference and `make_mut` has
+nothing to do. `visit_call` does this for `append`, `pop` and `remove` on a plain
+variable; `assign_into` does it for `m[key] = value`.
+
+| | before | Rc only | Rc + take |
+| --- | --- | --- | --- |
+| 8000 × `xs.append(i)` | 3.99s | 1.59s | 0.02s |
+| 8000 × `m[key] = i` | 8.70s | 9.14s | 0.03s |
+
+The ordering trap: both must evaluate the arguments and the index *before*
+lifting the receiver, or `xs.append(xs.len())` reads the hole. That is a test,
+not a comment.
+
+## Strings were quadratic to scan
+
+Found in the same measurement, and worth separating because it is a different
+mistake. Xenith counts and indexes strings by character; a `String` is UTF-8.
+So `text.len()` was `chars().count()`, an O(n) walk — and every scanner in the
+standard library is written `while i < text.len()`. `text[i]` was
+`chars().nth(i)`, O(i). `substring` collected the entire string into a
+`Vec<char>` before taking a slice of it.
+
+`XenithString` now carries its character count and an all-ASCII flag, both
+settled once at construction. On ASCII, indexing and `substring` are byte
+ranges.
+
+Together with the collection fix, parsing 52KB of JSON went from 9.06s to 1.39s,
+and — the point — from quadratic to linear:
+
+| Document | before | after |
+| --- | --- | --- |
+| 6.4KB | 0.55s | 0.42s |
+| 12.8KB | 1.06s | 0.55s |
+| 25.8KB | 2.78s | 0.83s |
+| 51.9KB | 9.06s | 1.39s |
+
+A fixed 0.27s of each of those is parsing and checking `std::json` itself on
+import. Subtract it and the four are 0.16, 0.29, 0.56, 1.12 — doubling with the
+input, which is what was wanted.
+
 ## Measuring under load
 
 Wall clock on a busy machine is worthless. Timings taken while a build or
@@ -366,8 +431,10 @@ In rough order of expected return:
 
 1. **Avoid cloning values out of the symbol table.** Reading a variable still
    copies its value, because the whole interpreter assumes values are owned.
-   Returning a reference, or making large values shared rather than copied,
-   is the biggest structural change left and the one with the most in it.
+   The large cases — strings, lists and maps — are now shared rather than
+   copied, so the clone is a refcount bump; what is left is the bump itself and
+   the same problem for `Struct`, `Enum` payloads and `Tuple`, which are still
+   copied in full.
 2. **Intern identifiers.** Every identifier allocates a `String` in the lexer and
    is compared by content thereafter. Names in a scope are already `Rc<str>`;
    sharing those with the tokens would let comparison be a pointer check, which

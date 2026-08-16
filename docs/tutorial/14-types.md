@@ -283,7 +283,7 @@ type IntFn = method(int) -> int
 let temp: Celsius = 21.5
 let marks: Scores = [88, 92]
 
-echo("{temp} {ret(marks)}")
+echo("{temp} {marks}")
 ```
 
 ```

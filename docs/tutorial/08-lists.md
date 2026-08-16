@@ -8,9 +8,9 @@ let numbers: list<int> = [1, 2, 3]
 let names: list<string> = ["Ada", "Alan"]
 let empty: list<int> = []
 
-echo("{ret(numbers)}")
-echo("{ret(names)}")
-echo("{ret(empty)}")
+echo("{numbers}")
+echo("{names}")
+echo("{empty}")
 ```
 
 ```
@@ -28,7 +28,7 @@ let languages: list<string> = [
     "C",
 ]
 
-echo("{ret(languages)}")
+echo("{languages}")
 ```
 
 ```
@@ -81,7 +81,7 @@ Assign through the index:
 let numbers: list<int> = [1, 2, 3]
 
 numbers[0] = 99
-echo("{ret(numbers)}")
+echo("{numbers}")
 ```
 
 ```
@@ -115,7 +115,7 @@ let queue: list<int> = [1, 2]
 queue.append(3)
 queue.append(4)
 
-echo("{ret(queue)}")
+echo("{queue}")
 ```
 
 ```
@@ -130,7 +130,7 @@ let queue: list<int> = [10, 20, 30]
 let first: int = queue.pop(0)
 
 echo("popped {first}")
-echo("left {ret(queue)}")
+echo("left {queue}")
 ```
 
 ```
@@ -149,7 +149,7 @@ for (let i: int = 0; i < 10; i++) {
     }
 }
 
-echo("{ret(evens)}")
+echo("{evens}")
 ```
 
 ```
@@ -166,8 +166,8 @@ let b: list<int> = [3, 4]
 
 let joined: list<int> = a + b
 
-echo("{ret(joined)}")
-echo("{ret(a)}")
+echo("{joined}")
+echo("{a}")
 ```
 
 ```
@@ -186,9 +186,9 @@ let base: list<int> = [1, 2]
 let grown: list<int> = append(base, 3)
 let merged: list<int> = extend(base, [8, 9])
 
-echo("grown  {ret(grown)}")
-echo("merged {ret(merged)}")
-echo("base   {ret(base)}")
+echo("grown  {grown}")
+echo("merged {merged}")
+echo("base   {base}")
 ```
 
 ```
@@ -213,7 +213,7 @@ let grid: list<list<int>> = [
 echo("{grid[1][2]}")
 
 grid[0][0] = 99
-echo("{ret(grid[0])}")
+echo("{grid[0]}")
 ```
 
 ```
@@ -223,21 +223,18 @@ echo("{ret(grid[0])}")
 
 ## Printing a list
 
-`echo` on a list prints its elements. `ret` turns any value into a string, which
-is what you want inside interpolation:
+`echo` on a list prints its elements, and interpolation renders one the same
+way, so there is nothing to convert:
 
 ```xenith
 let numbers: list<int> = [1, 2, 3]
 
-echo("the list is {ret(numbers)}")
+echo("the list is {numbers}")
 ```
 
 ```
 the list is [1, 2, 3]
 ```
-
-One thing to watch: `ret` on a single element list drops the brackets.
-`ret([5])` gives `5`, not `[5]`.
 
 ## Element types are checked
 

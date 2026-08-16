@@ -97,18 +97,6 @@ false. This is looser than the rest of the language, where an `int` where a
 **What to do:** write the comparison out. `when count > 0` rather than
 `when count`.
 
-## ret drops the brackets on a one element list
-
-```xenith
-echo(ret([5]))
-echo(ret([5, 6]))
-```
-
-```
-5
-[5, 6]
-```
-
 ## The standard library is small
 
 `std::string`, `std::math`, `std::fs`, `std::bytes`, `std::env` and `std::json`

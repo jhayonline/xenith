@@ -63,17 +63,17 @@ pub fn format(
                         // Convert the result to string
                         match value {
                             Value::String(s) => RuntimeResult::new().success(Value::String(s)),
-                            _ => RuntimeResult::new().success(Value::String(XenithString::new(
+                            _ => RuntimeResult::new().success(Value::string_of(XenithString::new(
                                 crate::utils::value_to_string(&value),
                             ))),
                         }
                     } else {
                         RuntimeResult::new()
-                            .success(Value::String(XenithString::new(s.value.clone())))
+                            .success(Value::string_of(XenithString::new(s.value.clone())))
                     }
                 }
                 None => {
-                    RuntimeResult::new().success(Value::String(XenithString::new(s.value.clone())))
+                    RuntimeResult::new().success(Value::string_of(XenithString::new(s.value.clone())))
                 }
             }
         }

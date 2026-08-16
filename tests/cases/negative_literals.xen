@@ -18,7 +18,7 @@ echo("{f} {-f}")
 
 # In every position a literal can appear.
 let values: list<int> = [-1, 0, -3]
-echo("{ret(values)}")
+echo("{values}")
 
 method negate(x: int) -> int => -x
 echo("{negate(-4)}")

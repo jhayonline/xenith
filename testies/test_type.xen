@@ -36,7 +36,7 @@ echo("name: {name}")
 echo("is_active: {is_active}")
 echo("MAX_SIZE: {MAX_SIZE}")
 
-echo("Numbers: {ret(numbers)}")
+echo("Numbers: {numbers}")
 echo("First number: {numbers[0]}")
 
 # Use double quotes for map key

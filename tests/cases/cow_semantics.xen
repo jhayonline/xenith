@@ -1,0 +1,124 @@
+# Lists and maps are values, not references.
+#
+# They are held behind an `Rc` and copied only when they are about to be
+# changed while somebody else is holding them, and some mutations are done in
+# place after lifting the value out of its variable. None of that is supposed
+# to be visible from here, and this file is what says so.
+#
+# See docs/internals/07-values.md.
+
+# ---------------------------------------------------------------------------
+# A second name is a second value
+# ---------------------------------------------------------------------------
+
+let a: list<int> = [1, 2]
+let b: list<int> = a
+b.append(3)
+echo("append via copy:  a={a} b={b}")
+
+a.append(99)
+echo("and the other way: a={a} b={b}")
+
+let c: list<int> = [1, 2, 3]
+let d: list<int> = c
+d[0] = 100
+echo("index assign:     c={c} d={d}")
+
+let p: list<int> = [1, 2, 3]
+let q: list<int> = p
+let popped: int = q.pop()
+echo("pop:              p={p} q={q} popped={popped}")
+
+let m: map<string, int> = {"x": 1}
+let n: map<string, int> = m
+n["y"] = 2
+n.remove("x")
+echo("map:              m={m.len()} n={n.len()} m still has x: {m.has_key("x")}")
+
+# ---------------------------------------------------------------------------
+# An argument is a copy
+# ---------------------------------------------------------------------------
+
+method grow(xs: list<int>) -> int {
+    xs.append(42)
+    release xs.len()
+}
+
+let e: list<int> = [1, 2]
+echo("argument:         grew to {grow(e)}, caller still {e}")
+
+# ---------------------------------------------------------------------------
+# Reaching into a container gives a copy too
+# ---------------------------------------------------------------------------
+
+let outer: list<list<int>> = [[1, 2], [3, 4]]
+let inner: list<int> = outer[0]
+inner.append(9)
+echo("nested list:      outer={outer} inner={inner}")
+
+struct Box { items: list<int> }
+
+let box: Box = Box { items: [1, 2] }
+let taken: list<int> = box.items
+taken.append(3)
+echo("struct field:     box={box.items} taken={taken}")
+
+# Writing through the field still works, and does not disturb the copy.
+box.items.append(7)
+echo("field append:     box={box.items} taken={taken}")
+
+let holder: map<string, list<int>> = {"k": [1, 2]}
+let got: list<int> = holder["k"]
+got.append(3)
+echo("map of lists:     holder={holder["k"]} got={got}")
+
+# A constant is not a way to reach the original either.
+const let FIXED: list<int> = [1, 2]
+let copy: list<int> = FIXED
+copy.append(3)
+echo("constant:         FIXED={FIXED} copy={copy}")
+
+# ---------------------------------------------------------------------------
+# The receiver is still readable while the call is being set up
+#
+# A mutating method lifts its receiver out of the variable to change it in
+# place. That has to happen after the arguments are evaluated, or an argument
+# mentioning the same variable would find nothing there.
+# ---------------------------------------------------------------------------
+
+let xs: list<int> = [1, 2, 3]
+xs.append(xs.len())
+echo("self argument:    {xs}")
+
+let ys: list<int> = [5, 6]
+ys[ys.len() - 1] = 99
+echo("self index:       {ys}")
+
+let counts: map<string, int> = {"a": 1}
+counts["b"] = counts.len()
+echo("self map index:   a={counts["a"]} b={counts["b"]}")
+
+# ---------------------------------------------------------------------------
+# Building one is linear, which is the point of all of the above
+# ---------------------------------------------------------------------------
+
+let built: list<int> = []
+for (let i: int = 0; i < 500; i++) {
+    built.append(i)
+}
+echo("built:            {built.len()} items, last {built[499]}")
+
+let filled: map<string, int> = {}
+for (let i: int = 0; i < 500; i++) {
+    filled["k{i}"] = i
+}
+echo("filled:           {filled.len()} pairs, k499={filled["k499"]}")
+
+# Rows kept in a list, each built separately, none sharing with another.
+let rows: list<list<int>> = []
+for (let i: int = 0; i < 3; i++) {
+    let row: list<int> = [i]
+    row.append(i * 10)
+    rows.append(row)
+}
+echo("rows:             {rows}")

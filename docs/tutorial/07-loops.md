@@ -221,7 +221,7 @@ for (let i: int = 1; i <= 5; i++) {
     squares.append(i * i)
 }
 
-echo("{ret(squares)}")
+echo("{squares}")
 ```
 
 ```

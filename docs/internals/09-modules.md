@@ -148,8 +148,10 @@ importing file's scope, and the module's own unexported names were unreachable.
 
 - No versioning or namespacing beyond the file path.
 - A `grab` from `std::` parses, checks and runs that module on every program
-  start, roughly ten milliseconds for `std::string`. It is per module and per
-  run. Splitting the library into smaller modules would mean paying only for
-  what a program actually uses.
+  start: about 20ms for `std::math`, 38ms for `std::string`, 60ms for
+  `std::fs`, and 259ms for `std::json`, which is much the largest. It is per
+  module and per run. Splitting the library into smaller modules would mean
+  paying only for what a program actually uses, and at `std::json`'s size that
+  has started to matter.
 
 Next: [Performance](10-performance.md)

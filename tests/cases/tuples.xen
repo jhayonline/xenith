@@ -1,5 +1,5 @@
 let point = (10, 20)
-echo("{ret(point)}")
+echo("{point}")
 let (x, y) = point
 echo("{x} {y}")
 let (_, only) = point

@@ -2,10 +2,10 @@ echo("=== Tuple Tests ===\n")
 
 # Tuple literals
 let point = (10, 20)
-echo("point = {ret(point)}")
+echo("point = {point}")
 
 let person = ("Alice", 30)
-echo("person = {ret(person)}")
+echo("person = {person}")
 
 # Destructuring assignment
 let (x, y) = point

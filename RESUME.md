@@ -11,22 +11,28 @@ decisions still open. That is most of what is below.
 
 ## 1. Pick up here
 
-**Uncommitted:** `std::json` — `src/stdlib/json.xen`, its line in
-`src/stdlib/mod.rs`, three fixtures (`tests/cases/json_read`, `json_write`,
-`json_malformed`), the `std::json` section of
-`docs/tutorial/20-standard-library.md`, and the module lists in
-`19-limitations.md` and `tutorial/README.md`. `cargo test` is green.
+**Uncommitted:** the copy-on-write work. `cargo test` is green.
+
+- `src/values.rs` — `List`, `Map` and `Value::String` hold their contents behind
+  an `Rc`; `XenithString` caches its character count and whether it is ASCII.
+- `src/symbol_table.rs` — `take`, which lifts a value out of a binding.
+- `src/interpreter.rs` — `visit_call` and `assign_into` use it for the mutating
+  methods and for `m[key] = value`.
+- `tests/cases/cow_semantics.*` — the aliasing rules and the evaluation-order
+  trap, pinned.
+- `docs/internals/07-values.md`, `10-performance.md`, `09-modules.md` and the
+  `std::json` cost section of `docs/tutorial/20-standard-library.md`.
 
 ```
-feat: std::json
+perf: lists, maps and strings are shared rather than copied
 ```
 
-The string-lexer fix landed as `6a4c676`, on top of `bbce4e6 feat: sum types and
-match`.
+`std::json` landed as `6e9a9d5`, on top of `6a4c676` (the string-lexer fix) and
+`bbce4e6 feat: sum types and match`.
 
-**Next piece of work:** copy-on-write collections — roadmap item 3, which
-writing `std::json` promoted from "do before benchmarking" to "do next". See the
-measurements in §7.
+**Next piece of work:** the concurrency decision — roadmap item 2, and now the
+only thing standing before `std::http`. §3 argues for isolated tasks on OS
+threads rather than `async`/`await`, and §5.1 is the open question.
 
 ---
 
@@ -316,16 +322,18 @@ Not yet decided. Listed with my leaning.
 
 ## 6. Roadmap
 
-Items 1 and 4 done. Remaining, in the order argued for above — except that 3 has
-moved to the front, for the reason in §7.
+Items 1, 3 and 4 done. Remaining, in the order argued for above.
 
-**3. Copy-on-write collections. Do this next.** `append` and map insertion are
-each O(n), so building an n element collection is O(n²). Measured, not guessed:
-§7. This is no longer "before benchmarking anything server-shaped"; it is the
-thing standing between `std::json` and being able to use it.
+**2. Concurrency semantics. This is next.** The decision that blocks the rest of
+the stdlib, and now the only thing between here and `std::http`. Also requires
+dropping `panic = "abort"` from `Cargo.toml`. The leaning, argued in §3: isolated
+tasks on OS threads, channels, blocking-looking I/O — not `async`/`await`.
 
-**2. Concurrency semantics.** The decision that blocks the rest of the stdlib.
-Also requires dropping `panic = "abort"` from `Cargo.toml`.
+**3. Copy-on-write collections.** Done, along with the string scanning that the
+same measurement turned up. §7 and
+[`10-performance.md`](docs/internals/10-performance.md#collections-were-quadratic-to-build).
+`Struct`, `Enum` payloads and `Tuple` are still copied whole; nothing has
+measured badly because of it yet.
 
 **4. `std::json`.** Done. Written entirely in Xenith, as argued; if profiling
 later says the character loop in `parse_string` or `parse_number` is the cost,
@@ -356,40 +364,53 @@ Cheap and worth folding in early, since they hurt daily:
 
 ## 7. Known issues found along the way
 
-**Building a collection is quadratic.** The largest thing found this session, and
-the reason roadmap item 3 moved to the front.
+**Fixed this session: building a collection was quadratic, and so was scanning
+a string.** Found by measuring `std::json`, fixed straight after. Both are
+written up properly in
+[`10-performance.md`](docs/internals/10-performance.md#collections-were-quadratic-to-build);
+the short version, because it is easy to reintroduce:
 
-`xs.append(x)` and `m[k] = v` each cost O(n) in the size of the collection, so
-filling one is O(n²). Timings, on the release build:
+`xs.append(x)` copied the whole list four times over — the symbol-table read,
+the hand-off to `call_method`, the returned value, and the write back — so
+filling a list was O(n²). `m[k] = v` the same. Separately, `text.len()` was
+`chars().count()` and `text[i]` was `chars().nth(i)`, which makes every
+`while i < text.len()` scanner in the library quadratic on its own.
 
-| Program | Time |
-| --- | --- |
-| 2000 × `xs.append(i)` | 0.27s |
-| 8000 × `xs.append(i)` | 3.99s |
-| 2000 × `m["k{i}"] = i` | 0.56s |
-| 8000 × `m["k{i}"] = i` | 8.70s |
+| | before | after |
+| --- | --- | --- |
+| 8000 × `xs.append(i)` | 3.99s | 0.02s |
+| 8000 × `m[key] = i` | 8.70s | 0.03s |
+| parse 51.9KB of JSON | 9.06s | 1.39s |
 
-Four times the work, fifteen times the time, both of them. `append`ing a 200
-character string instead of an int costs 7.5× more than the int at the same
-count, so the copy is deep, not a pointer shuffle.
+Two traps worth keeping:
 
-The effect on `std::json`, parsing a JSON array of objects:
+- **Copy-on-write alone did nothing.** Putting `List`/`Map`/`String` behind an
+  `Rc` left appending quadratic, because while `append` ran, the symbol table
+  still held the same elements and `Rc::make_mut` copied every time.
+  `SymbolTable::take` lifts the value out of the binding first, leaving `Null`,
+  so the mutation has the only reference.
+- **Order of evaluation.** The lift has to happen *after* the arguments and the
+  index are evaluated, or `xs.append(xs.len())` reads the hole. That was a real
+  bug for about ten minutes; `tests/cases/cow_semantics.xen` pins it along with
+  the aliasing rules.
 
-| Document | Parse |
-| --- | --- |
-| 6.4KB | 0.55s |
-| 12.8KB | 1.06s |
-| 25.8KB | 2.78s |
-| 51.9KB | 9.06s |
+Still copied in full: `Struct`, `Enum` payloads and `Tuple`. Same fix applies if
+they ever show up in a measurement.
 
-Doubling the document more than triples the time. Two things it is *not*: string
-arguments are not cloned per call (20000 calls passing a 25KB string cost the
-same as passing an int), and character indexing is only mildly position
-dependent. It is the collections.
+**`ret` is gone.** It rendered a value as a string, and it existed because `as`
+only converts the four primitives, so `xs as string` is XEN011. Interpolation
+already renders every type — `echo(xs)`, `echo("{xs}")` and
+`let s: string = "{xs}"` all work — so it was a second way to do one thing.
 
-This is `args[i].clone()` in `Function::execute` (`values.rs`) — the item already
-on the roadmap — and it caps every list- or map-building program in the language,
-not just this one. `std::string`'s `split` has the same shape.
+The evidence for dropping it: 111 uses across `docs/`, `tests/` and `testies/`,
+and **zero** in `src/stdlib/`. The largest Xenith program there is never reached
+for it once. Its one distinguishing behaviour was a bug — `ret([1])` gave `1`
+while `"{[1]}"` gives `[1]` — so every `{ret(xs)}` was strictly worse than
+`{xs}`. Removing it turned up one live instance in `tests/cases/std_fs.out`, a
+one-entry directory listing printing as `deep` rather than `[deep]`.
+
+The unwrapping itself is still in `value_to_string` (`utils.rs`), which the REPL
+and top-level output use. Left alone; nothing user-facing reaches it now.
 
 **The static pass does not follow `grab`.** An imported method call, struct
 literal or enum `match` is checked as it *runs*, not before. Same errors, same

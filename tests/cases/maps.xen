@@ -1,15 +1,15 @@
 let ages: map<string, int> = {"ada": 36, "alan": 41}
 echo("{ages["ada"]} {ages.len()}")
-echo("{ret(ages.keys())} {ret(ages.values())}")
-echo("{ret(ages.items())}")
+echo("{ages.keys()} {ages.values()}")
+echo("{ages.items()}")
 echo("{ages.has_key("ada")} {ages.has_key("nobody")}")
 ages["ada"] = 37
 ages["grace"] = 45
-echo("{ret(ages.items())}")
+echo("{ages.items()}")
 let counts: map<string, int> = {}
 for word in ["red", "blue", "red"] {
     when counts.has_key(word) { counts[word] = counts[word] + 1 } otherwise { counts[word] = 1 }
 }
-echo("{ret(counts.items())}")
+echo("{counts.items()}")
 let teams: map<string, list<string>> = {"red": ["ada"]}
 echo("{teams["red"][0]}")

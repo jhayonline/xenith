@@ -8,7 +8,7 @@ grab { trim, upper, split } from "std::string"
 
 echo("[{trim("  hello  ")}]")
 echo(upper("shout"))
-echo("{ret(split("a,b,c", ","))}")
+echo("{split("a,b,c", ",")}")
 ```
 
 ```
@@ -173,8 +173,8 @@ anything that can come up empty. See [Errors](17-errors.md).
 ```xenith
 grab { split, join, replace } from "std::string"
 
-echo("{ret(split("a,b,c", ","))}")
-echo("{ret(split("a::b::c", "::"))}")
+echo("{split("a,b,c", ",")}")
+echo("{split("a::b::c", "::")}")
 echo("[{join(["x", "y"], " and ")}]")
 echo("[{replace("a-b-c", "-", "+")}]")
 ```
@@ -191,7 +191,7 @@ An empty separator splits into single characters:
 ```xenith
 grab { split } from "std::string"
 
-echo("{ret(split("abc", ""))}")
+echo("{split("abc", "")}")
 ```
 
 ```
@@ -466,7 +466,7 @@ grab { write_lines, read_lines } from "std::fs"
 write_lines("notes.txt", ["first", "second"])
 
 let (lines, error) = read_lines("notes.txt")
-echo("{lines.len()} {ret(lines)}")
+echo("{lines.len()} {lines}")
 ```
 
 ```
@@ -912,12 +912,17 @@ somebody posts you five thousand open brackets.
 
 ### What it costs
 
-The parser is Xenith walking the text a character at a time, so it is slow:
-roughly 25KB in a couple of seconds, and worse than linear as documents grow,
-because `append` and map insertion currently copy the collection. That is fine
-for configuration files and small request bodies, and not yet fine for a busy
-server. Both are interpreter problems rather than library ones, and the
-signatures here will not change when they are fixed.
+The parser is Xenith walking the text a character at a time, so it is not fast
+in absolute terms: about 25KB in half a second, 52KB in a second, on top of a
+fixed quarter second to load the module itself. It is linear in the size of the
+document, which is the part that matters — it was quadratic until writing this
+module turned up the reason, and fixing that is [written up in the
+internals](../internals/10-performance.md#collections-were-quadratic-to-build).
+
+That is comfortable for configuration files and ordinary request bodies. For
+something serving large documents under load, the honest answer is that the
+scanning loop belongs in Rust, which it can move to without any of the
+signatures here changing.
 
 ## What is not here yet
 
@@ -928,9 +933,20 @@ its `_float` suffixes.
 
 ## The cost of importing
 
-A `grab` from `std::` parses, checks and runs that module, which takes roughly
-ten milliseconds on top of a program's own startup. That is per module and per
-run. It is worth knowing about for something invoked in a tight shell loop, and
-irrelevant otherwise.
+A `grab` from `std::` parses, checks and runs that module on top of a program's
+own startup, every run. Measured against a program that does nothing:
+
+| Module | |
+| --- | --- |
+| `std::math` | +20ms |
+| `std::string` | +38ms |
+| `std::env` | +47ms |
+| `std::fs`, `std::bytes` | +60ms (each imports `std::string`) |
+| `std::json` | +259ms |
+
+It scales with the size of the module, and `std::json` is by some way the
+largest. That is worth knowing for something invoked in a tight shell loop or a
+per-request process, and irrelevant otherwise. Splitting the library so a
+program pays only for what it uses is the obvious answer and is not done.
 
 Back to [the tutorial index](README.md)

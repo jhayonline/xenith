@@ -13,4 +13,4 @@ method test_range(n: int) -> list<int> {
 }
 
 let numbers: list<int> = test_range(5)
-echo("Numbers: {ret(numbers)}")
+echo("Numbers: {numbers}")

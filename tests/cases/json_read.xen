@@ -18,7 +18,7 @@ let (doc, error) = parse(`
 
 echo("error [{error}]")
 echo("type {type_name(doc)} with {size(doc)} fields")
-echo("{ret(keys(doc))}")
+echo("{keys(doc)}")
 
 # Reaching in. `get` says whether the field was there, and `as_` says whether it
 # was the type you wanted, so neither can be assumed.

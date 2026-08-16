@@ -8,7 +8,7 @@ key types arrive.
 let ages: map<string, int> = {"ada": 36, "alan": 41}
 let empty: map<string, int> = {}
 
-echo("{ret(ages.items())}")
+echo("{ages.items()}")
 echo("{empty.len()}")
 ```
 
@@ -89,7 +89,7 @@ let ages: map<string, int> = {"ada": 36}
 ages["ada"] = 37
 ages["grace"] = 45
 
-echo("{ret(ages.items())}")
+echo("{ages.items()}")
 ```
 
 ```
@@ -110,7 +110,7 @@ for word in ["red", "blue", "red"] {
     }
 }
 
-echo("{ret(counts.items())}")
+echo("{counts.items()}")
 ```
 
 ```
@@ -178,9 +178,9 @@ echo("{ages.len()}")
 let scores: map<string, int> = {"ada": 90, "alan": 85, "grace": 95}
 
 echo("size   {scores.len()}")
-echo("keys   {ret(scores.keys())}")
-echo("values {ret(scores.values())}")
-echo("items  {ret(scores.items())}")
+echo("keys   {scores.keys()}")
+echo("values {scores.values()}")
+echo("items  {scores.items()}")
 ```
 
 ```
@@ -244,7 +244,7 @@ let teams: map<string, list<string>> = {
     "blue": ["alan"]
 }
 
-echo("{ret(teams["red"])}")
+echo("{teams["red"]}")
 echo("{teams["red"][0]}")
 ```
 
