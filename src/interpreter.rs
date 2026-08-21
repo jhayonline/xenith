@@ -2865,7 +2865,7 @@ impl Interpreter {
             elements.push(value);
         }
 
-        result.success(Value::Tuple(elements))
+        result.success(Value::tuple(elements))
     }
 
     fn visit_destructure(

@@ -30,8 +30,6 @@ pub enum Value {
     /// makes the clone a refcount bump. Strings are never modified in place --
     /// `a + b` builds a new one -- so there is no copy-on-write to do.
     String(Rc<XenithString>),
-    /// Raw bytes. Held inline: a `Vec<u8>` is 24 bytes, the same as the
-    /// `String` and `Vec<Value>` already here, so this costs nothing.
     /// Boxed. A `Bytes` holds a `Vec<u8>`, 24 bytes inline, which made every
     /// `Value` that size whether or not it was bytes. Shared rather than owned
     /// so a clone stays a refcount bump, as `List` and `String` already are.
@@ -47,7 +45,13 @@ pub enum Value {
     /// Boxed for the same reason again: two `String`s and a `Vec` is 72.
     Enum(Box<EnumValue>),
     Bool(bool),
-    Tuple(Vec<Value>),
+    /// Shared, not owned, for the same reason as `List`: a clone happens on
+    /// every symbol-table read and every assignment, and copying the elements
+    /// each time made passing a tuple through a few functions cost more than
+    /// building it. Nothing mutates a tuple in place -- the language has no
+    /// tuple element assignment -- so, as with `String`, there is no
+    /// copy-on-write to do and sharing is invisible.
+    Tuple(Rc<Vec<Value>>),
     Null,
 }
 
@@ -147,7 +151,7 @@ impl Value {
     }
 
     pub fn tuple(elements: Vec<Value>) -> Self {
-        Value::Tuple(elements)
+        Value::Tuple(Rc::new(elements))
     }
 
     // Helper for tuple operations
@@ -1399,11 +1403,11 @@ impl BuiltInFunction {
     }
 
     fn ok_pair(value: Value) -> RuntimeResult {
-        RuntimeResult::new().success(Value::Tuple(vec![value, Value::string("")]))
+        RuntimeResult::new().success(Value::tuple(vec![value, Value::string("")]))
     }
 
     fn err_pair(empty: Value, message: String) -> RuntimeResult {
-        RuntimeResult::new().success(Value::Tuple(vec![
+        RuntimeResult::new().success(Value::tuple(vec![
             empty,
             Value::string_of(XenithString::new(message)),
         ]))
@@ -1748,12 +1752,12 @@ impl BuiltInFunction {
         };
 
         match std::env::var(&name) {
-            Ok(value) => RuntimeResult::new().success(Value::Tuple(vec![
+            Ok(value) => RuntimeResult::new().success(Value::tuple(vec![
                 Value::string_of(XenithString::new(value)),
                 Value::Bool(true),
             ])),
             Err(_) => RuntimeResult::new()
-                .success(Value::Tuple(vec![Value::string(""), Value::Bool(false)])),
+                .success(Value::tuple(vec![Value::string(""), Value::Bool(false)])),
         }
     }
 

@@ -13,7 +13,11 @@ use xenith::values::{BuiltInFunction, Bytes, Number, Value};
 
 #[test]
 fn value_stays_small() {
-    assert_eq!(size_of::<Value>(), 32, "Value");
+    // 24, not 32, from the moment `Bytes` and `Tuple` were boxed. With those
+    // gone, `BuiltInFunction` is the only variant wider than a word, and the
+    // non-null pointer in its `String` leaves a niche the discriminant fits
+    // into for free. Three overlapping 24-byte payloads had left none.
+    assert_eq!(size_of::<Value>(), 24, "Value");
 }
 
 #[test]
@@ -23,12 +27,16 @@ fn payloads_stay_small() {
     // pointer; the struct itself is still a Vec.
     assert_eq!(size_of::<std::rc::Rc<Bytes>>(), 8, "the Bytes payload");
     assert_eq!(size_of::<BuiltInFunction>(), 24, "BuiltInFunction");
-    assert_eq!(size_of::<Vec<Value>>(), 24, "the Tuple payload");
+    assert_eq!(
+        size_of::<std::rc::Rc<Vec<Value>>>(),
+        8,
+        "the Tuple payload"
+    );
 }
 
 #[test]
 fn runtime_result_stays_small() {
     // Returned by value from every `visit`, so its size is multiplied by every
     // node evaluated.
-    assert_eq!(size_of::<xenith::runtime_result::RuntimeResult>(), 80);
+    assert_eq!(size_of::<xenith::runtime_result::RuntimeResult>(), 64);
 }
