@@ -19,7 +19,9 @@ fn value_stays_small() {
 #[test]
 fn payloads_stay_small() {
     assert_eq!(size_of::<Number>(), 16, "Number");
-    assert_eq!(size_of::<Bytes>(), 24, "Bytes");
+    // Boxed. `Value::Bytes` holds an `Rc<Bytes>`, so what the enum sees is a
+    // pointer; the struct itself is still a Vec.
+    assert_eq!(size_of::<std::rc::Rc<Bytes>>(), 8, "the Bytes payload");
     assert_eq!(size_of::<BuiltInFunction>(), 24, "BuiltInFunction");
     assert_eq!(size_of::<Vec<Value>>(), 24, "the Tuple payload");
 }

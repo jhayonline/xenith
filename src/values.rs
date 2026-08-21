@@ -32,7 +32,10 @@ pub enum Value {
     String(Rc<XenithString>),
     /// Raw bytes. Held inline: a `Vec<u8>` is 24 bytes, the same as the
     /// `String` and `Vec<Value>` already here, so this costs nothing.
-    Bytes(Bytes),
+    /// Boxed. A `Bytes` holds a `Vec<u8>`, 24 bytes inline, which made every
+    /// `Value` that size whether or not it was bytes. Shared rather than owned
+    /// so a clone stays a refcount bump, as `List` and `String` already are.
+    Bytes(Rc<Bytes>),
     List(List),
     Function(Box<Function>),
     BuiltInFunction(BuiltInFunction),
@@ -71,7 +74,7 @@ impl Value {
 
     /// Creates a bytes value
     pub fn bytes(data: Vec<u8>) -> Self {
-        Value::Bytes(Bytes::new(data))
+        Value::Bytes(Rc::new(Bytes::new(data)))
     }
 
     /// Creates a list value
@@ -1587,7 +1590,7 @@ impl BuiltInFunction {
     // -- bytes -----------------------------------------------------------
 
     /// The one bytes argument these start with.
-    fn bytes_arg(&self, name: &str, args: &[Value], call_pos: &Position) -> Result<Bytes, RuntimeResult> {
+    fn bytes_arg(&self, name: &str, args: &[Value], call_pos: &Position) -> Result<Rc<Bytes>, RuntimeResult> {
         let fail = |detail: String| {
             RuntimeResult::new().failure(
                 RuntimeError::new(call_pos.clone(), call_pos.clone(), &detail, None)
@@ -1634,7 +1637,7 @@ impl BuiltInFunction {
             );
         };
 
-        RuntimeResult::new().success(Value::Bytes(raw.slice(start, end)))
+        RuntimeResult::new().success(Value::Bytes(Rc::new(raw.slice(start, end))))
     }
 
     fn bytes_to_string(&self, args: Vec<Value>, call_pos: Position) -> RuntimeResult {
@@ -1643,7 +1646,11 @@ impl BuiltInFunction {
             Err(failure) => return failure,
         };
 
-        match String::from_utf8(raw.data) {
+        // Takes the buffer if this call holds the only reference, copies if the
+        // caller still has one.
+        let owned = Rc::try_unwrap(raw).unwrap_or_else(|shared| (*shared).clone());
+
+        match String::from_utf8(owned.data) {
             Ok(text) => Self::ok_pair(Value::string_of(XenithString::new(text))),
             Err(e) => Self::err_pair(
                 Value::string(""),
