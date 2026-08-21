@@ -120,3 +120,59 @@ pub fn check_main_signature(ast: &Node) -> Option<Error> {
 
     None
 }
+
+/// Every top-level statement a program is not allowed to have.
+///
+/// Declarations are permitted: `grab`, `struct`, `enum`, `method`, `type` and
+/// `const let`. Everything else belongs in `main`. Two things follow. Nothing
+/// is written to a global at run time, so the global table is known and
+/// complete before the first instruction executes. And no top-level `let`
+/// exists to be captured, which is what lets the checker report an undefined
+/// name statically.
+///
+/// A script gets no errors from this; its top level *is* the program.
+pub fn check_top_level(ast: &Node) -> Vec<Error> {
+    if shape_of(ast) != ProgramShape::Program {
+        return Vec::new();
+    }
+
+    let Node::List(statements) = ast else {
+        return Vec::new();
+    };
+
+    let mut errors = Vec::new();
+
+    for statement in &statements.element_nodes {
+        let permitted = match &**statement {
+            Node::Grab(_)
+            | Node::Export(_)
+            | Node::StructDef(_)
+            | Node::EnumDef(_)
+            | Node::FuncDef(_)
+            | Node::TypeAlias(_) => true,
+            // `const let LIMIT: int = 100` is a declaration; a plain `let` is
+            // a statement, because it can be reassigned and therefore written
+            // to at run time.
+            Node::VarAssign(assign) => assign.is_constant && assign.is_declaration,
+            _ => false,
+        };
+
+        if permitted {
+            continue;
+        }
+
+        errors.push(
+            Error::new(
+                statement.position_start().clone(),
+                statement.position_end().clone(),
+                "Entry Point Error",
+                "a program's top level holds declarations only",
+            )
+            .with_code("XEN025")
+            .with_note("this file defines main, so it is a program rather than a script")
+            .with_help("move this into main, or make it `const let` if it never changes"),
+        );
+    }
+
+    errors
+}

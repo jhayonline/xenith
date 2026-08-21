@@ -97,6 +97,10 @@ pub fn run(filename: &str, source: &str) -> Result<Value, Error> {
         return Err(bad_main);
     }
 
+    if let Some(first) = crate::entry::check_top_level(&ast).into_iter().next() {
+        return Err(first);
+    }
+
     // Interpretation
     let mut interpreter = Interpreter::new();
 

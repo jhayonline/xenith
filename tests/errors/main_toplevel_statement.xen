@@ -1,0 +1,6 @@
+let counter: int = 0
+
+method main() -> int {
+    echo("{counter}")
+    release 0
+}

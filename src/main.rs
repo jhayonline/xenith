@@ -40,18 +40,26 @@ fn run_file(filename: &str) {
             eprintln!("{}", fatal.as_string_colored());
             std::process::exit(1);
         }
-        Ok((errors, _, _)) if !errors.is_empty() => {
-            for error in &errors {
-                eprintln!("{}", error.as_string_colored());
+        Ok((mut errors, _, ast)) => {
+            // Reported together with the type errors, so a file with three
+            // stray top-level statements names all three.
+            errors.extend(xenith::entry::check_top_level(&ast));
+            if let Some(bad_main) = xenith::entry::check_main_signature(&ast) {
+                errors.push(bad_main);
             }
-            eprintln!(
-                "{} error{} found, nothing was run",
-                errors.len(),
-                if errors.len() == 1 { "" } else { "s" }
-            );
-            std::process::exit(1);
-        }
-        Ok((_, _, ast)) => {
+
+            if !errors.is_empty() {
+                for error in &errors {
+                    eprintln!("{}", error.as_string_colored());
+                }
+                eprintln!(
+                    "{} error{} found, nothing was run",
+                    errors.len(),
+                    if errors.len() == 1 { "" } else { "s" }
+                );
+                std::process::exit(1);
+            }
+
             xenith::entry::shape_of(&ast) == xenith::entry::ProgramShape::Program
         }
     };
