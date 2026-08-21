@@ -7,22 +7,33 @@ arithmetic and the built in functions.
 
 ```rust
 pub enum Value {
-    Number(Number),
-    String(XenithString),
-    Bytes(Bytes),
+    Int(i64),
+    Float(f64),
+    String(Rc<XenithString>),
+    Bytes(Rc<Bytes>),
     Bool(bool),
     Null,
     List(List),
-    Map(Map),
-    Tuple(Vec<Value>),
-    Struct(Struct),
-    Enum(EnumValue),
-    Function(Function),
+    Map(Box<Map>),
+    Tuple(Rc<Vec<Value>>),
+    Struct(Box<Struct>),
+    Enum(Box<EnumValue>),
+    Function(Box<Function>),
     BuiltInFunction(BuiltInFunction),
 }
 ```
 
+16 bytes, and `tests/layout.rs` keeps it there. Every payload wider than a word
+is behind a pointer, which leaves `i64`/`f64` as the widest thing stored inline;
+the discriminant then fits in a niche and costs nothing. See
+`docs/internals/10-performance.md`.
+
 ## Number is a sum type
+
+A `Value` does not store one. It holds an `i64` or an `f64` directly -- wrapping
+them in a `Number` cost a second tag and made the payload 16 bytes to carry 8
+bytes of data. `Number` remains the type the arithmetic helpers speak, built on
+demand by `Value::as_number`, which is free because it is `Copy`.
 
 ```rust
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -50,14 +61,14 @@ Every operation matches on the pair and refuses mixed operands:
 ```rust
 pub fn add(&self, other: &Value) -> Result<Value, Error> {
     match (self, other) {
-        (Value::Number(a), Value::Number(b)) => match (a, b) {
-            (Number::Int(x), Number::Int(y)) => x
-                .checked_add(*y)
-                .map(Value::int)
-                .ok_or_else(|| Self::overflow_err("addition")),
-            (Number::Float(x), Number::Float(y)) => Ok(Value::float(x + y)),
-            _ => Err(Self::mixed_err("add", a, b)),
-        },
+        (Value::Int(x), Value::Int(y)) => x
+            .checked_add(*y)
+            .map(Value::int)
+            .ok_or_else(|| Self::overflow_err("addition")),
+        (Value::Float(x), Value::Float(y)) => Ok(Value::float(x + y)),
+        (Value::Int(_), Value::Float(_)) | (Value::Float(_), Value::Int(_)) => Err(
+            Self::mixed_err("add", &self.as_number().unwrap(), &other.as_number().unwrap()),
+        ),
         (Value::String(a), Value::String(b)) => { /* concatenate */ }
         (Value::List(a), Value::List(b)) => { /* concatenate */ }
         _ => Err(Self::arith_err(...)),
@@ -70,6 +81,10 @@ Two rules hold throughout:
 - Integer operations use `checked_*` and turn `None` into XEN017. Nothing wraps
   silently.
 - `Int` with `Float` is an error, never a promotion.
+
+The int and float cases are separate top-level arms rather than a nested match,
+which is the shape the typed opcodes want: one arm per operand pair is one
+opcode each.
 
 Comparisons return `Value::Bool` through the `eq_value` and `compare` helpers.
 They once returned `Number(1.0)` and `Number(0.0)`.

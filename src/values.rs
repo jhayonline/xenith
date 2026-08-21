@@ -22,7 +22,11 @@ use crate::utils::value_to_string;
 /// All possible runtime values in Xenith
 #[derive(Debug, Clone)]
 pub enum Value {
-    Number(Number),
+    /// Held flat rather than as a `Number`, which cost a second tag and made
+    /// the payload 16 bytes for 8 bytes of data. `Number` is still the type
+    /// the arithmetic speaks; it is just not what a `Value` stores.
+    Int(i64),
+    Float(f64),
     /// Shared, not owned. Cloning a `Value` happens on every call, every
     /// symbol-table read and every assignment; with the text owned inline, a
     /// document or a request body was copied in full each time, which made
@@ -58,7 +62,7 @@ pub enum Value {
 impl Value {
     /// Creates an int value
     pub fn int(i: i64) -> Self {
-        Value::Number(Number::Int(i))
+        Value::Int(i)
     }
 
     /// Creates a string value from an already-built [`XenithString`].
@@ -68,7 +72,7 @@ impl Value {
 
     /// Creates a float value
     pub fn float(f: f64) -> Self {
-        Value::Number(Number::Float(f))
+        Value::Float(f)
     }
 
     /// Creates a string value
@@ -89,7 +93,8 @@ impl Value {
     /// Checks if the value is truthy
     pub fn is_true(&self) -> bool {
         match self {
-            Value::Number(n) => !n.is_zero(),
+            Value::Int(i) => *i != 0,
+            Value::Float(f) => *f != 0.0,
             Value::String(s) => !s.value.is_empty(),
             Value::Bytes(b) => !b.data.is_empty(),
             Value::List(l) => !l.elements.is_empty(),
@@ -106,10 +111,12 @@ impl Value {
         }
     }
 
-    /// Tries to get as a number
-    pub fn as_number(&self) -> Option<&Number> {
+    /// The arithmetic helpers take a `Number`, so this builds one rather than
+    /// borrowing one. `Number` is `Copy` and 16 bytes, so that is free.
+    pub fn as_number(&self) -> Option<Number> {
         match self {
-            Value::Number(n) => Some(n),
+            Value::Int(i) => Some(Number::Int(*i)),
+            Value::Float(f) => Some(Number::Float(*f)),
             _ => None,
         }
     }
@@ -220,14 +227,19 @@ impl Value {
     /// Addition operation
     pub fn add(&self, other: &Value) -> Result<Value, Error> {
         match (self, other) {
-            (Value::Number(a), Value::Number(b)) => match (a, b) {
-                (Number::Int(x), Number::Int(y)) => x
-                    .checked_add(*y)
-                    .map(Value::int)
-                    .ok_or_else(|| Self::overflow_err("addition")),
-                (Number::Float(x), Number::Float(y)) => Ok(Value::float(x + y)),
-                _ => Err(Self::mixed_err("add", a, b)),
-            },
+            (Value::Int(x), Value::Int(y)) => x
+                .checked_add(*y)
+                .map(Value::int)
+                .ok_or_else(|| Self::overflow_err("addition")),
+            (Value::Float(x), Value::Float(y)) => Ok(Value::float(x + y)),
+            (Value::Int(_), Value::Float(_)) | (Value::Float(_), Value::Int(_)) => Err(
+                Self::mixed_err(
+                    "add",
+                    &self.as_number().unwrap(),
+                    &other.as_number().unwrap(),
+                ),
+            ),
+        
             (Value::String(a), Value::String(b)) => {
                 let mut new = a.value.clone();
                 new.push_str(&b.value);
@@ -254,14 +266,19 @@ impl Value {
     /// Subtraction operation
     pub fn subtract(&self, other: &Value) -> Result<Value, Error> {
         match (self, other) {
-            (Value::Number(a), Value::Number(b)) => match (a, b) {
-                (Number::Int(x), Number::Int(y)) => x
-                    .checked_sub(*y)
-                    .map(Value::int)
-                    .ok_or_else(|| Self::overflow_err("subtraction")),
-                (Number::Float(x), Number::Float(y)) => Ok(Value::float(x - y)),
-                _ => Err(Self::mixed_err("subtract", a, b)),
-            },
+            (Value::Int(x), Value::Int(y)) => x
+                .checked_sub(*y)
+                .map(Value::int)
+                .ok_or_else(|| Self::overflow_err("subtraction")),
+            (Value::Float(x), Value::Float(y)) => Ok(Value::float(x - y)),
+            (Value::Int(_), Value::Float(_)) | (Value::Float(_), Value::Int(_)) => Err(
+                Self::mixed_err(
+                    "subtract",
+                    &self.as_number().unwrap(),
+                    &other.as_number().unwrap(),
+                ),
+            ),
+        
             _ => Err(Self::arith_err(&format!(
                 "cannot subtract {} from {}",
                 Self::get_type_name(other),
@@ -273,15 +290,20 @@ impl Value {
     /// Multiplication operation
     pub fn multiply(&self, other: &Value) -> Result<Value, Error> {
         match (self, other) {
-            (Value::Number(a), Value::Number(b)) => match (a, b) {
-                (Number::Int(x), Number::Int(y)) => x
-                    .checked_mul(*y)
-                    .map(Value::int)
-                    .ok_or_else(|| Self::overflow_err("multiplication")),
-                (Number::Float(x), Number::Float(y)) => Ok(Value::float(x * y)),
-                _ => Err(Self::mixed_err("multiply", a, b)),
-            },
-            (Value::String(a), Value::Number(Number::Int(n))) => {
+            (Value::Int(x), Value::Int(y)) => x
+                .checked_mul(*y)
+                .map(Value::int)
+                .ok_or_else(|| Self::overflow_err("multiplication")),
+            (Value::Float(x), Value::Float(y)) => Ok(Value::float(x * y)),
+            (Value::Int(_), Value::Float(_)) | (Value::Float(_), Value::Int(_)) => Err(
+                Self::mixed_err(
+                    "multiply",
+                    &self.as_number().unwrap(),
+                    &other.as_number().unwrap(),
+                ),
+            ),
+        
+            (Value::String(a), Value::Int(n)) => {
                 if *n < 0 {
                     return Err(Self::arith_err("cannot repeat a string a negative number of times"));
                 }
@@ -298,36 +320,41 @@ impl Value {
     /// Division operation. Int / int truncates toward zero, as in Go and C.
     pub fn divide(&self, other: &Value) -> Result<Value, Error> {
         match (self, other) {
-            (Value::Number(a), Value::Number(b)) => match (a, b) {
-                (Number::Int(_), Number::Int(0)) => Err(RuntimeError::new(
-                    Self::dummy_pos(),
-                    Self::dummy_pos(),
-                    "division by zero",
-                    None,
-                )
-                .with_code("XEN003")
-                .with_name("Division by Zero")
-                .base),
-                (Number::Int(x), Number::Int(y)) => x
-                    .checked_div(*y)
-                    .map(Value::int)
-                    .ok_or_else(|| Self::overflow_err("division")),
-                (Number::Float(x), Number::Float(y)) => {
-                    if *y == 0.0 {
-                        return Err(RuntimeError::new(
-                            Self::dummy_pos(),
-                            Self::dummy_pos(),
-                            "division by zero",
-                            None,
-                        )
-                        .with_code("XEN003")
-                        .with_name("Division by Zero")
-                        .base);
-                    }
-                    Ok(Value::float(x / y))
+            (Value::Int(_), Value::Int(0)) => Err(RuntimeError::new(
+                Self::dummy_pos(),
+                Self::dummy_pos(),
+                "division by zero",
+                None,
+            )
+            .with_code("XEN003")
+            .with_name("Division by Zero")
+            .base),
+            (Value::Int(x), Value::Int(y)) => x
+                .checked_div(*y)
+                .map(Value::int)
+                .ok_or_else(|| Self::overflow_err("division")),
+            (Value::Float(x), Value::Float(y)) => {
+                if *y == 0.0 {
+                    return Err(RuntimeError::new(
+                        Self::dummy_pos(),
+                        Self::dummy_pos(),
+                        "division by zero",
+                        None,
+                    )
+                    .with_code("XEN003")
+                    .with_name("Division by Zero")
+                    .base);
                 }
-                _ => Err(Self::mixed_err("divide", a, b)),
-            },
+                Ok(Value::float(x / y))
+            }
+            (Value::Int(_), Value::Float(_)) | (Value::Float(_), Value::Int(_)) => Err(
+                Self::mixed_err(
+                    "divide",
+                    &self.as_number().unwrap(),
+                    &other.as_number().unwrap(),
+                ),
+            ),
+        
             _ => Err(Self::arith_err(&format!(
                 "cannot divide {} by {}",
                 Self::get_type_name(self),
@@ -339,23 +366,28 @@ impl Value {
     /// Remainder operation
     pub fn modulo(&self, other: &Value) -> Result<Value, Error> {
         match (self, other) {
-            (Value::Number(a), Value::Number(b)) => match (a, b) {
-                (Number::Int(_), Number::Int(0)) => Err(RuntimeError::new(
-                    Self::dummy_pos(),
-                    Self::dummy_pos(),
-                    "remainder by zero",
-                    None,
-                )
-                .with_code("XEN003")
-                .with_name("Division by Zero")
-                .base),
-                (Number::Int(x), Number::Int(y)) => x
-                    .checked_rem(*y)
-                    .map(Value::int)
-                    .ok_or_else(|| Self::overflow_err("remainder")),
-                (Number::Float(x), Number::Float(y)) => Ok(Value::float(x % y)),
-                _ => Err(Self::mixed_err("take the remainder of", a, b)),
-            },
+            (Value::Int(_), Value::Int(0)) => Err(RuntimeError::new(
+                Self::dummy_pos(),
+                Self::dummy_pos(),
+                "remainder by zero",
+                None,
+            )
+            .with_code("XEN003")
+            .with_name("Division by Zero")
+            .base),
+            (Value::Int(x), Value::Int(y)) => x
+                .checked_rem(*y)
+                .map(Value::int)
+                .ok_or_else(|| Self::overflow_err("remainder")),
+            (Value::Float(x), Value::Float(y)) => Ok(Value::float(x % y)),
+            (Value::Int(_), Value::Float(_)) | (Value::Float(_), Value::Int(_)) => Err(
+                Self::mixed_err(
+                    "take the remainder of",
+                    &self.as_number().unwrap(),
+                    &other.as_number().unwrap(),
+                ),
+            ),
+        
             _ => Err(Self::arith_err("cannot take the remainder of these types")),
         }
     }
@@ -363,21 +395,26 @@ impl Value {
     /// Power operation
     pub fn power(&self, other: &Value) -> Result<Value, Error> {
         match (self, other) {
-            (Value::Number(a), Value::Number(b)) => match (a, b) {
-                (Number::Int(x), Number::Int(y)) => {
-                    if *y < 0 {
-                        return Err(Self::arith_err(
-                            "cannot raise an int to a negative power -- convert to float first",
-                        ));
-                    }
-                    let exp = u32::try_from(*y).map_err(|_| Self::overflow_err("power"))?;
-                    x.checked_pow(exp)
-                        .map(Value::int)
-                        .ok_or_else(|| Self::overflow_err("power"))
+            (Value::Int(x), Value::Int(y)) => {
+                if *y < 0 {
+                    return Err(Self::arith_err(
+                        "cannot raise an int to a negative power -- convert to float first",
+                    ));
                 }
-                (Number::Float(x), Number::Float(y)) => Ok(Value::float(x.powf(*y))),
-                _ => Err(Self::mixed_err("raise", a, b)),
-            },
+                let exp = u32::try_from(*y).map_err(|_| Self::overflow_err("power"))?;
+                x.checked_pow(exp)
+                    .map(Value::int)
+                    .ok_or_else(|| Self::overflow_err("power"))
+            }
+            (Value::Float(x), Value::Float(y)) => Ok(Value::float(x.powf(*y))),
+            (Value::Int(_), Value::Float(_)) | (Value::Float(_), Value::Int(_)) => Err(
+                Self::mixed_err(
+                    "raise",
+                    &self.as_number().unwrap(),
+                    &other.as_number().unwrap(),
+                ),
+            ),
+        
             _ => Err(Self::arith_err("cannot raise these types to a power")),
         }
     }
@@ -393,11 +430,10 @@ impl Value {
 
     fn eq_value(&self, other: &Value) -> bool {
         match (self, other) {
-            (Value::Number(a), Value::Number(b)) => match (a, b) {
-                (Number::Int(x), Number::Int(y)) => x == y,
-                (Number::Float(x), Number::Float(y)) => x == y,
-                _ => false,
-            },
+            (Value::Int(x), Value::Int(y)) => x == y,
+            (Value::Float(x), Value::Float(y)) => x == y,
+            (Value::Int(_), Value::Float(_)) | (Value::Float(_), Value::Int(_)) => false,
+        
             (Value::String(a), Value::String(b)) => a.value == b.value,
             (Value::Bytes(a), Value::Bytes(b)) => a.data == b.data,
             (Value::Bool(a), Value::Bool(b)) => a == b,
@@ -439,13 +475,18 @@ impl Value {
 
     fn compare(&self, other: &Value, op: &str) -> Result<std::cmp::Ordering, Error> {
         match (self, other) {
-            (Value::Number(a), Value::Number(b)) => match (a, b) {
-                (Number::Int(x), Number::Int(y)) => Ok(x.cmp(y)),
-                (Number::Float(x), Number::Float(y)) => x
-                    .partial_cmp(y)
-                    .ok_or_else(|| Self::arith_err("cannot compare NaN")),
-                _ => Err(Self::mixed_err("compare", a, b)),
-            },
+            (Value::Int(x), Value::Int(y)) => Ok(x.cmp(y)),
+            (Value::Float(x), Value::Float(y)) => x
+                .partial_cmp(y)
+                .ok_or_else(|| Self::arith_err("cannot compare NaN")),
+            (Value::Int(_), Value::Float(_)) | (Value::Float(_), Value::Int(_)) => Err(
+                Self::mixed_err(
+                    "compare",
+                    &self.as_number().unwrap(),
+                    &other.as_number().unwrap(),
+                ),
+            ),
+        
             (Value::String(a), Value::String(b)) => Ok(a.value.cmp(&b.value)),
             (Value::Bytes(a), Value::Bytes(b)) => Ok(a.data.cmp(&b.data)),
             _ => Err(Self::arith_err(&format!(
@@ -485,11 +526,11 @@ impl Value {
     /// Arithmetic negation
     pub fn negative(&self) -> Result<Value, Error> {
         match self {
-            Value::Number(Number::Int(n)) => n
+            Value::Int(n) => n
                 .checked_neg()
                 .map(Value::int)
                 .ok_or_else(|| Self::overflow_err("negation")),
-            Value::Number(Number::Float(f)) => Ok(Value::float(-f)),
+            Value::Float(f) => Ok(Value::float(-f)),
             _ => Err(Self::arith_err(&format!(
                 "cannot negate {}",
                 Self::get_type_name(self)
@@ -510,8 +551,8 @@ impl Value {
     /// Does a runtime value inhabit the given declared type?
     pub fn value_matches_type(value: &Value, expected_type: &Type) -> bool {
         match expected_type {
-            Type::Int => matches!(value, Value::Number(Number::Int(_))),
-            Type::Float => matches!(value, Value::Number(Number::Float(_))),
+            Type::Int => matches!(value, Value::Int(_)),
+            Type::Float => matches!(value, Value::Float(_)),
             Type::String => matches!(value, Value::String(_)),
             Type::Bytes => matches!(value, Value::Bytes(_)),
             Type::Bool => matches!(value, Value::Bool(_)),
@@ -555,7 +596,8 @@ impl Value {
     /// Name of a value's runtime type, for diagnostics
     pub fn get_type_name(value: &Value) -> String {
         match value {
-            Value::Number(n) => n.type_name().to_string(),
+            Value::Int(_) => "int".to_string(),
+            Value::Float(_) => "float".to_string(),
             Value::String(_) => "string".to_string(),
             Value::Bytes(_) => "bytes".to_string(),
             Value::Bool(_) => "bool".to_string(),
@@ -1095,7 +1137,9 @@ impl BuiltInFunction {
     fn echo(&self, args: Vec<Value>, _call_pos: Position) -> RuntimeResult {
         if let Some(arg) = args.first() {
             match arg {
-                Value::Number(n) => print!("{}", n),
+                n @ (Value::Int(_) | Value::Float(_)) => {
+                    print!("{}", n.as_number().unwrap())
+                }
                 Value::String(s) => print!("{}", s.value),
                 // Not the contents: bytes are usually not text, and printing
                 // them raw would spray control characters at the terminal.
@@ -1110,7 +1154,9 @@ impl BuiltInFunction {
                             print!(", ");
                         }
                         match elem {
-                            Value::Number(n) => print!("{}", n),
+                            n @ (Value::Int(_) | Value::Float(_)) => {
+                    print!("{}", n.as_number().unwrap())
+                }
                             Value::String(s) => print!("\"{}\"", s.value),
                             Value::Bool(b) => print!("{}", b),
                             Value::Null => print!("null"),
@@ -1127,7 +1173,9 @@ impl BuiltInFunction {
                         }
                         print!("\"{}\": ", k);
                         match v {
-                            Value::Number(n) => print!("{}", n),
+                            n @ (Value::Int(_) | Value::Float(_)) => {
+                    print!("{}", n.as_number().unwrap())
+                }
                             Value::String(s) => print!("\"{}\"", s.value),
                             Value::Bool(b) => print!("{}", b),
                             Value::Null => print!("null"),
@@ -1159,7 +1207,9 @@ impl BuiltInFunction {
                         }
                         // Recursively print element - would need proper handling
                         match elem {
-                            Value::Number(n) => print!("{}", n),
+                            n @ (Value::Int(_) | Value::Float(_)) => {
+                    print!("{}", n.as_number().unwrap())
+                }
                             Value::String(s) => print!("\"{}\"", s.value),
                             Value::Bool(b) => print!("{}", b),
                             Value::Null => print!("null"),
@@ -1199,7 +1249,7 @@ impl BuiltInFunction {
     }
 
     fn is_num(&self, args: Vec<Value>, _call_pos: Position) -> RuntimeResult {
-        let result = matches!(args.first(), Some(Value::Number(_)));
+        let result = matches!(args.first(), Some(Value::Int(_) | Value::Float(_)));
         RuntimeResult::new().success(Value::Bool(result))
     }
 
@@ -1260,8 +1310,8 @@ impl BuiltInFunction {
         }
 
         match (&args[0], &args[1]) {
-            (Value::List(list), Value::Number(idx)) => {
-                let Some(idx_usize) = idx.as_index() else {
+            (Value::List(list), index @ (Value::Int(_) | Value::Float(_))) => {
+                let Some(idx_usize) = index.as_number().unwrap().as_index() else {
                     return RuntimeResult::new().failure(
                         RuntimeError::new(
                             call_pos.clone(),
@@ -1351,7 +1401,7 @@ impl BuiltInFunction {
         if args.len() != 1 {
             return fail(format!("{} expects 1 argument", name));
         }
-        let Value::Number(Number::Float(x)) = &args[0] else {
+        let Value::Float(x) = &args[0] else {
             return fail(format!(
                 "{} expects a float, found {}",
                 name,
@@ -1377,7 +1427,7 @@ impl BuiltInFunction {
         if args.len() != 2 {
             return fail("atan2 expects 2 arguments (y, x)");
         }
-        let (Value::Number(Number::Float(y)), Value::Number(Number::Float(x))) =
+        let (Value::Float(y), Value::Float(x)) =
             (&args[0], &args[1])
         else {
             return fail("atan2 expects two floats");
@@ -1635,7 +1685,7 @@ impl BuiltInFunction {
         };
 
         let bound = |index: usize| match args.get(index) {
-            Some(Value::Number(Number::Int(n))) => Some(*n),
+            Some(Value::Int(n)) => Some(*n),
             _ => None,
         };
 
@@ -1706,7 +1756,7 @@ impl BuiltInFunction {
 
         let mut data = Vec::with_capacity(codes.elements.len());
         for (index, element) in codes.elements.iter().enumerate() {
-            let Value::Number(Number::Int(code)) = element else {
+            let Value::Int(code) = element else {
                 return Self::err_pair(
                     Value::bytes(Vec::new()),
                     format!(
@@ -1845,7 +1895,7 @@ impl BuiltInFunction {
 
     fn env_exit(&self, args: Vec<Value>, call_pos: Position) -> RuntimeResult {
         let code = match args.first() {
-            Some(Value::Number(Number::Int(code))) => *code,
+            Some(Value::Int(code)) => *code,
             Some(other) => {
                 return RuntimeResult::new().failure(
                     RuntimeError::new(
@@ -1891,7 +1941,7 @@ impl BuiltInFunction {
         let Value::String(text) = &args[0] else {
             return fail("substring expects a string as its first argument");
         };
-        let (Value::Number(start), Value::Number(end)) = (&args[1], &args[2]) else {
+        let (Some(start), Some(end)) = (args[1].as_number(), args[2].as_number()) else {
             return fail("substring expects int positions");
         };
 
@@ -1934,7 +1984,7 @@ impl BuiltInFunction {
         let Value::String(text) = &args[0] else {
             return fail("code_at expects a string as its first argument");
         };
-        let Value::Number(index) = &args[1] else {
+        let Some(index) = args[1].as_number() else {
             return fail("code_at expects an int index");
         };
 
@@ -1967,7 +2017,7 @@ impl BuiltInFunction {
         if args.len() != 1 {
             return fail("from_code expects 1 argument (int)");
         }
-        let Value::Number(code) = &args[0] else {
+        let Some(code) = args[0].as_number() else {
             return fail("from_code expects an int");
         };
 

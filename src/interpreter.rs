@@ -55,7 +55,7 @@ impl Interpreter {
                 "NULL" => Value::Null,
                 "TRUE" => Value::Bool(true),
                 "FALSE" => Value::Bool(false),
-                "MATH_PI" => Value::Number(Number::math_pi()),
+                "MATH_PI" => Value::float(Number::math_pi().to_f64()),
                 _ => continue,
             };
             global.set(constant.name.to_string(), value);
@@ -1204,8 +1204,8 @@ impl Interpreter {
     /// Infer a value's type
     fn infer_type(value: &Value) -> Type {
         match value {
-            Value::Number(Number::Int(_)) => Type::Int,
-            Value::Number(Number::Float(_)) => Type::Float,
+            Value::Int(_) => Type::Int,
+            Value::Float(_) => Type::Float,
             Value::String(_) => Type::String,
             Value::Bool(_) => Type::Bool,
             Value::Null => Type::Null,
@@ -1482,8 +1482,8 @@ impl Interpreter {
                 };
 
                 let updated = match (container, index) {
-                    (Value::List(mut list), Value::Number(n)) => {
-                        let Some(slot) = n.as_index() else {
+                    (Value::List(mut list), n @ (Value::Int(_) | Value::Float(_))) => {
+                        let Some(slot) = n.as_number().unwrap().as_index() else {
                             return fail("list index must be a non-negative int");
                         };
                         if !list.set(slot, value) {
@@ -1772,7 +1772,7 @@ impl Interpreter {
             crate::tokens::TokenType::Mul => left.multiply(&right),
             crate::tokens::TokenType::Mod => left.modulo(&right),
             crate::tokens::TokenType::Div => {
-                if let (Value::Number(_a), Value::Number(b)) = (&left, &right) {
+                if let (Some(_a), Some(b)) = (left.as_number(), right.as_number()) {
                     if b.is_zero() {
                         return RuntimeResult::new().failure(Error::division_by_zero(
                             node.position_start.clone(),
@@ -1790,8 +1790,8 @@ impl Interpreter {
             crate::tokens::TokenType::Lte => left.less_than_or_equal(&right),
             crate::tokens::TokenType::Gte => left.greater_than_or_equal(&right),
             crate::tokens::TokenType::Index => match (&left, &right) {
-                (Value::List(list), Value::Number(idx)) => {
-                    let Some(idx_usize) = idx.as_index() else {
+                (Value::List(list), index @ (Value::Int(_) | Value::Float(_))) => {
+                    let Some(idx_usize) = index.as_number().unwrap().as_index() else {
                         return RuntimeResult::new().failure(
                             RuntimeError::new(
                                 node.position_start.clone(),
@@ -1828,8 +1828,8 @@ impl Interpreter {
                 }
 
                 // `raw[i]` gives one byte, as an int in 0..=255.
-                (Value::Bytes(raw), Value::Number(idx)) => {
-                    let Some(position) = idx.as_index() else {
+                (Value::Bytes(raw), index @ (Value::Int(_) | Value::Float(_))) => {
+                    let Some(position) = index.as_number().unwrap().as_index() else {
                         return RuntimeResult::new().failure(
                             RuntimeError::new(
                                 node.position_start.clone(),
@@ -1860,8 +1860,8 @@ impl Interpreter {
                 //
                 // Without this there is no way to reach into a string at all,
                 // and every string function has to be written in Rust.
-                (Value::String(text), Value::Number(idx)) => {
-                    let Some(position) = idx.as_index() else {
+                (Value::String(text), index @ (Value::Int(_) | Value::Float(_))) => {
+                    let Some(position) = index.as_number().unwrap().as_index() else {
                         return RuntimeResult::new().failure(
                             RuntimeError::new(
                                 node.position_start.clone(),
@@ -1921,17 +1921,21 @@ impl Interpreter {
 
                 match (&left, target.as_str()) {
                     // ---- numeric conversions ----
-                    (Value::Number(n), "float") => Ok(Value::float(n.to_f64())),
-                    (Value::Number(n), "int") => match n {
-                        Number::Int(i) => Ok(Value::int(*i)),
-                        Number::Float(_) => n.to_i64().map(Value::int).ok_or_else(|| {
+                    (Value::Int(i), "float") => Ok(Value::float(*i as f64)),
+                    (Value::Float(f), "float") => Ok(Value::float(*f)),
+                    (Value::Int(i), "int") => Ok(Value::int(*i)),
+                    (Value::Float(_), "int") => {
+                        let n = left.as_number().unwrap();
+                        n.to_i64().map(Value::int).ok_or_else(|| {
                             convert_err(format!("float {} does not fit in an int", n))
-                        }),
-                    },
-                    (Value::Number(n), "string") => {
-                        Ok(Value::string_of(XenithString::new(n.to_string())))
+                        })
                     }
-                    (Value::Number(n), "bool") => Ok(Value::Bool(!n.is_zero())),
+                    (n @ (Value::Int(_) | Value::Float(_)), "string") => Ok(Value::string_of(
+                        XenithString::new(n.as_number().unwrap().to_string()),
+                    )),
+                    (n @ (Value::Int(_) | Value::Float(_)), "bool") => {
+                        Ok(Value::Bool(!n.as_number().unwrap().is_zero()))
+                    }
 
                     // ---- string conversions ----
                     (Value::String(s), "int") => s
@@ -2760,7 +2764,9 @@ impl Interpreter {
             (Value::List(mut list), "pop") => {
                 let index = if !args.is_empty() {
                     match &args[0] {
-                        Value::Number(n) => n.as_index(),
+                        n @ (Value::Int(_) | Value::Float(_)) => {
+                            n.as_number().unwrap().as_index()
+                        }
                         _ => None,
                     }
                 } else {

@@ -95,7 +95,7 @@ pub fn string_with_arrows(
 /// Converts a Value to its string representation
 pub fn value_to_string(value: &Value) -> String {
     match value {
-        Value::Number(n) => n.to_string(),
+        n @ (Value::Int(_) | Value::Float(_)) => n.as_number().unwrap().to_string(),
         Value::String(s) => s.value.clone(),
         Value::Bytes(b) => format!("<bytes {}>", b.len()),
         Value::List(l) => {
@@ -181,7 +181,7 @@ fn render_enum(enum_name: &str, variant: &str, payload: &[Value]) -> String {
 /// Converts a Value to its string representation for interpolation
 pub fn value_to_interpolated_string(value: &Value) -> String {
     match value {
-        Value::Number(n) => n.to_string(),
+        n @ (Value::Int(_) | Value::Float(_)) => n.as_number().unwrap().to_string(),
         Value::String(s) => s.value.clone(),
         Value::Bytes(b) => format!("<bytes {}>", b.len()),
         Value::List(l) => {

@@ -234,23 +234,46 @@ Boxing those three took `Value` to **32 bytes** and `RuntimeResult`, which
 contains one, from 160 to **80**. Both are moved constantly: out of the symbol
 table on every read, and back out of every single `visit`.
 
+Four more passes took it the rest of the way to **16 bytes**, and
+`RuntimeResult` to **48**:
+
+- `Bytes` held a `Vec<u8>` inline, 24 bytes. Behind an `Rc`.
+- `Tuple` held a `Vec<Value>` inline, 24 bytes, copied in full on every clone.
+  Behind an `Rc`, like `List`. Nothing mutates a tuple in place, so there is no
+  copy-on-write to do.
+- `BuiltInFunction` held a `String` to name one of about thirty fixed builtins,
+  which made it 24 bytes and allocated on every clone. It holds a `u16` index
+  into `BUILTIN_FUNCTIONS`, so dispatch compares a `&'static str` rather than an
+  owned one.
+- `Number` wrapped an `i64` or an `f64` behind a second tag, 16 bytes to carry
+  8. A `Value` now stores `Int(i64)` and `Float(f64)` directly.
+
 ```rust
 pub enum Value {
-    Number(Number),
-    String(XenithString),
+    Int(i64),
+    Float(f64),
+    String(Rc<XenithString>),
+    Bytes(Rc<Bytes>),             // Vec<u8>, 24 bytes inline
     List(List),
     Function(Box<Function>),      // 56 bytes inline
     BuiltInFunction(BuiltInFunction),
     Map(Box<Map>),                // 48 bytes inline
     Struct(Box<Struct>),          // 72 bytes inline
     Bool(bool),
-    Tuple(Vec<Value>),
+    Tuple(Rc<Vec<Value>>),        // Vec<Value>, 24 bytes inline
+    Enum(Box<EnumValue>),         // 72 bytes inline
     Null,
 }
 ```
 
+Nothing wider than a word is left inline, so the discriminant fits in a niche
+and the enum costs no more than its largest member. Measured on a three million
+iteration counting loop, the four passes together were worth **15%** (0.97 s to
+0.82 s) before any other change.
+
 The rule: before adding a variant, check whether it is larger than the current
-biggest. If it is, box it.
+biggest. If it is, box it. `tests/layout.rs` enforces it -- a size change there
+is a decision, not an accident.
 
 ## Bindings live in a Vec, and each reference remembers where
 
