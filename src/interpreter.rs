@@ -61,10 +61,13 @@ impl Interpreter {
             global.set(constant.name.to_string(), value);
         }
 
-        for builtin in crate::builtins::registry::BUILTIN_FUNCTIONS {
+        for (index, builtin) in crate::builtins::registry::BUILTIN_FUNCTIONS
+            .iter()
+            .enumerate()
+        {
             global.set(
                 builtin.name.to_string(),
-                Value::BuiltInFunction(BuiltInFunction::new(builtin.name)),
+                Value::BuiltInFunction(BuiltInFunction::at(index as u16)),
             );
         }
 

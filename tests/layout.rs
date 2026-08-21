@@ -13,11 +13,11 @@ use xenith::values::{BuiltInFunction, Bytes, Number, Value};
 
 #[test]
 fn value_stays_small() {
-    // 24, not 32, from the moment `Bytes` and `Tuple` were boxed. With those
-    // gone, `BuiltInFunction` is the only variant wider than a word, and the
-    // non-null pointer in its `String` leaves a niche the discriminant fits
-    // into for free. Three overlapping 24-byte payloads had left none.
-    assert_eq!(size_of::<Value>(), 24, "Value");
+    // 16, down from 32. Boxing `Bytes` and `Tuple` and shrinking
+    // `BuiltInFunction` left `Number` as the widest payload, and `Number`'s own
+    // tag byte has 254 unused values -- a niche roomy enough for `Value`'s
+    // discriminant, so the enum costs nothing beyond its largest member.
+    assert_eq!(size_of::<Value>(), 16, "Value");
 }
 
 #[test]
@@ -26,7 +26,6 @@ fn payloads_stay_small() {
     // Boxed. `Value::Bytes` holds an `Rc<Bytes>`, so what the enum sees is a
     // pointer; the struct itself is still a Vec.
     assert_eq!(size_of::<std::rc::Rc<Bytes>>(), 8, "the Bytes payload");
-    assert_eq!(size_of::<BuiltInFunction>(), 24, "BuiltInFunction");
     assert_eq!(
         size_of::<std::rc::Rc<Vec<Value>>>(),
         8,
@@ -35,8 +34,13 @@ fn payloads_stay_small() {
 }
 
 #[test]
+fn builtin_is_an_index() {
+    assert_eq!(size_of::<BuiltInFunction>(), 2, "BuiltInFunction");
+}
+
+#[test]
 fn runtime_result_stays_small() {
     // Returned by value from every `visit`, so its size is multiplied by every
     // node evaluated.
-    assert_eq!(size_of::<xenith::runtime_result::RuntimeResult>(), 64);
+    assert_eq!(size_of::<xenith::runtime_result::RuntimeResult>(), 48);
 }

@@ -19,6 +19,25 @@ pub struct BuiltinConst {
     pub doc: &'static str,
 }
 
+/// Position of a builtin in [`BUILTIN_FUNCTIONS`], which is what a
+/// `BuiltInFunction` value stores instead of the name itself.
+///
+/// Linear over a list of about thirty `&'static str`, and only ever called
+/// when a builtin is first resolved rather than when one is called, so it is
+/// not worth a map.
+pub fn index_of(name: &str) -> Option<u16> {
+    BUILTIN_FUNCTIONS
+        .iter()
+        .position(|builtin| builtin.name == name)
+        .map(|i| i as u16)
+}
+
+/// The name at an index. Panics on an index that did not come from
+/// [`index_of`], which cannot happen for a value the interpreter built.
+pub fn name_of(index: u16) -> &'static str {
+    BUILTIN_FUNCTIONS[index as usize].name
+}
+
 /// Every function available without an import.
 ///
 /// Adding an entry here is not enough to make it callable -- it must also be
@@ -380,4 +399,23 @@ pub fn keyword_doc(keyword: &str) -> Option<&'static str> {
         "as" => "Converts between types (`x as float`), or renames an import.",
         _ => return None,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_name_round_trips() {
+        for (i, builtin) in BUILTIN_FUNCTIONS.iter().enumerate() {
+            let index = index_of(builtin.name).expect("name should resolve");
+            assert_eq!(index as usize, i);
+            assert_eq!(name_of(index), builtin.name);
+        }
+    }
+
+    #[test]
+    fn an_unknown_name_does_not_resolve() {
+        assert_eq!(index_of("definitely_not_a_builtin"), None);
+    }
 }

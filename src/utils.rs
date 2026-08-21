@@ -121,7 +121,7 @@ pub fn value_to_string(value: &Value) -> String {
             }
         }
         Value::BuiltInFunction(b) => {
-            format!("<built-in function {}>", b.name)
+            format!("<built-in function {}>", b.name())
         }
         Value::Map(map) => {
             let mut result = String::from("{");
@@ -203,7 +203,7 @@ pub fn value_to_interpolated_string(value: &Value) -> String {
             }
         }
         Value::BuiltInFunction(b) => {
-            format!("<built-in function {}>", b.name)
+            format!("<built-in function {}>", b.name())
         }
         Value::Map(map) => {
             let mut result = String::from("{");

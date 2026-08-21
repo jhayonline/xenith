@@ -994,17 +994,29 @@ impl Function {
     }
 }
 
-/// Built-in function
-#[derive(Debug, Clone)]
+/// A predefined function, stored as its position in
+/// [`crate::builtins::registry::BUILTIN_FUNCTIONS`] rather than by name. The
+/// name was a `String`, which made every one of these 24 bytes and allocated
+/// on every clone, to hold one of about thirty fixed strings.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BuiltInFunction {
-    pub name: String,
+    index: u16,
 }
 
 impl BuiltInFunction {
-    pub fn new(name: &str) -> Self {
-        Self {
-            name: name.to_string(),
-        }
+    /// `None` when the name is not a builtin.
+    pub fn new(name: &str) -> Option<Self> {
+        crate::builtins::registry::index_of(name).map(|index| Self { index })
+    }
+
+    /// The builtin at a known position in the registry, for the interpreter
+    /// seeding the global scope straight from the list.
+    pub fn at(index: u16) -> Self {
+        Self { index }
+    }
+
+    pub fn name(&self) -> &'static str {
+        crate::builtins::registry::name_of(self.index)
     }
 
     /// `context` is the caller's scope. Only `format` uses it, to evaluate the
@@ -1017,7 +1029,7 @@ impl BuiltInFunction {
         call_pos: Position,
         context: &mut Context,
     ) -> RuntimeResult {
-        match self.name.as_str() {
+        match self.name() {
             "echo" => self.echo(args, call_pos),
             "input" => self.input(call_pos),
             "input_int" => self.input_int(call_pos),
@@ -1072,7 +1084,7 @@ impl BuiltInFunction {
                 RuntimeError::new(
                     call_pos.clone(),
                     call_pos,
-                    &format!("Unknown built-in function: {}", self.name),
+                    &format!("Unknown built-in function: {}", self.name()),
                     None,
                 )
                 .base,
@@ -1137,7 +1149,7 @@ impl BuiltInFunction {
                     }
                 }
                 Value::BuiltInFunction(b) => {
-                    print!("<built-in function {}>", b.name);
+                    print!("<built-in function {}>", b.name());
                 }
                 Value::Tuple(t) => {
                     print!("(");
