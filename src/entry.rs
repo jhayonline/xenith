@@ -14,7 +14,9 @@
 //! question in `docs/internals/06-checker.md` only exists when a top-level
 //! `let` can be captured by a method defined above it.
 
+use crate::error::Error;
 use crate::nodes::Node;
+use crate::types::Type;
 
 /// The name a program's entry point must have.
 pub const MAIN: &str = "main";
@@ -52,4 +54,69 @@ pub fn shape_of(ast: &Node) -> ProgramShape {
     }
 
     ProgramShape::Script
+}
+
+/// `Some` when the file has a top-level `main` whose shape is wrong.
+///
+/// `main` takes nothing and releases an `int`, which is the process exit code.
+/// Arguments live in `std::env`, where they already are.
+///
+/// Note the ordering against [`shape_of`], which returns `Program` for any
+/// top-level `main` including a mistyped one. That is deliberate: a bad entry
+/// point is reported, not quietly treated as a script whose `main` never runs.
+pub fn check_main_signature(ast: &Node) -> Option<Error> {
+    let Node::List(statements) = ast else {
+        return None;
+    };
+
+    for statement in &statements.element_nodes {
+        let Node::FuncDef(func) = &**statement else {
+            continue;
+        };
+
+        if func
+            .variable_name_token
+            .as_ref()
+            .and_then(|t| t.value.as_deref())
+            != Some(MAIN)
+        {
+            continue;
+        }
+
+        if !func.param_names.is_empty() {
+            return Some(
+                Error::new(
+                    func.position_start.clone(),
+                    func.position_end.clone(),
+                    "Entry Point Error",
+                    &format!(
+                        "main takes no parameters, but this one takes {}",
+                        func.param_names.len()
+                    ),
+                )
+                .with_code("XEN024")
+                .with_help("read arguments with std::env instead"),
+            );
+        }
+
+        if func.return_type != Type::Int {
+            return Some(
+                Error::new(
+                    func.position_start.clone(),
+                    func.position_end.clone(),
+                    "Entry Point Error",
+                    &format!(
+                        "main must release an int, the process exit code, but this one releases {}",
+                        func.return_type.to_string()
+                    ),
+                )
+                .with_code("XEN024")
+                .with_help("write `method main() -> int` and `release 0` for success"),
+            );
+        }
+
+        return None;
+    }
+
+    None
 }

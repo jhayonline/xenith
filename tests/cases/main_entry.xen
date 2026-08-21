@@ -1,0 +1,8 @@
+method greet(name: string) -> string {
+    release "hello, {name}"
+}
+
+method main() -> int {
+    echo(greet("ada"))
+    release 0
+}

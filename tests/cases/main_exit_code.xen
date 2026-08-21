@@ -1,0 +1,4 @@
+method main() -> int {
+    echo("done")
+    release 0
+}

@@ -1,0 +1,3 @@
+method main() -> string {
+    release "not an exit code"
+}

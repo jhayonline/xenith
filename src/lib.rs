@@ -93,6 +93,10 @@ pub fn run(filename: &str, source: &str) -> Result<Value, Error> {
         return Err(first);
     }
 
+    if let Some(bad_main) = crate::entry::check_main_signature(&ast) {
+        return Err(bad_main);
+    }
+
     // Interpretation
     let mut interpreter = Interpreter::new();
 
@@ -105,8 +109,35 @@ pub fn run(filename: &str, source: &str) -> Result<Value, Error> {
     let result = interpreter.visit(&ast, &mut context);
 
     if let Some(error) = result.error {
-        Err(*error)
-    } else if let Some(value) = result.value {
+        return Err(*error);
+    }
+
+    // In program mode the top level only declared things. `main` is what runs.
+    if crate::entry::shape_of(&ast) == crate::entry::ProgramShape::Program {
+        let Some(main_value) = context.symbol_table.get(crate::entry::MAIN) else {
+            return Err(Error::new(
+                crate::position::Position::new(0, 0, 0, filename, source),
+                crate::position::Position::new(0, 0, 0, filename, source),
+                "Internal Error",
+                "shape_of found a top-level main, but it is not in scope",
+            ));
+        };
+
+        let call = interpreter.call_value(
+            main_value,
+            Vec::new(),
+            crate::position::Position::new(0, 0, 0, filename, source),
+            crate::position::Position::new(0, 0, 0, filename, source),
+            &mut context,
+        );
+
+        return match call.error {
+            Some(error) => Err(*error),
+            None => Ok(call.value.unwrap_or(Value::Null)),
+        };
+    }
+
+    if let Some(value) = result.value {
         Ok(value)
     } else {
         Ok(Value::Null)

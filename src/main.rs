@@ -4,12 +4,14 @@
 //! It provides both REPL (interactive shell) and file execution modes.
 
 use std::env;
+use std::io::Write;
 use std::fs;
 use std::path::Path;
 
 use xenith::run;
 use xenith::run_repl;
 use xenith::utils::value_to_string;
+use xenith::values::Value;
 
 /// Runs a Xenith file
 fn run_file(filename: &str) {
@@ -29,14 +31,16 @@ fn run_file(filename: &str) {
     };
 
     // Check the whole file before running any of it, so every static error is
-    // reported at once rather than one per attempt.
-    match xenith::check_source(filename, &source) {
+    // reported at once rather than one per attempt. `check_source_typed` hands
+    // back the tree it checked, which is where the program-or-script decision
+    // comes from; the alternative was parsing a third time to ask.
+    let is_program = match xenith::check_source_typed(filename, &source) {
         Err(fatal) => {
             // Lexing or parsing failed, so there is nothing to check.
             eprintln!("{}", fatal.as_string_colored());
             std::process::exit(1);
         }
-        Ok(errors) if !errors.is_empty() => {
+        Ok((errors, _, _)) if !errors.is_empty() => {
             for error in &errors {
                 eprintln!("{}", error.as_string_colored());
             }
@@ -47,11 +51,29 @@ fn run_file(filename: &str) {
             );
             std::process::exit(1);
         }
-        Ok(_) => {}
-    }
+        Ok((_, _, ast)) => {
+            xenith::entry::shape_of(&ast) == xenith::entry::ProgramShape::Program
+        }
+    };
 
     match run(filename, &source) {
         Ok(result) => {
+            // A program's result is `main`'s, which is the exit code. A
+            // script's result is its last statement's, printed under the same
+            // conditions it always was.
+            if is_program {
+                let code = match result {
+                    Value::Int(code) => code as i32,
+                    // `check_main_signature` has already rejected anything but
+                    // `-> int`, so this is unreachable outside a bug.
+                    _ => 0,
+                };
+                // `exit` does not unwind, and stdout is block buffered when it
+                // is a pipe rather than a terminal.
+                let _ = std::io::stdout().flush();
+                std::process::exit(code);
+            }
+
             let output = value_to_string(&result);
 
             if !output.is_empty() && output != "null" && !output.starts_with('[') && output != "0" {

@@ -2678,6 +2678,33 @@ impl Interpreter {
             args.push(arg);
         }
 
+        let call_result = self.call_value(
+            callee,
+            args,
+            node.position_start.clone(),
+            node.position_end.clone(),
+            context,
+        );
+
+        let value = result.register(call_result);
+        result.success(value)
+    }
+
+    /// Calls an already-evaluated callee with already-evaluated arguments.
+    ///
+    /// Split out of `visit_call` so a caller that has no call node -- `run`
+    /// invoking a program's `main` -- can reach the same path rather than
+    /// duplicating it.
+    pub fn call_value(
+        &mut self,
+        callee: Value,
+        args: Vec<Value>,
+        position_start: Position,
+        position_end: Position,
+        context: &mut Context,
+    ) -> RuntimeResult {
+        let mut result = RuntimeResult::new();
+
         let call_result = match callee {
             Value::Function(func) => {
                 // for (i, (arg, param_type)) in args.iter().zip(func.param_types.iter()).enumerate() {
@@ -2697,20 +2724,16 @@ impl Interpreter {
                 //     }
                 // }
 
-                let exec_result =
-                    func.execute(args, context.clone(), self, node.position_start.clone());
-
-                exec_result
-                // func.execute(args, context.clone(), self, node.position_start.clone())
+                func.execute(args, context.clone(), self, position_start.clone())
             }
             Value::BuiltInFunction(builtin) => {
-                builtin.execute(args, self, node.position_start.clone(), context)
+                builtin.execute(args, self, position_start.clone(), context)
             }
             _ => {
                 return result.failure(
                     RuntimeError::new(
-                        node.position_start.clone(),
-                        node.position_end.clone(),
+                        position_start,
+                        position_end,
                         "Cannot call non-function value",
                         Some(context.clone()),
                     )
