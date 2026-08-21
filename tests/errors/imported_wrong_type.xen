@@ -1,0 +1,6 @@
+grab { double } from "typed_helper_for_errors"
+
+method main() -> int {
+    echo("{double("not an int")}")
+    release 0
+}

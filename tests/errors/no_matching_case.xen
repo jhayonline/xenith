@@ -1,8 +1,10 @@
-# What the static pass cannot prove is caught as it runs.
+# The checker follows `grab`, so it knows what variants `Visible` has and sees
+# the hole here before anything runs.
 #
-# The checker does not follow `grab`, so it does not know what variants
-# `Visible` has and cannot see the hole here. The interpreter does, and reports
-# it at the point the match falls off the end.
+# This used to be the other way round: the checker did not read imported
+# modules, so it could not see the missing arm, and the interpreter reported
+# XEN023 at the point the match fell off the end. Now the whole import graph is
+# walked and checked first, so the missing variant is named up front.
 grab { Visible } from "hidden_struct"
 
 let value: Visible = Visible::Third

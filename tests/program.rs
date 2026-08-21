@@ -52,3 +52,44 @@ fn a_cycle_is_reported_rather_than_looped_on() {
     let result = program::build(root.to_str().unwrap(), &source);
     assert!(result.is_err(), "a cycle must not build");
 }
+
+#[test]
+fn a_call_into_a_module_is_checked_before_anything_runs() {
+    // The interpreter would catch this at the call. What matters here is that
+    // the graph refuses to build, which means it was caught by the checker
+    // with the imported signature in hand -- before a statement executed.
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/errors/imported_wrong_type.xen");
+    let source = std::fs::read_to_string(&root).expect("fixture should exist");
+
+    let result = program::build(root.to_str().unwrap(), &source);
+    assert!(
+        result.is_err(),
+        "passing a string to `double(n: int)` should not check"
+    );
+}
+
+#[test]
+fn a_correct_call_into_a_module_still_checks() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/modules/typed_main.xen");
+    let source = std::fs::read_to_string(&root).expect("fixture should exist");
+
+    assert!(program::build(root.to_str().unwrap(), &source).is_ok());
+}
+
+#[test]
+fn a_call_into_the_standard_library_is_checked_by_type() {
+    // The reason the whole graph is walked first: without the module's real
+    // signature in hand, `trim` is Unknown and this call is unchecked.
+    let source = "grab { trim } from \"std::string\"\n\
+                  method main() -> int {\n\
+                  \x20   echo(trim(42))\n\
+                  \x20   release 0\n\
+                  }\n";
+
+    assert!(
+        program::build("<test>", source).is_err(),
+        "passing an int to `trim(text: string)` should not check"
+    );
+}

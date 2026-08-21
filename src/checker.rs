@@ -23,6 +23,7 @@
 use std::collections::HashMap;
 
 use crate::entry::ProgramShape;
+use crate::program::Exports;
 use crate::error::Error;
 use crate::nodes::*;
 use crate::position::Position;
@@ -73,8 +74,9 @@ pub fn check_typed(
     aliases: &HashMap<String, Type>,
     node_count: u32,
     shape: ProgramShape,
+    imported: &Exports,
 ) -> (Vec<Error>, TypeTable) {
-    let mut checker = Checker::new(aliases.clone(), node_count, shape);
+    let mut checker = Checker::new(aliases.clone(), node_count, shape, imported);
     checker.declare_builtins();
     checker.visit(ast);
     (checker.errors, checker.types)
@@ -85,12 +87,17 @@ pub fn check(ast: &Node, aliases: &HashMap<String, Type>) -> Vec<Error> {
     // `0` because a caller that does not want the table does not have to
     // thread the parser's node count through to get one. `Script` because a
     // caller that has not said otherwise gets the conservative behaviour.
-    check_typed(ast, aliases, 0, ProgramShape::Script).0
+    check_typed(ast, aliases, 0, ProgramShape::Script, &Exports::default()).0
 }
 
 impl Checker {
-    fn new(aliases: HashMap<String, Type>, node_count: u32, shape: ProgramShape) -> Self {
-        Self {
+    fn new(
+        aliases: HashMap<String, Type>,
+        node_count: u32,
+        shape: ProgramShape,
+        imported: &Exports,
+    ) -> Self {
+        let mut checker = Self {
             scopes: vec![HashMap::new()],
             structs: HashMap::new(),
             enums: HashMap::new(),
@@ -101,7 +108,34 @@ impl Checker {
             return_types: Vec::new(),
             types: TypeTable::with_capacity(node_count),
             shape,
+        };
+
+        // An imported name is known before the file that uses it is checked,
+        // because the whole graph was walked first. Without this a call into
+        // the standard library is `Unknown`, which is both an unchecked call
+        // and, later, a generic opcode.
+        for (name, (params, returns)) in &imported.methods {
+            checker.methods.insert(
+                name.clone(),
+                Signature {
+                    param_types: params.clone(),
+                    return_type: returns.clone(),
+                },
+            );
+            checker.declare(
+                name,
+                Type::Function(crate::types::FunctionType {
+                    param_types: params.clone(),
+                    return_type: Box::new(returns.clone()),
+                }),
+                false,
+            );
         }
+        checker.structs.extend(imported.structs.clone());
+        checker.enums.extend(imported.enums.clone());
+        checker.aliases.extend(imported.aliases.clone());
+
+        checker
     }
 
     /// The names the interpreter installs into the global scope. Their types

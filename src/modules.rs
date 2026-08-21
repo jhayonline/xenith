@@ -35,6 +35,45 @@ pub struct Module {
     pub ast: Node,
 }
 
+/// A module after parsing, before checking.
+pub struct ParsedModule {
+    pub ast: Node,
+    pub aliases: HashMap<String, Type>,
+    pub node_count: u32,
+}
+
+/// Checks a parsed module against what it imports.
+///
+/// A module gets the same static checking as a file run directly. Without it
+/// an imported method could return the wrong type and the importing program
+/// would use the result without a word, which is exactly where the guarantee
+/// is worth most.
+///
+/// `Script`, because a module's top level is where its declarations live and
+/// it does not define `main`.
+pub fn check_module(
+    module_path: &str,
+    parsed: &ParsedModule,
+    imported: &crate::program::Exports,
+) -> Result<TypeTable, ModuleError> {
+    let (errors, types) = crate::checker::check_typed(
+        &parsed.ast,
+        &parsed.aliases,
+        parsed.node_count,
+        crate::entry::ProgramShape::Script,
+        imported,
+    );
+
+    if !errors.is_empty() {
+        return Err(ModuleError::Failed {
+            module: module_path.to_string(),
+            errors,
+        });
+    }
+
+    Ok(types)
+}
+
 impl ModuleRegistry {
     pub fn new(current_file: &str) -> Self {
         Self {
@@ -103,6 +142,17 @@ impl ModuleRegistry {
         &self,
         module_path: &str,
     ) -> Result<(Node, TypeTable, HashMap<String, Type>), ModuleError> {
+        let parsed = self.parse_module(module_path)?;
+        let types = check_module(module_path, &parsed, &crate::program::Exports::default())?;
+        Ok((parsed.ast, types, parsed.aliases))
+    }
+
+    /// Finds and parses a module, without checking or running it.
+    ///
+    /// Split from checking because the graph walk has to read a module's
+    /// imports before it can check it: an imported name only has a type once
+    /// the module it came from has been checked, so the dependencies go first.
+    pub fn parse_module(&self, module_path: &str) -> Result<ParsedModule, ModuleError> {
         // Find the source, on disk or built in
         let Some((name, source)) = self.locate(module_path) else {
             return Err(ModuleError::NotFound(module_path.to_string()));
@@ -126,27 +176,12 @@ impl ModuleRegistry {
             return Err(failed(vec![error]));
         }
 
-        let ast = parse_result.node.unwrap();
-
-        // A module gets the same static checking as a file run directly.
-        // Without this an imported method could return the wrong type and the
-        // importing program would use the result without a word, which is
-        // exactly where the guarantee is worth most.
-        //
-        // `Script`, because a module's top level is where its declarations
-        // live and it does not define `main`.
-        let (errors, types) = crate::checker::check_typed(
-            &ast,
-            &parser.type_aliases,
-            parser.node_count(),
-            crate::entry::ProgramShape::Script,
-        );
-
-        if !errors.is_empty() {
-            return Err(failed(errors));
-        }
-
-        Ok((ast, types, parser.type_aliases))
+        let node_count = parser.node_count();
+        Ok(ParsedModule {
+            ast: parse_result.node.unwrap(),
+            aliases: parser.type_aliases,
+            node_count,
+        })
     }
 
     pub fn load_module(

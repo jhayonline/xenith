@@ -1,0 +1,6 @@
+grab { double } from "typed_helper"
+
+method main() -> int {
+    echo("{double(21)}")
+    release 0
+}

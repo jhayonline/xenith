@@ -216,3 +216,27 @@ whenever it cannot.
 A node with no entry reads as `Unknown` too, so a caller never has to ask
 whether one exists. Ids can have gaps — a speculative parse that backtracks has
 already spent one — and those read as `Unknown` like anything else.
+
+## Imported names have real types
+
+The whole import graph is walked and checked before the file that uses it, so
+by the time a call into another module is checked, that module's exported
+signatures are in hand. `grab { trim } from "std::string"` followed by
+`trim(42)` is XEN001 before anything runs, where it used to be a run-time error
+after whatever came before it had already printed.
+
+`program::imported_by` decides what gets seeded, and drops two things on the
+"a reported error must be a real one" rule:
+
+- **Names the file did not grab.** Seeding a module's whole export list would
+  declare names the file never imported, and program mode would then fail to
+  report them as undefined.
+- **A name grabbed from two modules.** `grab` is a statement, so a later one
+  rebinds the name for the rest of the file and which signature is live depends
+  on where you are. `tests/modules/main.xen` grabs `describe` from both
+  `shapes` and `status` and uses each in its own half. Until the checker walks
+  `grab` in statement order it cannot tell them apart, so it seeds neither.
+- **`grab * as name`**, which the type system cannot yet describe.
+
+Anything dropped is `Unknown`, which is the safe answer: an unchecked call, and
+later a generic opcode, rather than a wrong one.

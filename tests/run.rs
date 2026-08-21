@@ -8,7 +8,8 @@
 //! - `tests/errors/*.xen` with a matching `.err` holding an error code. The
 //!   program must exit non-zero and report that code. A `.xen` with no `.err`
 //!   is a support file for another case and is not run on its own.
-//! - `tests/modules/main.xen`, which exercises imports across files.
+//! - `tests/modules/*.xen` with a matching `.out`, which exercise imports
+//!   across files. One without a `.out` is a module the others grab.
 //!
 //! Plus a smoke pass over `testies/`, which only checks that the samples still
 //! run at all.
@@ -203,17 +204,39 @@ fn errors_report_the_expected_code() {
 
 #[test]
 fn modules_resolve_across_files() {
-    let program = repo_root().join("tests/modules/main.xen");
-    let expected = fs::read_to_string(program.with_extension("out")).unwrap();
+    let dir = repo_root().join("tests/modules");
+    let mut failures = Vec::new();
+    let mut checked = 0;
 
-    let result = run(&program);
+    for program in fixtures(&dir) {
+        // No `.out` means this file is a module another one grabs, not a
+        // program to run on its own.
+        let Ok(expected) = fs::read_to_string(program.with_extension("out")) else {
+            continue;
+        };
 
-    assert!(result.success, "module test exited non-zero:\n{}", result.stderr);
-    assert_eq!(
-        result.stdout,
-        expected,
-        "module output differs\n{}",
-        describe_diff(&expected, &result.stdout)
+        let result = run(&program);
+        checked += 1;
+        let name = program.file_name().unwrap().to_string_lossy().to_string();
+
+        if !result.success {
+            failures.push(format!("{name}: exited non-zero\n{}", result.stderr));
+            continue;
+        }
+        if result.stdout != expected {
+            failures.push(format!(
+                "{name}: output differs\n{}",
+                describe_diff(&expected, &result.stdout)
+            ));
+        }
+    }
+
+    assert!(checked > 0, "no module fixtures found in {}", dir.display());
+    assert!(
+        failures.is_empty(),
+        "\n{} of {checked} module case(s) failed:\n\n{}",
+        failures.len(),
+        failures.join("\n")
     );
 }
 

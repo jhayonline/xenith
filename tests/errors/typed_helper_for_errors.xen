@@ -1,0 +1,3 @@
+export method double(n: int) -> int {
+    release n * 2
+}

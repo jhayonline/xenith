@@ -89,11 +89,32 @@ pub fn run(filename: &str, source: &str) -> Result<Value, Error> {
     // Static checking, before anything runs. Callers that want every error at
     // once should use `check_source` first; this only surfaces the first, so
     // that embedding `run` stays a simple Result.
+    // Every module the program needs, dependencies first, so an imported name
+    // has a real type by the time the file using it is checked.
+    //
+    // A graph that will not build splits two ways. Errors in *this* file are
+    // this file's to report: they were found with the imported signatures in
+    // hand, which is the whole point, and they already carry positions here.
+    // Anything else -- a missing module, a cycle, a module with its own errors
+    // -- is left to the interpreter, which reports it from the `grab` that
+    // caused it. Rebuilding those diagnostics here would mean doing it without
+    // a node to point at.
+    let imported = match crate::program::build(filename, source) {
+        Ok(graph) => crate::program::imported_by(&ast, &graph.exports_by_path()),
+        Err(crate::modules::ModuleError::Failed { module, mut errors })
+            if module == filename && !errors.is_empty() =>
+        {
+            return Err(errors.remove(0));
+        }
+        Err(_) => crate::program::Exports::default(),
+    };
+
     let static_errors = crate::checker::check_typed(
         &ast,
         &parser.type_aliases,
         parser.node_count(),
         crate::entry::shape_of(&ast),
+        &imported,
     )
     .0;
     if let Some(first) = static_errors.into_iter().next() {
@@ -217,8 +238,13 @@ pub fn check_source_typed(
     };
 
     let shape = crate::entry::shape_of(&ast);
-    let (errors, table) =
-        crate::checker::check_typed(&ast, &parser.type_aliases, parser.node_count(), shape);
+    let (errors, table) = crate::checker::check_typed(
+        &ast,
+        &parser.type_aliases,
+        parser.node_count(),
+        shape,
+        &crate::program::Exports::default(),
+    );
     Ok((errors, table, ast))
 }
 
