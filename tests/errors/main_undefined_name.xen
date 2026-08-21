@@ -1,0 +1,4 @@
+method main() -> int {
+    echo("{nowhere}")
+    release 0
+}

@@ -22,6 +22,7 @@
 
 use std::collections::HashMap;
 
+use crate::entry::ProgramShape;
 use crate::error::Error;
 use crate::nodes::*;
 use crate::position::Position;
@@ -60,6 +61,10 @@ pub struct Checker {
     return_types: Vec<Type>,
     /// What each expression was inferred to be. See [`crate::type_table`].
     types: TypeTable,
+    /// A program's top level holds declarations only, so every name is either
+    /// declared before the first statement runs or is not declared at all.
+    /// That makes an unresolved name reportable, which in a script it is not.
+    shape: ProgramShape,
 }
 
 /// Checks a program, returning every error found and the types inferred.
@@ -67,8 +72,9 @@ pub fn check_typed(
     ast: &Node,
     aliases: &HashMap<String, Type>,
     node_count: u32,
+    shape: ProgramShape,
 ) -> (Vec<Error>, TypeTable) {
-    let mut checker = Checker::new(aliases.clone(), node_count);
+    let mut checker = Checker::new(aliases.clone(), node_count, shape);
     checker.declare_builtins();
     checker.visit(ast);
     (checker.errors, checker.types)
@@ -77,12 +83,13 @@ pub fn check_typed(
 /// Checks a program and returns every error found, in source order.
 pub fn check(ast: &Node, aliases: &HashMap<String, Type>) -> Vec<Error> {
     // `0` because a caller that does not want the table does not have to
-    // thread the parser's node count through to get one.
-    check_typed(ast, aliases, 0).0
+    // thread the parser's node count through to get one. `Script` because a
+    // caller that has not said otherwise gets the conservative behaviour.
+    check_typed(ast, aliases, 0, ProgramShape::Script).0
 }
 
 impl Checker {
-    fn new(aliases: HashMap<String, Type>, node_count: u32) -> Self {
+    fn new(aliases: HashMap<String, Type>, node_count: u32, shape: ProgramShape) -> Self {
         Self {
             scopes: vec![HashMap::new()],
             structs: HashMap::new(),
@@ -93,6 +100,7 @@ impl Checker {
             method_depth: 0,
             return_types: Vec::new(),
             types: TypeTable::with_capacity(node_count),
+            shape,
         }
     }
 
@@ -931,11 +939,26 @@ impl Checker {
                 };
                 match self.lookup(name) {
                     Some(binding) => binding.declared_type.clone(),
-                    // Not visible here. Inside a method that is legal, because
-                    // the caller's scope may supply it; outside one the
-                    // interpreter reports it, so either way the checker stays
-                    // quiet and gives up on the type.
-                    None => Type::Unknown,
+                    None => {
+                        // In a program this is provably wrong: the top level
+                        // holds declarations only, so nothing can appear in
+                        // scope later than it is read. In a script it is not --
+                        // a method body is evaluated against the caller's
+                        // scope, which may supply the name -- so the checker
+                        // stays quiet there and the interpreter reports it.
+                        if self.shape == ProgramShape::Program {
+                            let error = Error::undefined_variable(
+                                name,
+                                n.position_start.clone(),
+                                n.position_end.clone(),
+                            );
+                            self.error(error);
+                        }
+                        // Unknown, not an error type: an unresolved name must
+                        // not cascade into a second complaint about whatever
+                        // expression contains it.
+                        Type::Unknown
+                    }
                 }
             }
 

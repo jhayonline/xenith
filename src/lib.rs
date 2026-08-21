@@ -88,7 +88,13 @@ pub fn run(filename: &str, source: &str) -> Result<Value, Error> {
     // Static checking, before anything runs. Callers that want every error at
     // once should use `check_source` first; this only surfaces the first, so
     // that embedding `run` stays a simple Result.
-    let static_errors = crate::checker::check(&ast, &parser.type_aliases);
+    let static_errors = crate::checker::check_typed(
+        &ast,
+        &parser.type_aliases,
+        parser.node_count(),
+        crate::entry::shape_of(&ast),
+    )
+    .0;
     if let Some(first) = static_errors.into_iter().next() {
         return Err(first);
     }
@@ -209,8 +215,9 @@ pub fn check_source_typed(
         ));
     };
 
+    let shape = crate::entry::shape_of(&ast);
     let (errors, table) =
-        crate::checker::check_typed(&ast, &parser.type_aliases, parser.node_count());
+        crate::checker::check_typed(&ast, &parser.type_aliases, parser.node_count(), shape);
     Ok((errors, table, ast))
 }
 

@@ -41,3 +41,30 @@ fn a_main_binding_is_not_a_main_method() {
     let ast = parse("let main: int = 3\n");
     assert_eq!(shape_of(&ast), ProgramShape::Script);
 }
+
+#[test]
+fn a_program_reports_an_undefined_name_statically() {
+    let (errors, _, _) = xenith::check_source_typed(
+        "<test>",
+        "method main() -> int {\n    echo(\"{nowhere}\")\n    release 0\n}\n",
+    )
+    .expect("should parse");
+
+    assert!(
+        errors.iter().any(|e| e.as_string().contains("XEN002")),
+        "expected a static XEN002, got {errors:?}"
+    );
+}
+
+#[test]
+fn a_script_stays_quiet_about_an_undefined_name() {
+    // A script's method may legitimately read a name declared later, so the
+    // checker cannot prove anything. The interpreter still reports it.
+    let (errors, _, _) = xenith::check_source_typed(
+        "<test>",
+        "method report() -> null {\n    echo(\"later is {later}\")\n    release null\n}\n\nlet later: int = 7\nreport()\n",
+    )
+    .expect("should parse");
+
+    assert!(errors.is_empty(), "expected silence, got {errors:?}");
+}

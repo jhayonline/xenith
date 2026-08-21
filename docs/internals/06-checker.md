@@ -50,12 +50,13 @@ fn compatible(&self, expected: &Type, actual: &Type) -> bool {
 So an unresolved name poisons its expression into silence rather than into a
 complaint.
 
-## Why it still does not report unresolved names
+## Unresolved names: reported in a program, not in a script
 
-Name resolution is lexical, so the checker's view now matches the interpreter's,
-and it could in principle report a name that is not in scope.
+Name resolution is lexical, so the checker's view matches the interpreter's and
+it can see that a name is not in scope. Whether that is an *error* depends on
+which kind of file it is.
 
-It does not yet, for one reason: a capture is live, so a method may legitimately
+In a **script** it is not, because a capture is live: a method may legitimately
 use a name declared later in the file.
 
 ```xenith
@@ -68,14 +69,25 @@ let later: int = 7
 report()
 ```
 
-Reporting undefined names correctly means knowing whether the declaration will
-have run by the time the call does, which is a reachability question rather than
-a scoping one. Until that is worked out the checker resolves what it can see and
-stays quiet about the rest, which is why an unresolved name still yields
-`Type::Unknown` rather than an error.
+Reporting that would mean knowing whether the declaration will have run by the
+time the call does, which is a reachability question rather than a scoping one.
+So in a script an unresolved name still yields `Type::Unknown` and the
+interpreter reports it at run time as XEN002 -- later than it could be, but
+never wrongly.
 
-The interpreter reports those at run time as XEN002, so nothing is missed; it is
-reported later than it could be.
+In a **program** -- a file defining `method main() -> int`, see
+`docs/internals/entry.md` and `src/entry.rs` -- the question does not arise. A
+program's top level holds declarations only, enforced by XEN025, so there is no
+top-level `let` to be declared later; every name is either in scope before
+anything runs or is not declared at all. The checker reports it as XEN002, using
+the same `Error::undefined_variable` the interpreter does, so the message is
+identical and only the timing differs.
+
+The reported type stays `Unknown` either way. An unresolved name must not
+cascade into a second complaint about the expression that contains it.
+
+`check_typed` takes the shape; `check` passes `Script`, so a caller that has not
+said which it has gets the conservative answer.
 
 ## What it checks
 
