@@ -19,6 +19,7 @@
 pub mod builtins;
 pub mod checker;
 pub mod context;
+pub mod entry;
 pub mod error;
 pub mod fxhash;
 pub mod interpreter;
