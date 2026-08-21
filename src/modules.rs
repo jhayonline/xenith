@@ -12,6 +12,8 @@ use crate::interpreter::Interpreter;
 use crate::lexer::Lexer;
 use crate::nodes::Node;
 use crate::parser::Parser;
+use crate::type_table::TypeTable;
+use crate::types::Type;
 use crate::values::Value;
 
 /// Module registry that caches loaded modules
@@ -92,16 +94,15 @@ impl ModuleRegistry {
     }
 
     /// Load a module (with caching)
-    pub fn load_module(
-        &mut self,
+    /// Finds, parses and checks a module without running it.
+    ///
+    /// `load_module` is this plus execution. They are separate because a
+    /// program's whole import graph is walked before anything runs, and
+    /// walking it must not have side effects.
+    pub fn parse_and_check(
+        &self,
         module_path: &str,
-        interpreter: &mut Interpreter,
-    ) -> Result<Module, ModuleError> {
-        // Check cache first
-        if let Some(module) = self.modules.get(module_path) {
-            return Ok(module.clone());
-        }
-
+    ) -> Result<(Node, TypeTable, HashMap<String, Type>), ModuleError> {
         // Find the source, on disk or built in
         let Some((name, source)) = self.locate(module_path) else {
             return Err(ModuleError::NotFound(module_path.to_string()));
@@ -131,13 +132,42 @@ impl ModuleRegistry {
         // Without this an imported method could return the wrong type and the
         // importing program would use the result without a word, which is
         // exactly where the guarantee is worth most.
-        let static_errors = crate::checker::check(&ast, &parser.type_aliases);
-        if !static_errors.is_empty() {
-            return Err(failed(static_errors));
+        //
+        // `Script`, because a module's top level is where its declarations
+        // live and it does not define `main`.
+        let (errors, types) = crate::checker::check_typed(
+            &ast,
+            &parser.type_aliases,
+            parser.node_count(),
+            crate::entry::ProgramShape::Script,
+        );
+
+        if !errors.is_empty() {
+            return Err(failed(errors));
         }
 
+        Ok((ast, types, parser.type_aliases))
+    }
+
+    pub fn load_module(
+        &mut self,
+        module_path: &str,
+        interpreter: &mut Interpreter,
+    ) -> Result<Module, ModuleError> {
+        // Check cache first
+        if let Some(module) = self.modules.get(module_path) {
+            return Ok(module.clone());
+        }
+
+        let failed = |errors: Vec<Error>| ModuleError::Failed {
+            module: module_path.to_string(),
+            errors,
+        };
+
+        let (ast, _types, aliases) = self.parse_and_check(module_path)?;
+
         // Transfer type aliases from parser to interpreter for this module
-        interpreter.type_aliases.extend(parser.type_aliases);
+        interpreter.type_aliases.extend(aliases);
 
         // Create module context and execute
         let mut module_context = Context::new(module_path, None, None);

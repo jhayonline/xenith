@@ -29,6 +29,7 @@ pub mod nodes;
 pub mod parse_result;
 pub mod parser;
 pub mod position;
+pub mod program;
 pub mod repl;
 pub mod runtime_result;
 pub mod stdlib;
