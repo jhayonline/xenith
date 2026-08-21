@@ -33,6 +33,7 @@ pub mod runtime_result;
 pub mod stdlib;
 pub mod symbol_table;
 pub mod tokens;
+pub mod type_table;
 pub mod types;
 pub mod utils;
 pub mod values;
@@ -135,6 +136,46 @@ pub fn check_source(filename: &str, source: &str) -> Result<Vec<Error>, Error> {
         Some(ast) => Ok(crate::checker::check(&ast, &parser.type_aliases)),
         None => Ok(Vec::new()),
     }
+}
+
+/// Lexes, parses and checks a program, returning the errors, the inferred
+/// types and the tree they belong to.
+///
+/// `check_source` is this without the table, and stays the entry point for the
+/// CLI and the language server, neither of which has any use for one.
+pub fn check_source_typed(
+    filename: &str,
+    source: &str,
+) -> Result<(Vec<Error>, crate::type_table::TypeTable, crate::nodes::Node), Error> {
+    let mut lexer = Lexer::new(filename.to_string(), source.to_string());
+    let tokens = match lexer.make_tokens() {
+        Ok(tokens) => tokens,
+        Err(e) => return Err(e.base),
+    };
+
+    let mut parser = Parser::new(tokens);
+    let parse_result = parser.parse();
+
+    if let Some(error) = parse_result.error {
+        return Err(error);
+    }
+
+    let Some(ast) = parse_result.node else {
+        return Ok((
+            Vec::new(),
+            crate::type_table::TypeTable::default(),
+            crate::nodes::Node::List(crate::nodes::ListNode {
+                id: crate::nodes::NodeId::UNSET,
+                element_nodes: Vec::new(),
+                position_start: crate::position::Position::new(0, 0, 0, filename, source),
+                position_end: crate::position::Position::new(0, 0, 0, filename, source),
+            }),
+        ));
+    };
+
+    let (errors, table) =
+        crate::checker::check_typed(&ast, &parser.type_aliases, parser.node_count());
+    Ok((errors, table, ast))
 }
 
 pub fn run_with_context(

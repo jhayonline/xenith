@@ -25,6 +25,7 @@ use std::collections::HashMap;
 use crate::error::Error;
 use crate::nodes::*;
 use crate::position::Position;
+use crate::type_table::TypeTable;
 use crate::types::Type;
 
 /// What the checker knows about a name in scope.
@@ -57,18 +58,31 @@ pub struct Checker {
     method_depth: usize,
     /// Declared result type of each enclosing method, for checking `release`.
     return_types: Vec<Type>,
+    /// What each expression was inferred to be. See [`crate::type_table`].
+    types: TypeTable,
+}
+
+/// Checks a program, returning every error found and the types inferred.
+pub fn check_typed(
+    ast: &Node,
+    aliases: &HashMap<String, Type>,
+    node_count: u32,
+) -> (Vec<Error>, TypeTable) {
+    let mut checker = Checker::new(aliases.clone(), node_count);
+    checker.declare_builtins();
+    checker.visit(ast);
+    (checker.errors, checker.types)
 }
 
 /// Checks a program and returns every error found, in source order.
 pub fn check(ast: &Node, aliases: &HashMap<String, Type>) -> Vec<Error> {
-    let mut checker = Checker::new(aliases.clone());
-    checker.declare_builtins();
-    checker.visit(ast);
-    checker.errors
+    // `0` because a caller that does not want the table does not have to
+    // thread the parser's node count through to get one.
+    check_typed(ast, aliases, 0).0
 }
 
 impl Checker {
-    fn new(aliases: HashMap<String, Type>) -> Self {
+    fn new(aliases: HashMap<String, Type>, node_count: u32) -> Self {
         Self {
             scopes: vec![HashMap::new()],
             structs: HashMap::new(),
@@ -78,6 +92,7 @@ impl Checker {
             errors: Vec::new(),
             method_depth: 0,
             return_types: Vec::new(),
+            types: TypeTable::with_capacity(node_count),
         }
     }
 
@@ -878,7 +893,18 @@ impl Checker {
 
     // -- expressions -------------------------------------------------------
 
+    /// Infers a node's type and records it.
+    ///
+    /// Everything that used to call `infer` still does; the recording is the
+    /// only addition, which is what keeps this pass a single source of truth
+    /// rather than logic a compiler would have to duplicate.
     fn infer(&mut self, node: &Node) -> Type {
+        let inferred = self.infer_uncached(node);
+        self.types.record(node.id(), inferred.clone());
+        inferred
+    }
+
+    fn infer_uncached(&mut self, node: &Node) -> Type {
         match node {
             Node::Number(n) => match n.token.kind {
                 crate::tokens::TokenType::Float => Type::Float,

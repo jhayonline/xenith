@@ -181,3 +181,26 @@ for f in testies/*.xen tests/cases/*.xen; do xenith "$f" > /dev/null || echo "BR
 Step 5 is not optional. A false positive is the failure mode that matters.
 
 Next: [Values](07-values.md)
+
+## What it records
+
+`check_typed` returns a `TypeTable` alongside the errors: the type `infer`
+worked out for each expression, indexed by the `NodeId` the parser gave it.
+`check` is the same pass with the table dropped, which is what the CLI and the
+language server call.
+
+This exists so a compiler can pick a type-specialised opcode — `ADD_I64` where
+both operands are known ints — without doing its own inference. Two passes
+inferring types independently is two places for them to disagree, and the one
+that disagrees silently is the one that emits the wrong opcode.
+
+The rule from the top of this file carries over unchanged, and matters more
+here. An `Unknown` entry is always safe: it means a generic opcode, which does
+at run time exactly what the tree walker does today. A **wrong** entry is not
+safe — it is a wrong opcode on a value of the wrong shape. So nothing may be
+recorded that this pass did not prove, and `Unknown` stays the honest answer
+whenever it cannot.
+
+A node with no entry reads as `Unknown` too, so a caller never has to ask
+whether one exists. Ids can have gaps — a speculative parse that backtracks has
+already spent one — and those read as `Unknown` like anything else.
