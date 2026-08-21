@@ -50,6 +50,126 @@ pub enum Node {
 }
 
 impl Node {
+    /// This node's id, or [`NodeId::UNSET`] where it carries no type.
+    pub fn id(&self) -> NodeId {
+        match self {
+            Node::Number(n) => n.id,
+            Node::String(n) => n.id,
+            Node::List(n) => n.id,
+            Node::Ternary(n) => n.id,
+            Node::VarAccess(n) => n.id,
+            Node::BinaryOperator(n) => n.id,
+            Node::UnaryOp(n) => n.id,
+            Node::Call(n) => n.id,
+            Node::InterpolatedString(n) => n.id,
+            Node::MethodAccess(n) => n.id,
+            Node::Map(n) => n.id,
+            Node::EnumVariant(n) => n.id,
+            Node::Match(n) => n.id,
+            Node::BoolLiteral(n) => n.id,
+            Node::NullLiteral(n) => n.id,
+            Node::StructInstantiation(n) => n.id,
+            Node::TupleLiteral(n) => n.id,
+            _ => NodeId::UNSET,
+        }
+    }
+
+    /// Every child node, in evaluation order.
+    ///
+    /// Used by tests and tooling; the interpreter matches on variants directly
+    /// rather than going through this.
+    ///
+    /// Matched exhaustively on purpose. A new `Node` variant will not compile
+    /// until it says whether it has children, because a missing arm here is a
+    /// subtree the compiler silently will not walk.
+    pub fn children(&self) -> Vec<&Node> {
+        match self {
+            // Expressions
+            Node::BinaryOperator(n) => vec![n.left_node.as_ref(), n.right_node.as_ref()],
+            Node::UnaryOp(n) => vec![n.node.as_ref()],
+            Node::Ternary(n) => vec![
+                n.condition.as_ref(),
+                n.true_expression.as_ref(),
+                n.false_expression.as_ref(),
+            ],
+            // Also a statement block: `statements()` builds one of these.
+            Node::List(n) => n.element_nodes.iter().map(|e| e.as_ref()).collect(),
+            Node::TupleLiteral(n) => n.elements.iter().map(|e| e.as_ref()).collect(),
+            Node::Map(n) => n
+                .pairs
+                .iter()
+                .flat_map(|pair| [pair.key_node.as_ref(), pair.value_node.as_ref()])
+                .collect(),
+            Node::MethodAccess(n) => vec![n.object.as_ref()],
+            Node::Call(n) => {
+                let mut kids = vec![n.node_to_call.as_ref()];
+                kids.extend(n.argument_nodes.iter().map(|a| a.as_ref()));
+                kids
+            }
+            Node::EnumVariant(n) => n.arguments.iter().map(|a| a.as_ref()).collect(),
+            Node::StructInstantiation(n) => n.fields.iter().map(|(_, value)| value).collect(),
+            Node::InterpolatedString(n) => {
+                n.parts.iter().filter_map(|p| p.parsed.as_deref()).collect()
+            }
+            Node::Match(n) => {
+                let mut kids = vec![n.subject.as_ref()];
+                for arm in &n.arms {
+                    if let Some(guard) = &arm.guard {
+                        kids.push(guard.as_ref());
+                    }
+                    kids.push(arm.body.as_ref());
+                }
+                kids
+            }
+
+            // Statements
+            Node::VarAssign(n) => vec![n.value_node.as_ref()],
+            Node::Destructure(n) => vec![n.value_node.as_ref()],
+            Node::Return(n) => n.node_to_return.iter().map(|v| v.as_ref()).collect(),
+            Node::Panic(n) => vec![n.message_node.as_ref()],
+            Node::FuncDef(n) => vec![n.body_node.as_ref()],
+            Node::Export(n) => vec![n.node.as_ref()],
+            Node::If(n) => {
+                let mut kids = Vec::new();
+                for (condition, body) in &n.cases {
+                    kids.push(condition.as_ref());
+                    kids.push(body.as_ref());
+                }
+                if let Some((condition, body)) = &n.else_case {
+                    kids.push(condition.as_ref());
+                    kids.push(body.as_ref());
+                }
+                kids
+            }
+            Node::For(n) => vec![n.iterable_node.as_ref(), n.body_node.as_ref()],
+            Node::ForClassic(n) => {
+                let mut kids = Vec::new();
+                for part in [&n.init_node, &n.condition_node, &n.step_node] {
+                    if let Some(node) = part {
+                        kids.push(node.as_ref());
+                    }
+                }
+                kids.push(n.body_node.as_ref());
+                kids
+            }
+            Node::While(n) => vec![n.condition_node.as_ref(), n.body_node.as_ref()],
+
+            // Nothing below here holds a child expression.
+            Node::Number(_)
+            | Node::String(_)
+            | Node::VarAccess(_)
+            | Node::BoolLiteral(_)
+            | Node::NullLiteral(_)
+            | Node::Continue(_)
+            | Node::Break(_)
+            | Node::Grab(_)
+            | Node::StructDef(_)
+            | Node::EnumDef(_)
+            | Node::TypeAlias(_)
+            | Node::DestructurePattern(_) => Vec::new(),
+        }
+    }
+
     pub fn position_start(&self) -> &Position {
         match self {
             Node::Number(n) => &n.position_start,
@@ -129,8 +249,9 @@ impl Node {
     }
 
     /// Creates a binary operation node
-    pub fn bin_op(left: Node, op_token: Token, right: Node) -> Self {
+    pub fn bin_op(id: NodeId, left: Node, op_token: Token, right: Node) -> Self {
         Node::BinaryOperator(Box::new(BinaryOperatorNode {
+            id,
             position_start: left.position_start().clone(),
             position_end: right.position_end().clone(),
             left_node: Box::new(left),
@@ -143,14 +264,16 @@ impl Node {
 /// Number literal node
 #[derive(Debug, Clone)]
 pub struct NumberNode {
+    pub id: NodeId,
     pub token: Token,
     pub position_start: Position,
     pub position_end: Position,
 }
 
 impl NumberNode {
-    pub fn new(token: Token) -> Self {
+    pub fn new(id: NodeId, token: Token) -> Self {
         Self {
+            id,
             position_start: token.position_start.clone(),
             position_end: token.position_end.clone(),
             token,
@@ -161,14 +284,16 @@ impl NumberNode {
 /// String literal node
 #[derive(Debug, Clone)]
 pub struct StringNode {
+    pub id: NodeId,
     pub token: Token,
     pub position_start: Position,
     pub position_end: Position,
 }
 
 impl StringNode {
-    pub fn new(token: Token) -> Self {
+    pub fn new(id: NodeId, token: Token) -> Self {
         Self {
+            id,
             position_start: token.position_start.clone(),
             position_end: token.position_end.clone(),
             token,
@@ -179,6 +304,7 @@ impl StringNode {
 /// List literal node
 #[derive(Debug, Clone)]
 pub struct ListNode {
+    pub id: NodeId,
     pub element_nodes: Vec<Box<Node>>,
     pub position_start: Position,
     pub position_end: Position,
@@ -186,6 +312,7 @@ pub struct ListNode {
 
 #[derive(Debug, Clone)]
 pub struct MethodAccessNode {
+    pub id: NodeId,
     pub object: Box<Node>,
     pub method_name: Token,
     pub position_start: Position,
@@ -195,12 +322,25 @@ pub struct MethodAccessNode {
 /// Ternary expression node (condition ? true : false)
 #[derive(Debug, Clone)]
 pub struct TernaryNode {
+    pub id: NodeId,
     pub condition: Box<Node>,
     pub true_expression: Box<Node>,
     pub false_expression: Box<Node>,
     pub position_start: Position,
     pub position_end: Position,
 }
+/// Identifies a node within one parse, so a later pass can record what it
+/// worked out about the node without changing the tree.
+///
+/// Only nodes that can have a type are numbered. A statement carries
+/// [`NodeId::UNSET`], and nothing may be recorded against it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct NodeId(pub u32);
+
+impl NodeId {
+    pub const UNSET: Self = NodeId(u32::MAX);
+}
+
 
 /// Where a name was last found, remembered on the node that reads it.
 ///
@@ -245,6 +385,7 @@ impl SlotCache {
 /// Variable access node
 #[derive(Debug, Clone)]
 pub struct VarAccessNode {
+    pub id: NodeId,
     pub variable_name_token: Token,
     /// Where this name was found last time. See [`SlotCache`].
     pub cache: std::cell::Cell<SlotCache>,
@@ -274,6 +415,7 @@ pub struct VarAssignNode {
 /// Binary operator node
 #[derive(Debug, Clone)]
 pub struct BinaryOperatorNode {
+    pub id: NodeId,
     pub left_node: Box<Node>,
     pub operator_token: Token,
     pub right_node: Box<Node>,
@@ -284,6 +426,7 @@ pub struct BinaryOperatorNode {
 /// Unary operator node
 #[derive(Debug, Clone)]
 pub struct UnaryOpNode {
+    pub id: NodeId,
     pub operator_token: Token,
     pub node: Box<Node>,
     pub position_start: Position,
@@ -351,6 +494,7 @@ pub struct FuncDefNode {
 /// Function call node
 #[derive(Debug, Clone)]
 pub struct CallNode {
+    pub id: NodeId,
     pub node_to_call: Box<Node>,
     pub argument_nodes: Vec<Box<Node>>,
     pub position_start: Position,
@@ -381,6 +525,7 @@ pub struct BreakNode {
 
 #[derive(Debug, Clone)]
 pub struct InterpolatedStringNode {
+    pub id: NodeId,
     pub parts: Vec<InterpolationPart>,
     pub position_start: Position,
     pub position_end: Position,
@@ -410,16 +555,28 @@ pub fn escape_interpolation_part(content: &str) -> String {
 ///
 /// Returns `None` when it does not parse, leaving the interpreter to produce
 /// the error at evaluation time exactly as it did before.
-fn parse_interpolated_expression(source: &str, origin: &Position) -> Option<Box<Node>> {
+/// `next_node_id` is the enclosing parse's counter, threaded in and out so the
+/// nodes inside `"{x + 1}"` are numbered in the same space as everything around
+/// them. A fresh parser would start again at zero and collide.
+fn parse_interpolated_expression(
+    source: &str,
+    origin: &Position,
+    next_node_id: &mut u32,
+) -> Option<Box<Node>> {
     let mut lexer = crate::lexer::Lexer::new_at(source.to_string(), origin);
     let tokens = lexer.make_tokens().ok()?;
 
-    let mut parser = crate::parser::Parser::new(tokens);
+    let mut parser = crate::parser::Parser::new_numbering_from(tokens, *next_node_id);
     let result = parser.parse_expression();
 
     if result.error.is_some() {
+        // The ids it handed out are still spent: the sub-tree is discarded, but
+        // reusing them would mean two live nodes with one id if a later parse
+        // succeeded.
+        *next_node_id = parser.node_count();
         return None;
     }
+    *next_node_id = parser.node_count();
     result.node.map(Box::new)
 }
 
@@ -447,7 +604,7 @@ pub fn unescape_interpolation_part(content: &str) -> String {
 }
 
 impl InterpolatedStringNode {
-    pub fn new(token: Token) -> Self {
+    pub fn new(id: NodeId, next_node_id: &mut u32, token: Token) -> Self {
         // Parse the encoded string
         let mut parts = Vec::new();
         let origin = token.position_start.clone();
@@ -459,7 +616,7 @@ impl InterpolatedStringNode {
                     let is_expression = part_type == "expr";
                     let content = unescape_interpolation_part(content);
                     let parsed = if is_expression {
-                        parse_interpolated_expression(&content, &origin)
+                        parse_interpolated_expression(&content, &origin, next_node_id)
                     } else {
                         None
                     };
@@ -473,6 +630,7 @@ impl InterpolatedStringNode {
         }
 
         Self {
+            id,
             parts,
             position_start: token.position_start.clone(),
             position_end: token.position_end.clone(),
@@ -482,6 +640,7 @@ impl InterpolatedStringNode {
 
 #[derive(Debug, Clone)]
 pub struct MapNode {
+    pub id: NodeId,
     pub pairs: Vec<MapPair>,
     pub position_start: Position,
     pub position_end: Position,
@@ -575,6 +734,7 @@ pub struct EnumVariantDef {
 /// than a partially applied constructor.
 #[derive(Debug, Clone)]
 pub struct EnumVariantNode {
+    pub id: NodeId,
     pub enum_name: String,
     pub variant_name: String,
     pub arguments: Vec<Box<Node>>,
@@ -588,6 +748,7 @@ pub struct EnumVariantNode {
 /// stand on the right of a `let`, which is most of the reason to have one.
 #[derive(Debug, Clone)]
 pub struct MatchNode {
+    pub id: NodeId,
     pub subject: Box<Node>,
     pub arms: Vec<MatchArm>,
     pub position_start: Position,
@@ -680,6 +841,7 @@ pub struct TypeAliasNode {
 
 #[derive(Debug, Clone)]
 pub struct BoolLiteralNode {
+    pub id: NodeId,
     pub value: bool,
     pub position_start: Position,
     pub position_end: Position,
@@ -687,12 +849,14 @@ pub struct BoolLiteralNode {
 
 #[derive(Debug, Clone)]
 pub struct NullLiteralNode {
+    pub id: NodeId,
     pub position_start: Position,
     pub position_end: Position,
 }
 
 #[derive(Debug, Clone)]
 pub struct StructInstantiationNode {
+    pub id: NodeId,
     pub struct_name: String,
     pub fields: Vec<(Token, Node)>,
     pub position_start: Position,
@@ -701,6 +865,7 @@ pub struct StructInstantiationNode {
 
 #[derive(Debug, Clone)]
 pub struct TupleLiteralNode {
+    pub id: NodeId,
     pub elements: Vec<Box<Node>>,
     pub position_start: Position,
     pub position_end: Position,

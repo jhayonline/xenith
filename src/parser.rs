@@ -22,6 +22,8 @@ pub struct Parser {
     /// checked against them. An imported enum is not in here; the interpreter
     /// knows about those and reports what it finds at run time.
     pub enum_variants: HashMap<String, Vec<String>>,
+    /// Next id to hand out. See [`crate::nodes::NodeId`].
+    next_node_id: u32,
 }
 
 impl Parser {
@@ -33,7 +35,29 @@ impl Parser {
             struct_registry: HashMap::new(),
             type_aliases: HashMap::new(),
             enum_variants: HashMap::new(),
+            next_node_id: 0,
         }
+    }
+
+    /// A parser whose node ids continue from `first_id` rather than starting at
+    /// zero, for parsing a fragment -- the inside of a string interpolation --
+    /// into the same id space as the parse that contains it.
+    pub fn new_numbering_from(tokens: Vec<Token>, first_id: u32) -> Self {
+        let mut parser = Self::new(tokens);
+        parser.next_node_id = first_id;
+        parser
+    }
+
+    /// Hands out the next node id.
+    fn next_id(&mut self) -> crate::nodes::NodeId {
+        let id = crate::nodes::NodeId(self.next_node_id);
+        self.next_node_id += 1;
+        id
+    }
+
+    /// One past the highest id handed out, so a table can be sized exactly.
+    pub fn node_count(&self) -> u32 {
+        self.next_node_id
     }
 
     fn current_token(&self) -> Option<&Token> {
@@ -1017,6 +1041,7 @@ impl Parser {
             .unwrap_or_else(|| pos_start.clone());
 
         result.success(Node::List(ListNode {
+            id: self.next_id(),
             element_nodes: statements,
             position_start: pos_start,
             position_end: pos_end,
@@ -1091,7 +1116,9 @@ impl Parser {
 
         // Create a proper function call node
         let call_node = Node::Call(Box::new(CallNode {
+            id: self.next_id(),
             node_to_call: Box::new(Node::VarAccess(VarAccessNode {
+                        id: self.next_id(),
                         cache: std::cell::Cell::new(crate::nodes::SlotCache::EMPTY),
                 variable_name_token: Token::new(
                     TokenType::Identifier,
@@ -1149,6 +1176,7 @@ impl Parser {
                 self.advance();
 
                 return result.success(Node::List(ListNode {
+                    id: self.next_id(),
                     element_nodes: Vec::new(),
                     position_start: pos_start,
                     position_end: pos_end,
@@ -1278,9 +1306,11 @@ impl Parser {
         let start_index = self.token_index;
 
         // Parse the object (should be an identifier)
+        let object_id = self.next_id();
         let object = match self.current_token() {
             Some(tok) if tok.kind == TokenType::Identifier => {
                 let obj_node = Node::VarAccess(VarAccessNode {
+                        id: object_id,
                         cache: std::cell::Cell::new(crate::nodes::SlotCache::EMPTY),
                     variable_name_token: tok.clone(),
                     position_start: tok.position_start.clone(),
@@ -1328,6 +1358,7 @@ impl Parser {
         );
 
         Some(Node::MethodAccess(MethodAccessNode {
+            id: self.next_id(),
             object: Box::new(object.clone()), // Clone here to avoid move
             method_name: method_token,
             position_start: object.position_start().clone(),
@@ -1364,6 +1395,7 @@ impl Parser {
 
                                 let assign_node =
                                     Node::BinaryOperator(Box::new(BinaryOperatorNode {
+                                        id: self.next_id(),
                                         left_node: Box::new(field_node),
                                         operator_token: eq_token,
                                         right_node: Box::new(value),
@@ -1409,6 +1441,7 @@ impl Parser {
 
                     // Create a binary operation node for field assignment
                     let assign_node = Node::BinaryOperator(Box::new(BinaryOperatorNode {
+                        id: self.next_id(),
                         left_node: Box::new(node),
                         operator_token: eq_token,
                         right_node: Box::new(value),
@@ -1478,6 +1511,7 @@ impl Parser {
 
                             return ParseResult::new().success(Node::BinaryOperator(Box::new(
                                 BinaryOperatorNode {
+                                    id: self.next_id(),
                                     left_node: Box::new(target_result.node.unwrap()),
                                     operator_token: eq_token,
                                     right_node: Box::new(value),
@@ -2162,6 +2196,7 @@ impl Parser {
 
             // Create a binary operation: var = var + value or var = var - value
             let left_node = Node::VarAccess(VarAccessNode {
+                        id: self.next_id(),
                         cache: std::cell::Cell::new(crate::nodes::SlotCache::EMPTY),
                 variable_name_token: var_name.clone(),
                 position_start: pos_start.clone(),
@@ -2175,6 +2210,7 @@ impl Parser {
             };
 
             let bin_op_node = Node::BinaryOperator(Box::new(BinaryOperatorNode {
+                id: self.next_id(),
                 left_node: Box::new(left_node),
                 operator_token: binary_op,
                 right_node: Box::new(val_node),
@@ -2251,13 +2287,14 @@ impl Parser {
 
         // Create: var = var + 1 or var = var - 1
         let left_node = Node::VarAccess(VarAccessNode {
+                        id: self.next_id(),
                         cache: std::cell::Cell::new(crate::nodes::SlotCache::EMPTY),
             variable_name_token: var_name.clone(),
             position_start: pos_start.clone(),
             position_end: pos_start.clone(),
         });
 
-        let one_node = Node::Number(NumberNode::new(Token::new(
+        let one_node = Node::Number(NumberNode::new(self.next_id(), Token::new(
             TokenType::Int,
             Some("1".to_string()),
             pos_start.clone(),
@@ -2271,6 +2308,7 @@ impl Parser {
         };
 
         let bin_op_node = Node::BinaryOperator(Box::new(BinaryOperatorNode {
+            id: self.next_id(),
             left_node: Box::new(left_node),
             operator_token: binary_op,
             right_node: Box::new(one_node),
@@ -2551,6 +2589,7 @@ impl Parser {
                 let pos_end = t.position_end.clone();
                 self.advance();
                 return result.success(Node::TupleLiteral(TupleLiteralNode {
+                    id: self.next_id(),
                     elements,
                     position_start: pos_start,
                     position_end: pos_end,
@@ -2610,6 +2649,7 @@ impl Parser {
         };
 
         result.success(Node::TupleLiteral(TupleLiteralNode {
+            id: self.next_id(),
             elements,
             position_start: pos_start,
             position_end: pos_end,
@@ -2756,6 +2796,7 @@ impl Parser {
             let pos_end = self.current_token().unwrap().position_end.clone();
             self.advance(); // consume '}'
             return result.success(Node::Map(MapNode {
+                id: self.next_id(),
                 pairs,
                 position_start: pos_start,
                 position_end: pos_end,
@@ -2765,14 +2806,15 @@ impl Parser {
         // Parse key-value pairs
         loop {
             // Parse key (must be a string or identifier)
+            let key_id = self.next_id();
             let key_node = match self.current_token() {
                 Some(t) if t.kind == TokenType::String => {
-                    let node = Node::String(StringNode::new(t.clone()));
+                    let node = Node::String(StringNode::new(key_id, t.clone()));
                     self.advance();
                     node
                 }
                 Some(t) if t.kind == TokenType::Identifier => {
-                    let node = Node::String(StringNode::new(Token::new(
+                    let node = Node::String(StringNode::new(key_id, Token::new(
                         TokenType::String,
                         t.value.clone(),
                         t.position_start.clone(),
@@ -2932,6 +2974,7 @@ impl Parser {
             .unwrap_or_else(|| pos_start.clone());
 
         result.success(Node::Map(MapNode {
+            id: self.next_id(),
             pairs,
             position_start: pos_start,
             position_end: pos_end,
@@ -3000,6 +3043,7 @@ impl Parser {
 
                     // Clone cond here to avoid moving it
                     return result.success(Node::Ternary(Box::new(TernaryNode {
+                        id: self.next_id(),
                         condition: Box::new(cond.clone()),
                         true_expression: Box::new(true_val),
                         false_expression: Box::new(false_val),
@@ -3066,7 +3110,7 @@ impl Parser {
             if result.error.is_some() {
                 return result;
             }
-            left = Node::bin_op(left, tok, right.unwrap());
+            left = Node::bin_op(self.next_id(), left, tok, right.unwrap());
         }
 
         result.success(left)
@@ -3091,7 +3135,7 @@ impl Parser {
             if result.error.is_some() {
                 return result;
             }
-            left = Node::bin_op(left, tok, right.unwrap());
+            left = Node::bin_op(self.next_id(), left, tok, right.unwrap());
         }
 
         result.success(left)
@@ -3125,7 +3169,7 @@ impl Parser {
             if result.error.is_some() {
                 return result;
             }
-            left = Node::bin_op(left, tok, right.unwrap());
+            left = Node::bin_op(self.next_id(), left, tok, right.unwrap());
         }
 
         result.success(left)
@@ -3182,14 +3226,14 @@ impl Parser {
             self.advance();
 
             // The interpreter reads the target type off a string node.
-            let right = Node::String(StringNode::new(Token::new(
+            let right = Node::String(StringNode::new(self.next_id(), Token::new(
                 TokenType::String,
                 Some(type_name.to_string()),
                 type_token.position_start.clone(),
                 Some(type_token.position_end.clone()),
             )));
 
-            left = Node::bin_op(left, tok, right);
+            left = Node::bin_op(self.next_id(), left, tok, right);
         }
 
         result.success(left)
@@ -3219,7 +3263,7 @@ impl Parser {
             }
             let right = right.unwrap();
 
-            left = Node::bin_op(left, op, right);
+            left = Node::bin_op(self.next_id(), left, op, right);
         }
 
         result.success(left)
@@ -3253,7 +3297,7 @@ impl Parser {
             }
             let right = right.unwrap();
 
-            left = Node::bin_op(left, op, right);
+            left = Node::bin_op(self.next_id(), left, op, right);
         }
 
         result.success(left)
@@ -3277,7 +3321,7 @@ impl Parser {
                         self.advance();
 
                         let text = format!("-{}", number.value.unwrap_or_default());
-                        return result.success(Node::Number(NumberNode::new(Token::new(
+                        return result.success(Node::Number(NumberNode::new(self.next_id(), Token::new(
                             number.kind,
                             Some(text),
                             tok.position_start.clone(),
@@ -3304,7 +3348,7 @@ impl Parser {
                     if is_number && op.kind == TokenType::Minus {
                         self.advance();
                         let text = format!("-{}", number.value.clone().unwrap_or_default());
-                        return result.success(Node::Number(NumberNode::new(Token::new(
+                        return result.success(Node::Number(NumberNode::new(self.next_id(), Token::new(
                             number.kind.clone(),
                             Some(text),
                             op.position_start.clone(),
@@ -3313,7 +3357,7 @@ impl Parser {
                     }
                     if is_number && op.kind == TokenType::Plus {
                         self.advance();
-                        return result.success(Node::Number(NumberNode::new(number)));
+                        return result.success(Node::Number(NumberNode::new(self.next_id(), number)));
                     }
                 }
 
@@ -3329,6 +3373,7 @@ impl Parser {
                     .unwrap_or_else(|| tok.position_end.clone());
 
                 return result.success(Node::UnaryOp(Box::new(UnaryOpNode {
+                    id: self.next_id(),
                     operator_token: op,
                     node: Box::new(node),
                     position_start: tok.position_start.clone(),
@@ -3353,6 +3398,7 @@ impl Parser {
                     .unwrap_or_else(|| tok.position_end.clone());
 
                 return result.success(Node::UnaryOp(Box::new(UnaryOpNode {
+                    id: self.next_id(),
                     operator_token: op,
                     node: Box::new(node),
                     position_start: tok.position_start.clone(),
@@ -3387,7 +3433,7 @@ impl Parser {
             }
             let right = right.unwrap();
 
-            left = Node::bin_op(left, op, right);
+            left = Node::bin_op(self.next_id(), left, op, right);
         }
 
         result.success(left)
@@ -3509,7 +3555,9 @@ impl Parser {
                     );
 
                     let new_node = Node::Call(Box::new(CallNode {
+                        id: self.next_id(),
                         node_to_call: Box::new(Node::MethodAccess(MethodAccessNode {
+                            id: self.next_id(),
                             object: Box::new(node),
                             method_name: method_token,
                             position_start: node_pos_start.clone(),
@@ -3533,6 +3581,7 @@ impl Parser {
                     );
 
                     let field_node = Node::VarAccess(VarAccessNode {
+                        id: self.next_id(),
                         cache: std::cell::Cell::new(crate::nodes::SlotCache::EMPTY),
                         variable_name_token: field_token,
                         position_start: field_or_method_name.position_start.clone(),
@@ -3551,6 +3600,7 @@ impl Parser {
                     let node_clone = node.clone();
 
                     node = Node::BinaryOperator(Box::new(BinaryOperatorNode {
+                        id: self.next_id(),
                         left_node: Box::new(node_clone),
                         operator_token: dot_token,
                         right_node: Box::new(field_node),
@@ -3612,6 +3662,7 @@ impl Parser {
                         self.advance();
 
                         let new_node = Node::Call(Box::new(CallNode {
+                            id: self.next_id(),
                             node_to_call: Box::new(node),
                             argument_nodes: arg_nodes,
                             position_start: pos_start,
@@ -3651,7 +3702,12 @@ impl Parser {
     fn atom(&mut self) -> ParseResult {
         let mut result = ParseResult::new();
 
-        match self.current_token() {
+        // Owned, not borrowed: the arms below hand out node ids, which needs
+        // `&mut self`, and a borrowed scrutinee would hold `self` for the whole
+        // match. One token clone per atom, at parse time only.
+        let current = self.current_token().cloned();
+
+        match current {
             Some(tok) => match tok.kind {
                 // An atom, so `let label = match x { ... }` parses and a bare
                 // `match` as a statement still works.
@@ -3659,33 +3715,43 @@ impl Parser {
                     return self.match_expression();
                 }
                 TokenType::Int | TokenType::Float => {
-                    let node = Node::Number(NumberNode::new(tok.clone()));
+                    let token = tok.clone();
+                    let node = Node::Number(NumberNode::new(self.next_id(), token));
                     self.advance();
                     return result.success(node);
                 }
                 TokenType::String => {
-                    let node = Node::String(StringNode::new(tok.clone()));
+                    let token = tok.clone();
+                    let node = Node::String(StringNode::new(self.next_id(), token));
                     self.advance();
                     return result.success(node);
                 }
                 TokenType::InterpolatedString => {
-                    let node = Node::InterpolatedString(InterpolatedStringNode::new(tok.clone()));
+                    let token = tok.clone();
+                    let id = self.next_id();
+                    let node = Node::InterpolatedString(InterpolatedStringNode::new(
+                        id,
+                        &mut self.next_node_id,
+                        token,
+                    ));
                     self.advance();
                     return result.success(node);
                 }
                 TokenType::BacktickString => {
                     let value = tok.value.clone().unwrap();
-                    let node = Node::String(StringNode::new(Token::new(
+                    let token = Token::new(
                         TokenType::String,
                         Some(value),
                         tok.position_start.clone(),
                         Some(tok.position_end.clone()),
-                    )));
+                    );
+                    let node = Node::String(StringNode::new(self.next_id(), token));
                     self.advance();
                     return result.success(node);
                 }
                 TokenType::BoolTrue => {
                     let node = Node::BoolLiteral(BoolLiteralNode {
+                        id: self.next_id(),
                         value: true,
                         position_start: tok.position_start.clone(),
                         position_end: tok.position_end.clone(),
@@ -3695,6 +3761,7 @@ impl Parser {
                 }
                 TokenType::BoolFalse => {
                     let node = Node::BoolLiteral(BoolLiteralNode {
+                        id: self.next_id(),
                         value: false,
                         position_start: tok.position_start.clone(),
                         position_end: tok.position_end.clone(),
@@ -3704,6 +3771,7 @@ impl Parser {
                 }
                 TokenType::TypeNull => {
                     let node = Node::NullLiteral(NullLiteralNode {
+                        id: self.next_id(),
                         position_start: tok.position_start.clone(),
                         position_end: tok.position_end.clone(),
                     });
@@ -3793,6 +3861,7 @@ impl Parser {
                             }
 
                             return result.success(Node::EnumVariant(Box::new(EnumVariantNode {
+                                id: self.next_id(),
                                 enum_name: struct_name,
                                 variant_name: variant_token.value.unwrap(),
                                 arguments,
@@ -3847,6 +3916,7 @@ impl Parser {
 
                     // Not a struct instantiation, create variable access node
                     let node = Node::VarAccess(VarAccessNode {
+                        id: self.next_id(),
                         cache: std::cell::Cell::new(crate::nodes::SlotCache::EMPTY),
                         variable_name_token: Token::new(
                             TokenType::Identifier,
@@ -3943,6 +4013,7 @@ impl Parser {
                     // Treat echo as an identifier when it's used as a function call
                     // The actual function call will be handled by call()
                     let node = Node::VarAccess(VarAccessNode {
+                        id: self.next_id(),
                         cache: std::cell::Cell::new(crate::nodes::SlotCache::EMPTY),
                         variable_name_token: Token::new(
                             TokenType::Identifier,
@@ -3983,6 +4054,7 @@ impl Parser {
                 let pos_end = t.position_end.clone();
                 self.advance();
                 return result.success(Node::TupleLiteral(TupleLiteralNode {
+                    id: self.next_id(),
                     elements,
                     position_start: pos_start,
                     position_end: pos_end,
@@ -4070,6 +4142,7 @@ impl Parser {
             .unwrap_or(pos_start.clone());
 
         result.success(Node::TupleLiteral(TupleLiteralNode {
+            id: self.next_id(),
             elements,
             position_start: pos_start,
             position_end: pos_end,
@@ -4187,6 +4260,7 @@ impl Parser {
 
         result.success(Node::StructInstantiation(Box::new(
             StructInstantiationNode {
+                id: self.next_id(),
                 struct_name,
                 fields,
                 position_start: pos_start,
@@ -4227,6 +4301,7 @@ impl Parser {
 
                             // Rebuild node using the stored positions
                             node = Node::BinaryOperator(Box::new(BinaryOperatorNode {
+                                id: self.next_id(),
                                 left_node: Box::new(node),
                                 operator_token: index_token,
                                 right_node: Box::new(index_node),
@@ -4302,6 +4377,7 @@ impl Parser {
                 self.advance();
 
                 return result.success(Node::List(ListNode {
+                    id: self.next_id(),
                     element_nodes: Vec::new(),
                     position_start: pos_start,
                     position_end: t.position_end.clone(),
@@ -4348,6 +4424,7 @@ impl Parser {
                 let pos_end = t.position_end.clone();
                 self.advance();
                 result.success(Node::List(ListNode {
+                    id: self.next_id(),
                     element_nodes: elements,
                     position_start: pos_start,
                     position_end: pos_end,
@@ -4474,7 +4551,7 @@ impl Parser {
                 }
 
                 if let Some(body_node) = else_body {
-                    let null_node = Node::Number(NumberNode::new(Token::new(
+                    let null_node = Node::Number(NumberNode::new(self.next_id(), Token::new(
                         TokenType::Int,
                         Some("0".to_string()),
                         pos_start.clone(),
@@ -5747,6 +5824,7 @@ impl Parser {
         }
 
         result.success(Node::Match(Box::new(MatchNode {
+            id: self.next_id(),
             subject: Box::new(subject),
             arms,
             position_start: pos_start,
@@ -5934,8 +6012,9 @@ impl Parser {
                 }
             };
             self.advance();
-            let inner = Node::Number(NumberNode::new(number.clone()));
+            let inner = Node::Number(NumberNode::new(self.next_id(), number.clone()));
             return Ok(Node::UnaryOp(Box::new(UnaryOpNode {
+                id: self.next_id(),
                 position_start: token.position_start.clone(),
                 position_end: number.position_end.clone(),
                 operator_token: token,
@@ -5944,19 +6023,22 @@ impl Parser {
         }
 
         let node = match token.kind {
-            TokenType::Int | TokenType::Float => Node::Number(NumberNode::new(token.clone())),
-            TokenType::String => Node::String(StringNode::new(token.clone())),
+            TokenType::Int | TokenType::Float => Node::Number(NumberNode::new(self.next_id(), token.clone())),
+            TokenType::String => Node::String(StringNode::new(self.next_id(), token.clone())),
             TokenType::BoolTrue => Node::BoolLiteral(BoolLiteralNode {
+                id: self.next_id(),
                 value: true,
                 position_start: token.position_start.clone(),
                 position_end: token.position_end.clone(),
             }),
             TokenType::BoolFalse => Node::BoolLiteral(BoolLiteralNode {
+                id: self.next_id(),
                 value: false,
                 position_start: token.position_start.clone(),
                 position_end: token.position_end.clone(),
             }),
             TokenType::TypeNull => Node::NullLiteral(NullLiteralNode {
+                id: self.next_id(),
                 position_start: token.position_start.clone(),
                 position_end: token.position_end.clone(),
             }),
