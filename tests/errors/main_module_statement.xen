@@ -1,0 +1,5 @@
+grab { helper } from "statementful_module"
+
+method main() -> int {
+    release helper()
+}

@@ -59,6 +59,39 @@ use std::rc::Rc;
 /// * `Ok(Value)` - The result of program execution
 /// * `Err(Error)` - An error occurred during lexing, parsing, or runtime
 pub fn run(filename: &str, source: &str) -> Result<Value, Error> {
+    match crate::program::build(filename, source) {
+        Ok(graph) => run_with_graph(filename, source, Some(&graph)),
+
+        // Errors in *this* file are this file's to report: they were found with
+        // the imported signatures in hand, which is the whole point, and they
+        // already carry positions here.
+        Err(crate::modules::ModuleError::Failed { module, mut errors })
+            if module == filename && !errors.is_empty() =>
+        {
+            Err(errors.remove(0))
+        }
+
+        // Anything else -- a missing module, a cycle, a module with its own
+        // errors -- is left to the interpreter, which reports it from the
+        // `grab` that caused it, with that statement's position and the
+        // module's own note. Rebuilding those here would mean doing it without
+        // a node to point at.
+        Err(_) => run_with_graph(filename, source, None),
+    }
+}
+
+/// [`run`], for a caller that has already built the module graph.
+///
+/// Building it parses and checks every module the program reaches, which is not
+/// free -- `std::json` alone is a few hundred lines. The CLI needs the graph
+/// before it runs anything, to report every static error at once, so this lets
+/// it hand over the one it has rather than paying for a second.
+pub fn run_with_graph(
+    filename: &str,
+    source: &str,
+    graph: Option<&crate::program::ModuleGraph>,
+) -> Result<Value, Error> {
+
     // Lexical analysis
     let mut lexer = Lexer::new(filename.to_string(), source.to_string());
     let tokens = match lexer.make_tokens() {
@@ -91,22 +124,18 @@ pub fn run(filename: &str, source: &str) -> Result<Value, Error> {
     // that embedding `run` stays a simple Result.
     // Every module the program needs, dependencies first, so an imported name
     // has a real type by the time the file using it is checked.
-    //
-    // A graph that will not build splits two ways. Errors in *this* file are
-    // this file's to report: they were found with the imported signatures in
-    // hand, which is the whole point, and they already carry positions here.
-    // Anything else -- a missing module, a cycle, a module with its own errors
-    // -- is left to the interpreter, which reports it from the `grab` that
-    // caused it. Rebuilding those diagnostics here would mean doing it without
-    // a node to point at.
-    let imported = match crate::program::build(filename, source) {
-        Ok(graph) => crate::program::imported_by(&ast, &graph.exports_by_path()),
-        Err(crate::modules::ModuleError::Failed { module, mut errors })
-            if module == filename && !errors.is_empty() =>
-        {
-            return Err(errors.remove(0));
+    let imported = match graph {
+        Some(graph) => {
+            // A program's modules are loaded, not run, so they are held to the
+            // same declarations-only rule as its entry file. The interpreter
+            // will not catch this one: it runs a statementful module quite
+            // happily, which is the problem.
+            if let Some(first) = graph.check_modules_of_a_program().into_iter().next() {
+                return Err(first);
+            }
+            crate::program::imported_by(&ast, &graph.exports_by_path())
         }
-        Err(_) => crate::program::Exports::default(),
+        None => crate::program::Exports::default(),
     };
 
     let static_errors = crate::checker::check_typed(
@@ -131,6 +160,19 @@ pub fn run(filename: &str, source: &str) -> Result<Value, Error> {
 
     // Interpretation
     let mut interpreter = Interpreter::new();
+
+    // The graph already parsed and checked every module this program reaches.
+    // Handing them over means the `grab` that reaches one only has to run it.
+    if let Some(graph) = graph {
+        let mut registry = crate::modules::ModuleRegistry::new(filename);
+        for module in &graph.modules {
+            if module.path == filename {
+                continue;
+            }
+            registry.reuse(&module.path, module.ast.clone(), module.aliases.clone());
+        }
+        interpreter.module_registry = Some(registry);
+    }
 
     // transfer type aliases from parser to interpreter
     interpreter.type_aliases = parser.type_aliases;

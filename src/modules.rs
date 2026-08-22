@@ -21,6 +21,13 @@ use crate::values::Value;
 pub struct ModuleRegistry {
     modules: HashMap<String, Module>,
     current_file: PathBuf,
+    /// Modules the graph walk already parsed and checked, by path.
+    ///
+    /// `load_module` still has to *run* one, but it does not have to find,
+    /// lex, parse and check it a second time. Without this, importing
+    /// `std::json` pays for that twice: once when the program was checked and
+    /// again when the `grab` was reached.
+    prechecked: HashMap<String, (Node, HashMap<String, Type>)>,
 }
 
 #[derive(Debug, Clone)]
@@ -79,7 +86,13 @@ impl ModuleRegistry {
         Self {
             modules: HashMap::new(),
             current_file: PathBuf::from(current_file),
+            prechecked: HashMap::new(),
         }
+    }
+
+    /// Hands the registry what a graph walk already parsed and checked.
+    pub fn reuse(&mut self, path: &str, ast: Node, aliases: HashMap<String, Type>) {
+        self.prechecked.insert(path.to_string(), (ast, aliases));
     }
 
     /// Resolve a module path to a file.
@@ -199,7 +212,13 @@ impl ModuleRegistry {
             errors,
         };
 
-        let (ast, _types, aliases) = self.parse_and_check(module_path)?;
+        let (ast, aliases) = match self.prechecked.remove(module_path) {
+            Some(ready) => ready,
+            None => {
+                let (ast, _types, aliases) = self.parse_and_check(module_path)?;
+                (ast, aliases)
+            }
+        };
 
         // Transfer type aliases from parser to interpreter for this module
         interpreter.type_aliases.extend(aliases);

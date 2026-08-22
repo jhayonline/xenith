@@ -121,21 +121,16 @@ pub fn check_main_signature(ast: &Node) -> Option<Error> {
     None
 }
 
-/// Every top-level statement a program is not allowed to have.
+/// The declarations-only rule, with no test of what kind of file this is.
 ///
-/// Declarations are permitted: `grab`, `struct`, `enum`, `method`, `type` and
-/// `const let`. Everything else belongs in `main`. Two things follow. Nothing
-/// is written to a global at run time, so the global table is known and
-/// complete before the first instruction executes. And no top-level `let`
-/// exists to be captured, which is what lets the checker report an undefined
-/// name statically.
+/// Applied to a program's own top level by [`check_top_level`], and to every
+/// module a program imports. A module that runs statements on import writes to
+/// globals at run time, which is exactly what the rule exists to prevent --
+/// enforcing it on the entry file alone would leave the guarantee hollow.
 ///
-/// A script gets no errors from this; its top level *is* the program.
-pub fn check_top_level(ast: &Node) -> Vec<Error> {
-    if shape_of(ast) != ProgramShape::Program {
-        return Vec::new();
-    }
-
+/// `note` is why this file is being held to the rule, which differs between
+/// the entry file and a module it imports.
+pub fn check_declarations_only(ast: &Node, note: &str) -> Vec<Error> {
     let Node::List(statements) = ast else {
         return Vec::new();
     };
@@ -169,10 +164,35 @@ pub fn check_top_level(ast: &Node) -> Vec<Error> {
                 "a program's top level holds declarations only",
             )
             .with_code("XEN025")
-            .with_note("this file defines main, so it is a program rather than a script")
+            .with_note(note)
             .with_help("move this into main, or make it `const let` if it never changes"),
         );
     }
 
     errors
+}
+
+/// Why the entry file is held to the rule.
+pub const PROGRAM_NOTE: &str =
+    "this file defines main, so it is a program rather than a script";
+
+/// Why a module a program imports is held to it.
+pub const MODULE_NOTE: &str =
+    "this module is imported by a program, whose modules are loaded rather than run";
+
+/// Every top-level statement a program is not allowed to have.
+///
+/// Declarations are permitted: `grab`, `struct`, `enum`, `method`, `type` and
+/// `const let`. Everything else belongs in `main`. Two things follow. Nothing
+/// is written to a global at run time, so the global table is known and
+/// complete before the first instruction executes. And no top-level `let`
+/// exists to be captured, which is what lets the checker report an undefined
+/// name statically.
+///
+/// A script gets no errors from this; its top level *is* the program.
+pub fn check_top_level(ast: &Node) -> Vec<Error> {
+    if shape_of(ast) != ProgramShape::Program {
+        return Vec::new();
+    }
+    check_declarations_only(ast, PROGRAM_NOTE)
 }

@@ -8,7 +8,7 @@ use std::io::Write;
 use std::fs;
 use std::path::Path;
 
-use xenith::run;
+use xenith::run_with_graph;
 use xenith::run_repl;
 use xenith::utils::value_to_string;
 use xenith::values::Value;
@@ -30,41 +30,57 @@ fn run_file(filename: &str) {
         }
     };
 
-    // Check the whole file before running any of it, so every static error is
-    // reported at once rather than one per attempt. `check_source_typed` hands
-    // back the tree it checked, which is where the program-or-script decision
-    // comes from; the alternative was parsing a third time to ask.
-    let is_program = match xenith::check_source_typed(filename, &source) {
-        Err(fatal) => {
-            // Lexing or parsing failed, so there is nothing to check.
-            eprintln!("{}", fatal.as_string_colored());
+    // Check the whole file, and everything it imports, before running any of
+    // it -- so every static error is reported at once rather than one per
+    // attempt. The graph is what does the checking, and it is handed to `run`
+    // afterwards rather than built a second time: building it parses and checks
+    // every module the program reaches.
+    let graph = match xenith::program::build(filename, &source) {
+        Ok(graph) => Some(graph),
+
+        // This file's own errors, found with the imported signatures in hand.
+        Err(xenith::modules::ModuleError::Failed { module, errors })
+            if module == filename && !errors.is_empty() =>
+        {
+            for error in &errors {
+                eprintln!("{}", error.as_string_colored());
+            }
+            eprintln!(
+                "{} error{} found, nothing was run",
+                errors.len(),
+                if errors.len() == 1 { "" } else { "s" }
+            );
             std::process::exit(1);
         }
-        Ok((mut errors, _, ast)) => {
-            // Reported together with the type errors, so a file with three
-            // stray top-level statements names all three.
-            errors.extend(xenith::entry::check_top_level(&ast));
-            if let Some(bad_main) = xenith::entry::check_main_signature(&ast) {
-                errors.push(bad_main);
-            }
 
-            if !errors.is_empty() {
-                for error in &errors {
-                    eprintln!("{}", error.as_string_colored());
-                }
-                eprintln!(
-                    "{} error{} found, nothing was run",
-                    errors.len(),
-                    if errors.len() == 1 { "" } else { "s" }
-                );
-                std::process::exit(1);
-            }
-
-            xenith::entry::shape_of(&ast) == xenith::entry::ProgramShape::Program
-        }
+        // A missing module, a cycle, or a module with its own errors: the
+        // interpreter reports those from the `grab` that caused them, which is
+        // where they are worth pointing at.
+        Err(_) => None,
     };
 
-    match run(filename, &source) {
+    if let Some(graph) = &graph {
+        let module_errors = graph.check_modules_of_a_program();
+        if !module_errors.is_empty() {
+            for error in &module_errors {
+                eprintln!("{}", error.as_string_colored());
+            }
+            eprintln!(
+                "{} error{} found, nothing was run",
+                module_errors.len(),
+                if module_errors.len() == 1 { "" } else { "s" }
+            );
+            std::process::exit(1);
+        }
+    }
+
+    let is_program = graph
+        .as_ref()
+        .and_then(|graph| graph.root())
+        .map(|root| xenith::entry::shape_of(&root.ast) == xenith::entry::ProgramShape::Program)
+        .unwrap_or(false);
+
+    match run_with_graph(filename, &source, graph.as_ref()) {
         Ok(result) => {
             // A program's result is `main`'s, which is the exit code. A
             // script's result is its last statement's, printed under the same

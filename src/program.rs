@@ -32,6 +32,38 @@ pub struct ModuleGraph {
 }
 
 impl ModuleGraph {
+    /// The root: the file the walk started from, pushed last because its
+    /// dependencies go in front of it.
+    pub fn root(&self) -> Option<&CompiledModule> {
+        self.modules.last()
+    }
+
+    /// Holds every module a *program* imports to the declarations-only rule.
+    ///
+    /// A program whose own top level declares nothing, but which imports a
+    /// module that runs statements on import, still writes to globals at run
+    /// time. Checking the entry file alone would leave the guarantee hollow.
+    ///
+    /// Empty for a script, which imports modules the way it always has.
+    pub fn check_modules_of_a_program(&self) -> Vec<Error> {
+        let Some(root) = self.root() else {
+            return Vec::new();
+        };
+
+        if crate::entry::shape_of(&root.ast) != crate::entry::ProgramShape::Program {
+            return Vec::new();
+        }
+
+        self.modules
+            .iter()
+            .filter(|module| module.path != root.path)
+            .flat_map(|module| {
+                // The root is covered by `check_top_level`, with its own note.
+                crate::entry::check_declarations_only(&module.ast, crate::entry::MODULE_NOTE)
+            })
+            .collect()
+    }
+
     /// What each module exports, by the path it is grabbed under.
     ///
     /// Kept per module rather than merged, because two modules may export the
@@ -48,6 +80,7 @@ impl ModuleGraph {
 ///
 /// The root is the file named on the command line, which is where it always
 /// was; nothing about this requires the program to define `main`.
+///
 pub fn build(root_path: &str, root_source: &str) -> Result<ModuleGraph, ModuleError> {
     let registry = ModuleRegistry::new(root_path);
     let mut graph = ModuleGraph {
