@@ -328,6 +328,28 @@ impl Compiler {
         }
     }
 
+    /// An expression in a read-only operand position.
+    ///
+    /// A local read this way needs no copy: an instruction reads its operand
+    /// registers before it writes its destination, and the destination can
+    /// never be a local's register. Every caller allocates its destination
+    /// after `free_to(mark)`, and `mark` is `reg_top`, which is never below
+    /// `locals_floor` -- so a destination is always strictly above every live
+    /// local. That invariant is what makes eliding the copy safe, and it is
+    /// why this must not be used where the result is stored or returned.
+    ///
+    /// Worth five of the thirteen instructions in the counting loop's body.
+    fn operand(&mut self, node: &Node) -> Result<Reg, Unsupported> {
+        if let Node::VarAccess(n) = node {
+            if let Some(name) = n.variable_name_token.value.as_deref() {
+                if let Some(local) = self.resolve(name) {
+                    return Ok(local.reg);
+                }
+            }
+        }
+        self.expr(node)
+    }
+
     /// One expression, into a fresh register.
     ///
     /// Later tasks add arms: names (task 6), operators (task 5), `when` as an
@@ -401,7 +423,7 @@ impl Compiler {
 
                 for (condition, body) in &n.cases {
                     let mark = self.reg_top;
-                    let cond = self.expr(condition)?;
+                    let cond = self.operand(condition)?;
                     let skip = self.emit_jump(
                         Instr::JumpIfFalse { cond, to: 0 },
                         condition.position_start(), condition.position_end(),
@@ -446,7 +468,7 @@ impl Compiler {
                 // Where `continue` goes and where the body jumps back to.
                 let start = self.chunk.code.len() as Addr;
 
-                let cond = self.expr(&n.condition_node)?;
+                let cond = self.operand(&n.condition_node)?;
                 let exit = self.emit_jump(
                     Instr::JumpIfFalse { cond, to: 0 },
                     n.condition_node.position_start(),
@@ -516,7 +538,7 @@ impl Compiler {
                 let exit = match &n.condition_node {
                     Some(condition) => {
                         let cond_mark = self.reg_top;
-                        let cond = self.expr(condition)?;
+                        let cond = self.operand(condition)?;
                         let jump = self.emit_jump(
                             Instr::JumpIfFalse { cond, to: 0 },
                             condition.position_start(), condition.position_end(),
@@ -584,7 +606,7 @@ impl Compiler {
                 }
 
                 let mark = self.reg_top;
-                let src = self.expr(&n.argument_nodes[0])?;
+                let src = self.operand(&n.argument_nodes[0])?;
                 self.emit(Instr::Echo { src }, &n.position_start, &n.position_end);
                 self.free_to(mark);
 
@@ -631,7 +653,7 @@ impl Compiler {
                     let mark = self.reg_top;
                     let result = self.alloc()?;
 
-                    let left = self.expr(&n.left_node)?;
+                    let left = self.operand(&n.left_node)?;
                     self.emit(Instr::Not { dst: result, src: left }, &n.position_start, &n.position_end);
                     self.emit(Instr::Not { dst: result, src: result }, &n.position_start, &n.position_end);
 
@@ -647,7 +669,7 @@ impl Compiler {
                         )
                     };
 
-                    let right = self.expr(&n.right_node)?;
+                    let right = self.operand(&n.right_node)?;
                     self.emit(Instr::Not { dst: result, src: right }, &n.position_start, &n.position_end);
                     self.emit(Instr::Not { dst: result, src: result }, &n.position_start, &n.position_end);
 
@@ -665,8 +687,8 @@ impl Compiler {
                 }
 
                 let mark = self.reg_top;
-                let a = self.expr(&n.left_node)?;
-                let b = self.expr(&n.right_node)?;
+                let a = self.operand(&n.left_node)?;
+                let b = self.operand(&n.right_node)?;
 
                 // The result lands where the left operand was, so a chain of
                 // operators does not climb the frame.
@@ -698,7 +720,7 @@ impl Compiler {
                 use crate::tokens::TokenType;
 
                 let mark = self.reg_top;
-                let src = self.expr(&n.node)?;
+                let src = self.operand(&n.node)?;
                 self.free_to(mark);
                 let dst = self.alloc()?;
 
@@ -733,7 +755,7 @@ impl Compiler {
             .ok_or_else(|| Unsupported::new("a binding with no name"))?;
 
         let mark = self.reg_top;
-        let value = self.expr(&n.value_node)?;
+        let value = self.operand(&n.value_node)?;
 
         if n.is_declaration {
             // A redeclaration in the same scope shadows, which is what the

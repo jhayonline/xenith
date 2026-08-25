@@ -122,11 +122,6 @@ pub fn execute(chunk: &Chunk) -> Result<Value, Error> {
 }
 
 /// Applies one of `Value`'s binary methods, in place.
-///
-/// Cloning both operands is deliberate for now: `Value` is 16 bytes and a
-/// clone of an int or a float is a copy, while a string or a list is a
-/// refcount bump. Borrowing both out of one `Vec` needs a split, which is
-/// worth measuring in phase 5 rather than assuming here.
 fn binary(
     registers: &mut [Value],
     dst: u8,
@@ -136,9 +131,11 @@ fn binary(
     chunk: &Chunk,
     at: usize,
 ) -> Result<(), Error> {
-    let left = registers[a as usize].clone();
-    let right = registers[b as usize].clone();
-    match op(&left, &right) {
+    // Borrowed, not cloned. Two immutable borrows out of one slice are fine,
+    // and the write below happens after both have ended -- so an `ADD` of two
+    // ints no longer runs `Value::clone`'s match over thirteen variants twice
+    // per dispatch.
+    match op(&registers[a as usize], &registers[b as usize]) {
         Ok(value) => {
             registers[dst as usize] = value;
             Ok(())

@@ -466,4 +466,54 @@ In rough order of expected return:
    node. Splitting the hot arms out, or ordering them by frequency, is worth
    measuring.
 
+## The bytecode VM, phase 3
+
+The counting loop in `benches/counting_loop.xen`, 400,000 iterations, measured
+by callgrind instruction count on one machine and one build:
+
+| | I refs | |
+| --- | --- | --- |
+| tree walker | 1,181,300,349 | |
+| bytecode VM | 265,650,817 | 4.45x |
+
+Where the 4.45 comes from is worth writing down, because the first VM to run
+this benchmark managed only 2.30x and the gap was two things, neither of them
+the design:
+
+| | loop body | I refs | |
+| --- | --- | --- | --- |
+| three-address code, naively emitted | 13 instructions | 513,253,740 | 2.30x |
+| operands borrowed rather than cloned | 13 instructions | | |
+| a local named directly as an operand | 9 instructions | 265,650,817 | 4.45x |
+
+The first: `binary` in `src/vm/run.rs` cloned both operands out of the
+register file before applying the operation, so every `ADD` of two ints ran
+`Value::clone`'s match over thirteen variants twice. Two immutable borrows out
+of one slice are fine as long as the write happens after both have ended,
+which it does.
+
+The second: reading a local used to copy it into a temporary, so
+`total = total + i` spent three of its five instructions moving values that
+were already where they needed to be. An instruction reads its operand
+registers before it writes its destination, and a destination is always
+strictly above every live local -- `Compiler::operand` explains why -- so the
+copy is not needed when the operand is only read.
+
+Two `MOVE`s per iteration are left, both writing an assignment's result back
+into its local. Removing them needs the destination threaded down into the
+expression, which is only safe where the value emits no jumps: a `when` used
+as a value emits one `MOVE` per branch, and pointing the last of them at the
+local would leave the other branches writing somewhere else.
+
+Phase 3 compiles a deliberately small slice of the language -- literals,
+operators, locals, `when`, `while`, the classic `for`, and `echo`. Anything
+else returns `Unsupported` and runs on the tree walker, which is why
+`tests/differential.rs` reports a skipped count alongside a compared one. That
+count is currently 2 compared and 117 skipped, and it is the number to watch:
+it should climb every phase, and a drop means something stopped compiling that
+used to.
+
+The measurement to distrust here is wall clock. Two of the false regressions
+in the history above were found that way, on a loaded machine.
+
 Next: [The language server](11-language-server.md)

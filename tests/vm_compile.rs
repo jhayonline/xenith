@@ -286,18 +286,21 @@ code:
 
 #[test]
 fn a_local_is_a_register_not_a_lookup() {
+    // `x` is read as `r0` directly -- no lookup, and no copy into a temporary
+    // either. `ADD` reads both operand registers before it writes `r1`, and a
+    // destination is always above every live local, so naming the local as an
+    // operand is safe. See `Compiler::operand`.
     assert_eq!(
         dis("let x: int = 1\nx + 1\n"),
         "\
 constants:
   k0  int 1
-registers: 3
+registers: 2
 code:
   0000  LOAD_CONST   r0, k0
-  0001  MOVE         r1, r0
-  0002  LOAD_CONST   r2, k0
-  0003  ADD          r1, r1, r2
-  0004  HALT         r1
+  0001  LOAD_CONST   r1, k0
+  0002  ADD          r1, r0, r1
+  0003  HALT         r1
 "
     );
 }
