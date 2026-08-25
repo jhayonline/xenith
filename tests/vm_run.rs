@@ -42,3 +42,38 @@ fn a_bool_literal_evaluates_to_itself() {
 fn the_last_statement_is_the_value() {
     assert!(matches!(vm("1\n2\n3\n"), Value::Int(3)));
 }
+
+#[test]
+fn arithmetic_agrees_with_the_language() {
+    assert!(matches!(vm("1 + 2\n"), Value::Int(3)));
+    assert!(matches!(vm("7 - 2\n"), Value::Int(5)));
+    assert!(matches!(vm("6 * 7\n"), Value::Int(42)));
+    assert!(matches!(vm("7 / 2\n"), Value::Int(3)));
+    assert!(matches!(vm("7 % 2\n"), Value::Int(1)));
+    assert!(matches!(vm("2 ^ 10\n"), Value::Int(1024)));
+    assert!(matches!(vm("-5\n"), Value::Int(-5)));
+}
+
+#[test]
+fn comparisons_produce_bools() {
+    assert!(matches!(vm("1 < 2\n"), Value::Bool(true)));
+    assert!(matches!(vm("1 > 2\n"), Value::Bool(false)));
+    assert!(matches!(vm("2 <= 2\n"), Value::Bool(true)));
+    assert!(matches!(vm("2 >= 3\n"), Value::Bool(false)));
+    assert!(matches!(vm("1 == 1\n"), Value::Bool(true)));
+    assert!(matches!(vm("1 != 1\n"), Value::Bool(false)));
+}
+
+#[test]
+fn precedence_is_the_parsers_business_and_survives_compilation() {
+    assert!(matches!(vm("1 + 2 * 3\n"), Value::Int(7)));
+    assert!(matches!(vm("(1 + 2) * 3\n"), Value::Int(9)));
+}
+
+#[test]
+fn a_string_concatenation_works_because_value_add_does_it() {
+    let Value::String(s) = vm("\"a\" + \"b\"\n") else {
+        panic!("expected a string");
+    };
+    assert_eq!(s.value, "ab");
+}

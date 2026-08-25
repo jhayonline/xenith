@@ -232,8 +232,73 @@ impl Compiler {
             Node::Call(_) => Err(Unsupported::new("a call")),
             Node::Match(_) => Err(Unsupported::new("a match")),
             Node::VarAccess(_) => Err(Unsupported::new("a name")),
-            Node::BinaryOperator(_) => Err(Unsupported::new("an operator")),
-            Node::UnaryOp(_) => Err(Unsupported::new("a unary operator")),
+            Node::BinaryOperator(n) => {
+                use crate::tokens::TokenType;
+
+                // `&&` and `||` are not these. They must not evaluate their
+                // right side unless the left says to, so they are jumps, and
+                // they wait for task 8.
+                if n.operator_token.matches(TokenType::Keyword, Some("&&"))
+                    || n.operator_token.matches(TokenType::Keyword, Some("||"))
+                {
+                    return Err(Unsupported::new("a short-circuiting operator"));
+                }
+
+                // `x = v` is an assignment wearing an operator's clothes; the
+                // parser produces it as a binary `Eq`. Task 6 handles it.
+                if n.operator_token.kind == TokenType::Eq {
+                    return Err(Unsupported::new("an assignment"));
+                }
+
+                let mark = self.reg_top;
+                let a = self.expr(&n.left_node)?;
+                let b = self.expr(&n.right_node)?;
+
+                // The result lands where the left operand was, so a chain of
+                // operators does not climb the frame.
+                self.free_to(mark);
+                let dst = self.alloc()?;
+
+                let instr = match n.operator_token.kind {
+                    TokenType::Plus => Instr::Add { dst, a, b },
+                    TokenType::Minus => Instr::Sub { dst, a, b },
+                    TokenType::Mul => Instr::Mul { dst, a, b },
+                    TokenType::Div => Instr::Div { dst, a, b },
+                    TokenType::Mod => Instr::Rem { dst, a, b },
+                    TokenType::Pow => Instr::Pow { dst, a, b },
+                    TokenType::Ee => Instr::Eq { dst, a, b },
+                    TokenType::Ne => Instr::Ne { dst, a, b },
+                    TokenType::Lt => Instr::Lt { dst, a, b },
+                    TokenType::Gt => Instr::Gt { dst, a, b },
+                    TokenType::Lte => Instr::Le { dst, a, b },
+                    TokenType::Gte => Instr::Ge { dst, a, b },
+                    // `.` and `[` are field access and indexing: phase 6.
+                    _ => return Err(Unsupported::new("this operator")),
+                };
+
+                self.emit(instr, &n.position_start);
+                Ok(dst)
+            }
+
+            Node::UnaryOp(n) => {
+                use crate::tokens::TokenType;
+
+                let mark = self.reg_top;
+                let src = self.expr(&n.node)?;
+                self.free_to(mark);
+                let dst = self.alloc()?;
+
+                let instr = if n.operator_token.kind == TokenType::Minus {
+                    Instr::Neg { dst, src }
+                } else if n.operator_token.matches(TokenType::Keyword, Some("!")) {
+                    Instr::Not { dst, src }
+                } else {
+                    return Err(Unsupported::new("this unary operator"));
+                };
+
+                self.emit(instr, &n.position_start);
+                Ok(dst)
+            }
 
             other => Err(Unsupported::new(&format!(
                 "{} is not compiled yet",

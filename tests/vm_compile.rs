@@ -190,3 +190,96 @@ fn a_list_literal_is_not_supported_yet() {
     // reason until task 6, and this test is about the list.
     assert_eq!(refuses("[1, 2]\n"), "a list literal");
 }
+
+#[test]
+fn addition_is_three_address() {
+    // Two operands into two registers, the result into a third. No shuffling,
+    // which is the whole point of a register machine over a stack one.
+    assert_eq!(
+        dis("1 + 2\n"),
+        "\
+constants:
+  k0  int 1
+  k1  int 2
+registers: 2
+code:
+  0000  LOAD_CONST   r0, k0
+  0001  LOAD_CONST   r1, k1
+  0002  ADD          r0, r0, r1
+  0003  HALT         r0
+"
+    );
+}
+
+#[test]
+fn temporaries_are_reused_across_statements() {
+    // Two statements, each using two registers, must not need four. The frame
+    // stays at 2 because the first statement's temporaries are released.
+    let text = dis("1 + 2\n3 + 4\n");
+    assert!(
+        text.contains("registers: 2"),
+        "temporaries were not reused:\n{text}"
+    );
+}
+
+#[test]
+fn nesting_deepens_the_frame() {
+    let text = dis("1 + 2 * 3\n");
+    assert!(
+        text.contains("registers: 3"),
+        "expected three registers for a nested expression:\n{text}"
+    );
+}
+
+#[test]
+fn a_negative_literal_is_folded_by_the_lexer() {
+    // `-5` never reaches the compiler as a unary operator: the lexer produces
+    // a single negative number token. Asserted rather than assumed, because
+    // it is the reason the NEG test below needs a non-literal operand.
+    assert_eq!(
+        dis("-5\n"),
+        "\
+constants:
+  k0  int -5
+registers: 1
+code:
+  0000  LOAD_CONST   r0, k0
+  0001  HALT         r0
+"
+    );
+}
+
+#[test]
+fn unary_minus_compiles() {
+    assert_eq!(
+        dis("-(1 + 2)\n"),
+        "\
+constants:
+  k0  int 1
+  k1  int 2
+registers: 2
+code:
+  0000  LOAD_CONST   r0, k0
+  0001  LOAD_CONST   r1, k1
+  0002  ADD          r0, r0, r1
+  0003  NEG          r0, r0
+  0004  HALT         r0
+"
+    );
+}
+
+#[test]
+fn unary_not_compiles() {
+    assert_eq!(
+        dis("!true\n"),
+        "\
+constants:
+  (none)
+registers: 1
+code:
+  0000  LOAD_BOOL    r0, true
+  0001  NOT          r0, r0
+  0002  HALT         r0
+"
+    );
+}

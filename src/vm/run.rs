@@ -43,6 +43,30 @@ pub fn execute(chunk: &Chunk) -> Result<Value, Error> {
                 return Ok(registers[src as usize].clone());
             }
 
+            Instr::Add { dst, a, b } => binary(&mut registers, dst, a, b, Value::add)?,
+            Instr::Sub { dst, a, b } => binary(&mut registers, dst, a, b, Value::subtract)?,
+            Instr::Mul { dst, a, b } => binary(&mut registers, dst, a, b, Value::multiply)?,
+            Instr::Div { dst, a, b } => binary(&mut registers, dst, a, b, Value::divide)?,
+            Instr::Rem { dst, a, b } => binary(&mut registers, dst, a, b, Value::modulo)?,
+            Instr::Pow { dst, a, b } => binary(&mut registers, dst, a, b, Value::power)?,
+            Instr::Eq { dst, a, b } => binary(&mut registers, dst, a, b, Value::equals)?,
+            Instr::Ne { dst, a, b } => binary(&mut registers, dst, a, b, Value::not_equals)?,
+            Instr::Lt { dst, a, b } => binary(&mut registers, dst, a, b, Value::less_than)?,
+            Instr::Gt { dst, a, b } => binary(&mut registers, dst, a, b, Value::greater_than)?,
+            Instr::Le { dst, a, b } => {
+                binary(&mut registers, dst, a, b, Value::less_than_or_equal)?
+            }
+            Instr::Ge { dst, a, b } => {
+                binary(&mut registers, dst, a, b, Value::greater_than_or_equal)?
+            }
+
+            Instr::Neg { dst, src } => {
+                registers[dst as usize] = registers[src as usize].negative()?;
+            }
+            Instr::Not { dst, src } => {
+                registers[dst as usize] = registers[src as usize].logical_not()?;
+            }
+
             // Task 5 adds the operators, task 7 `Echo`, tasks 8-10 the jumps.
             other => {
                 return Err(internal(
@@ -53,6 +77,25 @@ pub fn execute(chunk: &Chunk) -> Result<Value, Error> {
             }
         }
     }
+}
+
+/// Applies one of `Value`'s binary methods, in place.
+///
+/// Cloning both operands is deliberate for now: `Value` is 16 bytes and a
+/// clone of an int or a float is a copy, while a string or a list is a
+/// refcount bump. Borrowing both out of one `Vec` needs a split, which is
+/// worth measuring in phase 5 rather than assuming here.
+fn binary(
+    registers: &mut [Value],
+    dst: u8,
+    a: u8,
+    b: u8,
+    op: fn(&Value, &Value) -> Result<Value, Error>,
+) -> Result<(), Error> {
+    let left = registers[a as usize].clone();
+    let right = registers[b as usize].clone();
+    registers[dst as usize] = op(&left, &right)?;
+    Ok(())
 }
 
 /// A VM bug, not a program error.
