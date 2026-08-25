@@ -74,3 +74,119 @@ code:
 "
     );
 }
+
+use xenith::lexer::Lexer;
+use xenith::nodes::Node;
+use xenith::parser::Parser;
+use xenith::vm::compile::{compile, Unsupported};
+
+fn parse(source: &str) -> Node {
+    let mut lexer = Lexer::new("<test>".to_string(), source.to_string());
+    let tokens = lexer.make_tokens().expect("should lex");
+    let mut parser = Parser::new(tokens);
+    let result = parser.parse();
+    assert!(result.error.is_none(), "should parse: {:?}", result.error);
+    result.node.expect("should produce a node")
+}
+
+/// Compiles, or fails the test with what stopped it.
+fn dis(source: &str) -> String {
+    match compile(&parse(source)) {
+        Ok(chunk) => chunk.disassemble(),
+        Err(Unsupported { what }) => panic!("should have compiled, but: {what}"),
+    }
+}
+
+/// What stopped the compiler, for the cases that are meant to bail out.
+fn refuses(source: &str) -> String {
+    match compile(&parse(source)) {
+        Ok(_) => panic!("should not have compiled"),
+        Err(Unsupported { what }) => what,
+    }
+}
+
+#[test]
+fn an_int_literal_loads_a_constant() {
+    assert_eq!(
+        dis("42\n"),
+        "\
+constants:
+  k0  int 42
+registers: 1
+code:
+  0000  LOAD_CONST   r0, k0
+  0001  HALT         r0
+"
+    );
+}
+
+#[test]
+fn a_float_literal_is_a_separate_constant() {
+    assert_eq!(
+        dis("1.5\n"),
+        "\
+constants:
+  k0  float 1.5
+registers: 1
+code:
+  0000  LOAD_CONST   r0, k0
+  0001  HALT         r0
+"
+    );
+}
+
+#[test]
+fn booleans_and_null_need_no_constant_slot() {
+    assert_eq!(
+        dis("true\n"),
+        "\
+constants:
+  (none)
+registers: 1
+code:
+  0000  LOAD_BOOL    r0, true
+  0001  HALT         r0
+"
+    );
+    assert_eq!(
+        dis("null\n"),
+        "\
+constants:
+  (none)
+registers: 1
+code:
+  0000  LOAD_NULL    r0
+  0001  HALT         r0
+"
+    );
+}
+
+#[test]
+fn an_empty_program_halts_on_null() {
+    assert_eq!(
+        dis("\n"),
+        "\
+constants:
+  (none)
+registers: 1
+code:
+  0000  LOAD_NULL    r0
+  0001  HALT         r0
+"
+    );
+}
+
+#[test]
+fn a_method_declaration_is_not_supported_yet() {
+    assert_eq!(
+        refuses("method f() -> int {\n  release 1\n}\n"),
+        "a method declaration"
+    );
+}
+
+#[test]
+fn a_list_literal_is_not_supported_yet() {
+    // A bare list, not `let xs = [...]`: assignment is its own unsupported
+    // reason until task 6, and this test is about the list.
+    assert_eq!(refuses("[1, 2]\n"), "a list literal");
+}
