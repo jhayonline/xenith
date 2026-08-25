@@ -78,6 +78,7 @@ The full table is in the [tutorial](../tutorial/17-errors.md). The ranges:
 | --- | --- |
 | XEN001 to XEN020 | type, value and semantic errors |
 | XEN100 to XEN102 | lexing and parsing |
+| XEN026 | the bytecode compiler or VM disagreeing with itself |
 | XEN200 | uncategorised runtime |
 | XEN300 | panic |
 

@@ -73,6 +73,7 @@ which is most of the time.
 | Code | Name | When |
 | --- | --- | --- |
 | XEN200 | Runtime Error | an error with no more specific code |
+| XEN026 | Internal Error | the bytecode compiler or VM emitted something it could not run |
 | XEN300 | Panic | the program called `panic` |
 
 ## panic
