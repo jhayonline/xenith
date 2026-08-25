@@ -39,6 +39,7 @@ pub mod type_table;
 pub mod types;
 pub mod utils;
 pub mod values;
+pub mod vm;
 
 use crate::context::Context;
 use crate::error::Error;

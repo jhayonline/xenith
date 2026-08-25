@@ -44,3 +44,14 @@ fn runtime_result_stays_small() {
     // node evaluated.
     assert_eq!(size_of::<xenith::runtime_result::RuntimeResult>(), 48);
 }
+
+#[test]
+fn an_instruction_fits_in_a_word() {
+    // The spec's ceiling. A wider instruction multiplies by every instruction
+    // in every chunk, and the VM loop reads one per dispatch.
+    assert!(
+        size_of::<xenith::vm::chunk::Instr>() <= 8,
+        "Instr is {} bytes, over the 8-byte ceiling",
+        size_of::<xenith::vm::chunk::Instr>()
+    );
+}

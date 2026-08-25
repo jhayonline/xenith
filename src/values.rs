@@ -428,6 +428,24 @@ impl Value {
         Ok(Value::Bool(self.eq_value(other)))
     }
 
+    /// Structural equality, for interning compile-time constants.
+    ///
+    /// Deliberately not `PartialEq`: `eq_value` is the language's `==`, which
+    /// answers a different question -- it is about values a program compares,
+    /// not about whether two constant slots hold the same thing. This one is
+    /// stricter, because folding an int constant into a float slot would
+    /// change what the program means.
+    pub fn eq_for_constants(&self, other: &Value) -> bool {
+        match (self, other) {
+            (Value::Int(a), Value::Int(b)) => a == b,
+            (Value::Float(a), Value::Float(b)) => a.to_bits() == b.to_bits(),
+            (Value::String(a), Value::String(b)) => a.value == b.value,
+            (Value::Bool(a), Value::Bool(b)) => a == b,
+            (Value::Null, Value::Null) => true,
+            _ => false,
+        }
+    }
+
     fn eq_value(&self, other: &Value) -> bool {
         match (self, other) {
             (Value::Int(x), Value::Int(y)) => x == y,
