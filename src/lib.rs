@@ -159,6 +159,51 @@ pub fn run_with_graph(
         return Err(first);
     }
 
+    // Behind an environment variable for now. Phase 8 removes the switch and
+    // the tree walker with it; until then this is how the VM is exercised
+    // without putting every user on it.
+    //
+    // A program that does not compile is not an error: `compile_and_run`
+    // returns `None` and the tree walker runs it, exactly as before.
+    // Behind an environment variable for now. Phase 8 removes the switch and
+    // the tree walker with it; until then this is how the VM is exercised
+    // without putting every user on it.
+    //
+    // A program that does not compile is not an error: `compile_and_run`
+    // returns `None` and the tree walker runs it, exactly as before.
+    //
+    // Script shape only. A program's value is `main`'s and becomes the exit
+    // code, and phase 3 cannot compile a `method` at all, so the VM never sees
+    // one -- this makes that explicit rather than relying on it.
+    if std::env::var_os("XENITH_VM").is_some()
+        && crate::entry::shape_of(&ast) == crate::entry::ProgramShape::Script
+    {
+        if let Some(outcome) = crate::vm::compile_and_run(&ast) {
+            // The returned value has to be what the tree walker would return,
+            // because `run_file` prints it. `visit_list` collects every
+            // top-level statement's value into a `Value::List`, and
+            // `value_to_string` unwraps a *one-element* list -- so a
+            // one-statement script prints its value, and every other script
+            // prints nothing, its list starting with `[`. The VM knows only
+            // the last statement's value, which is exactly the one that
+            // matters: for a one-statement script it is the whole list.
+            let statements = match &ast {
+                crate::nodes::Node::List(list) => list.element_nodes.len(),
+                _ => 0,
+            };
+            return outcome.map(|value| {
+                let elements = if statements == 1 {
+                    vec![value]
+                } else {
+                    // Any length but one renders as `[...]`, which `run_file`
+                    // suppresses. The elements are never looked at.
+                    Vec::new()
+                };
+                Value::List(crate::values::List::new(elements))
+            });
+        }
+    }
+
     // Interpretation
     let mut interpreter = Interpreter::new();
 

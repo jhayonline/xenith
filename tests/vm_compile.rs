@@ -283,3 +283,73 @@ code:
 "
     );
 }
+
+#[test]
+fn a_local_is_a_register_not_a_lookup() {
+    assert_eq!(
+        dis("let x: int = 1\nx + 1\n"),
+        "\
+constants:
+  k0  int 1
+registers: 3
+code:
+  0000  LOAD_CONST   r0, k0
+  0001  MOVE         r1, r0
+  0002  LOAD_CONST   r2, k0
+  0003  ADD          r1, r1, r2
+  0004  HALT         r1
+"
+    );
+}
+
+#[test]
+fn two_locals_take_two_registers_in_declaration_order() {
+    let text = dis("let a: int = 1\nlet b: int = 2\nb\n");
+    assert!(text.contains("registers: 3"), "{text}");
+}
+
+#[test]
+fn reassignment_writes_the_same_register() {
+    let text = dis("let x: int = 1\nx = 2\nx\n");
+    // No second slot for `x`: the assignment moves into the register the
+    // declaration took.
+    assert!(text.contains("registers: 2"), "{text}");
+}
+
+#[test]
+fn assigning_an_undeclared_name_is_not_compiled() {
+    // The checker reports this in program mode; in script mode the tree
+    // walker does. Either way the VM must not invent a register for it.
+    assert_eq!(refuses("nowhere = 1\n"), "an assignment to an unknown name");
+}
+
+#[test]
+fn a_block_of_expressions_is_still_a_block() {
+    // The reason bodies are compiled by call site rather than by looking at
+    // what is inside them: a block whose only statement is a call holds no
+    // node that could only be a statement, so a contents test would read it
+    // as a list literal and refuse the whole program.
+    let text = dis("when true {\n    echo(1)\n}\n");
+    assert!(text.contains("ECHO"), "{text}");
+}
+
+#[test]
+fn a_list_literal_in_expression_position_is_still_refused() {
+    assert_eq!(refuses("let xs: list<int> = [1, 2]\n"), "a list literal");
+}
+
+#[test]
+fn the_counting_loop_is_small() {
+    // The benchmark's shape, and a canary against runaway moves. Thirteen is
+    // what the compiler emits today, and two of them are known: reading `i`
+    // copies it into a temporary, and assigning to `i` copies back. Phase 5
+    // elides both by letting an operand and a destination name a local
+    // directly. Until then this number should not move on its own -- if it
+    // grows, read the disassembly in the failure before touching the budget.
+    let text = dis("let i: int = 0\nwhile i < 5 {\n    i = i + 1\n}\ni\n");
+    let instructions = text.lines().filter(|l| l.starts_with("  00")).count();
+    assert!(
+        instructions <= 13,
+        "counting loop compiled to {instructions} instructions:\n{text}"
+    );
+}

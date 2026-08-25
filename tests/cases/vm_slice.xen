@@ -1,0 +1,52 @@
+# Literals, locals, operators, when, while, the classic for, and echo -- the
+# slice the bytecode VM compiles in phase 3, in one file.
+#
+# It exists so tests/differential.rs has a real program to run through both
+# engines. Every other case fixture reaches for a method, an import or a
+# string interpolation, none of which the VM compiles yet, so without this the
+# harness would compare nothing and still be green.
+
+let i: int = 0
+let total: int = 0
+while i < 10 {
+    i = i + 1
+    when i == 3 {
+        skip
+    }
+    when i == 8 {
+        stop
+    }
+    total = total + i
+}
+echo(total)
+
+for (let j: int = 0; j < 4; j = j + 1) {
+    when j % 2 == 0 {
+        echo(j)
+    } or when j == 1 {
+        echo(-j)
+    } otherwise {
+        echo(j * 100)
+    }
+}
+
+let a: int = 7
+let b: int = 2
+echo(a + b)
+echo(a - b)
+echo(a * b)
+echo(a / b)
+echo(a % b)
+echo(a ^ b)
+echo(-(a - b))
+echo(a > b && b > 0)
+echo(a < b || b > 0)
+echo(!(a < b))
+
+let f: float = 1.0
+echo(f)
+echo(f / 2.0)
+
+echo("done")
+echo(true)
+echo(null)

@@ -1063,6 +1063,102 @@ pub struct BuiltInFunction {
     index: u16,
 }
 
+/// What `echo` prints, and the only implementation of it.
+///
+/// Extracted so the bytecode VM's `Echo` opcode calls this rather than a
+/// second formatter. `utils::value_to_string` is a different function with
+/// different rules -- it is what an interpolated string uses -- so routing
+/// `Echo` through it would make the two engines print differently.
+pub fn echo_line(arg: Option<&Value>) {
+    if let Some(arg) = arg {
+        match arg {
+            n @ (Value::Int(_) | Value::Float(_)) => {
+                print!("{}", n.as_number().unwrap())
+            }
+            Value::String(s) => print!("{}", s.value),
+            // Not the contents: bytes are usually not text, and printing
+            // them raw would spray control characters at the terminal.
+            // `b as string` is how you ask for the contents.
+            Value::Bytes(b) => print!("<bytes {}>", b.len()),
+            Value::Bool(b) => print!("{}", b),
+            Value::Null => print!("null"),
+            Value::List(l) => {
+                print!("[");
+                for (i, elem) in l.elements.iter().enumerate() {
+                    if i > 0 {
+                        print!(", ");
+                    }
+                    match elem {
+                        n @ (Value::Int(_) | Value::Float(_)) => {
+                print!("{}", n.as_number().unwrap())
+            }
+                        Value::String(s) => print!("\"{}\"", s.value),
+                        Value::Bool(b) => print!("{}", b),
+                        Value::Null => print!("null"),
+                        _ => print!("?"),
+                    }
+                }
+                print!("]");
+            }
+            Value::Map(m) => {
+                print!("{{");
+                for (i, (k, v)) in m.pairs.iter().enumerate() {
+                    if i > 0 {
+                        print!(", ");
+                    }
+                    print!("\"{}\": ", k);
+                    match v {
+                        n @ (Value::Int(_) | Value::Float(_)) => {
+                print!("{}", n.as_number().unwrap())
+            }
+                        Value::String(s) => print!("\"{}\"", s.value),
+                        Value::Bool(b) => print!("{}", b),
+                        Value::Null => print!("null"),
+                        _ => print!("?"),
+                    }
+                }
+                print!("}}");
+            }
+            Value::Struct(s) => {
+                print!("<struct {}>", s.name);
+            }
+            // `Shape::Circle(1.0)` -- the text that would have built it.
+            Value::Enum(_) => print!("{}", value_to_string(arg)),
+            Value::Function(f) => {
+                if let Some(name) = &f.name {
+                    print!("<function {}>", name);
+                } else {
+                    print!("<anonymous function>");
+                }
+            }
+            Value::BuiltInFunction(b) => {
+                print!("<built-in function {}>", b.name());
+            }
+            Value::Tuple(t) => {
+                print!("(");
+                for (i, elem) in t.iter().enumerate() {
+                    if i > 0 {
+                        print!(", ");
+                    }
+                    // Recursively print element - would need proper handling
+                    match elem {
+                        n @ (Value::Int(_) | Value::Float(_)) => {
+                print!("{}", n.as_number().unwrap())
+            }
+                        Value::String(s) => print!("\"{}\"", s.value),
+                        Value::Bool(b) => print!("{}", b),
+                        Value::Null => print!("null"),
+                        _ => print!("?"),
+                    }
+                }
+                print!(")");
+            }
+        }
+    }
+    println!();
+    io::stdout().flush().unwrap();
+}
+
 impl BuiltInFunction {
     /// `None` when the name is not a builtin.
     pub fn new(name: &str) -> Option<Self> {
@@ -1153,93 +1249,7 @@ impl BuiltInFunction {
     }
 
     fn echo(&self, args: Vec<Value>, _call_pos: Position) -> RuntimeResult {
-        if let Some(arg) = args.first() {
-            match arg {
-                n @ (Value::Int(_) | Value::Float(_)) => {
-                    print!("{}", n.as_number().unwrap())
-                }
-                Value::String(s) => print!("{}", s.value),
-                // Not the contents: bytes are usually not text, and printing
-                // them raw would spray control characters at the terminal.
-                // `b as string` is how you ask for the contents.
-                Value::Bytes(b) => print!("<bytes {}>", b.len()),
-                Value::Bool(b) => print!("{}", b),
-                Value::Null => print!("null"),
-                Value::List(l) => {
-                    print!("[");
-                    for (i, elem) in l.elements.iter().enumerate() {
-                        if i > 0 {
-                            print!(", ");
-                        }
-                        match elem {
-                            n @ (Value::Int(_) | Value::Float(_)) => {
-                    print!("{}", n.as_number().unwrap())
-                }
-                            Value::String(s) => print!("\"{}\"", s.value),
-                            Value::Bool(b) => print!("{}", b),
-                            Value::Null => print!("null"),
-                            _ => print!("?"),
-                        }
-                    }
-                    print!("]");
-                }
-                Value::Map(m) => {
-                    print!("{{");
-                    for (i, (k, v)) in m.pairs.iter().enumerate() {
-                        if i > 0 {
-                            print!(", ");
-                        }
-                        print!("\"{}\": ", k);
-                        match v {
-                            n @ (Value::Int(_) | Value::Float(_)) => {
-                    print!("{}", n.as_number().unwrap())
-                }
-                            Value::String(s) => print!("\"{}\"", s.value),
-                            Value::Bool(b) => print!("{}", b),
-                            Value::Null => print!("null"),
-                            _ => print!("?"),
-                        }
-                    }
-                    print!("}}");
-                }
-                Value::Struct(s) => {
-                    print!("<struct {}>", s.name);
-                }
-                // `Shape::Circle(1.0)` -- the text that would have built it.
-                Value::Enum(_) => print!("{}", value_to_string(arg)),
-                Value::Function(f) => {
-                    if let Some(name) = &f.name {
-                        print!("<function {}>", name);
-                    } else {
-                        print!("<anonymous function>");
-                    }
-                }
-                Value::BuiltInFunction(b) => {
-                    print!("<built-in function {}>", b.name());
-                }
-                Value::Tuple(t) => {
-                    print!("(");
-                    for (i, elem) in t.iter().enumerate() {
-                        if i > 0 {
-                            print!(", ");
-                        }
-                        // Recursively print element - would need proper handling
-                        match elem {
-                            n @ (Value::Int(_) | Value::Float(_)) => {
-                    print!("{}", n.as_number().unwrap())
-                }
-                            Value::String(s) => print!("\"{}\"", s.value),
-                            Value::Bool(b) => print!("{}", b),
-                            Value::Null => print!("null"),
-                            _ => print!("?"),
-                        }
-                    }
-                    print!(")");
-                }
-            }
-        }
-        println!();
-        io::stdout().flush().unwrap();
+        echo_line(args.first());
         RuntimeResult::new().success(Value::Null)
     }
 

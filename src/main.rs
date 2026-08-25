@@ -111,6 +111,42 @@ fn run_file(filename: &str) {
     }
 }
 
+/// Prints the bytecode a file compiles to, or why it does not compile.
+///
+/// A register machine cannot be debugged without this. It is not gated on
+/// `XENITH_VM`: seeing the code is useful whether or not it would be run.
+fn dump_bytecode(filename: &str) {
+    let source = match fs::read_to_string(filename) {
+        Ok(source) => source,
+        Err(e) => {
+            eprintln!("Error: Could not read file '{}': {}", filename, e);
+            std::process::exit(1);
+        }
+    };
+
+    let ast = match xenith::check_source_typed(filename, &source) {
+        Ok((errors, _, ast)) if errors.is_empty() => ast,
+        Ok((errors, _, _)) => {
+            for error in &errors {
+                eprintln!("{}", error.as_string_colored());
+            }
+            std::process::exit(1);
+        }
+        Err(fatal) => {
+            eprintln!("{}", fatal.as_string_colored());
+            std::process::exit(1);
+        }
+    };
+
+    match xenith::vm::compile::compile(&ast) {
+        Ok(chunk) => print!("{}", chunk.disassemble()),
+        Err(unsupported) => {
+            println!("not compiled: {}", unsupported.what);
+            println!("this file runs on the tree walker");
+        }
+    }
+}
+
 /// The interpreter recurses on the Rust stack, so Xenith recursion depth is
 /// bounded by it. The default 8 MB main-thread stack runs out at roughly 1,200
 /// frames; running on a dedicated large stack leaves plenty of headroom under
@@ -124,7 +160,9 @@ fn main() {
         .name("xenith".to_string())
         .stack_size(INTERPRETER_STACK_SIZE)
         .spawn(move || {
-            if args.len() > 1 {
+            if args.len() == 3 && args[1] == "--dump-bytecode" {
+                dump_bytecode(&args[2]);
+            } else if args.len() > 1 {
                 run_file(&args[1]);
             } else if let Err(e) = run_repl() {
                 eprintln!("REPL error: {}", e);

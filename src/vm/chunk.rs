@@ -81,12 +81,16 @@ pub struct Chunk {
     /// The frame size this chunk needs: the high-water mark of register use.
     pub registers: u16,
     /// Sparse and sorted by instruction index. An entry is recorded only where
-    /// the position changes.
+    /// the span changes.
+    ///
+    /// Both ends, not just the start: the tree walker underlines the whole
+    /// expression a trap came from, and a report that underlined one character
+    /// would not be byte-identical to it.
     ///
     /// A parallel array was rejected: at 56 bytes per `Position`, a 10,000
     /// instruction chunk would carry 560KB of them, on the hot path, to serve
     /// the rare case of a trap firing.
-    pub positions: Vec<(Addr, Position)>,
+    pub positions: Vec<(Addr, Position, Position)>,
 }
 
 impl Chunk {
@@ -116,32 +120,36 @@ impl Chunk {
         (self.constants.len() - 1) as ConstIdx
     }
 
-    /// Records where an instruction came from, if it differs from the last
+    /// Records the span an instruction came from, if it differs from the last
     /// entry. Sparse by construction.
-    pub fn record_position(&mut self, at: Addr, position: &Position) {
-        if let Some((_, last)) = self.positions.last() {
-            if last.index == position.index && last.file_name == position.file_name {
+    pub fn record_position(&mut self, at: Addr, start: &Position, end: &Position) {
+        if let Some((_, last_start, last_end)) = self.positions.last() {
+            if last_start.index == start.index
+                && last_end.index == end.index
+                && last_start.file_name == start.file_name
+            {
                 return;
             }
         }
-        self.positions.push((at, position.clone()));
+        self.positions.push((at, start.clone(), end.clone()));
     }
 
-    /// The position of the instruction at `at`, or the nearest one before it.
+    /// The span of the instruction at `at`, or the nearest one before it.
     ///
     /// Binary search over a sparse table, run only when a trap fires.
-    pub fn position_at(&self, at: Addr) -> Option<&Position> {
+    pub fn position_at(&self, at: Addr) -> Option<(&Position, &Position)> {
         if self.positions.is_empty() {
             return None;
         }
-        let found = match self.positions.binary_search_by_key(&at, |(addr, _)| *addr) {
+        let found = match self.positions.binary_search_by_key(&at, |(addr, _, _)| *addr) {
             Ok(exact) => exact,
-            // `Err(0)` means the trap is before the first recorded position,
-            // which cannot happen for a chunk built by the compiler but is
-            // handled rather than panicking.
+            // `Err(0)` means the trap is before the first recorded span, which
+            // cannot happen for a chunk built by the compiler but is handled
+            // rather than panicking.
             Err(0) => return None,
             Err(after) => after - 1,
         };
-        Some(&self.positions[found].1)
+        let (_, start, end) = &self.positions[found];
+        Some((start, end))
     }
 }

@@ -24,6 +24,8 @@ pub fn execute(chunk: &Chunk) -> Result<Value, Error> {
             return Err(internal(chunk, ip, "ran past the end of the chunk"));
         };
         ip += 1;
+        // The address of the instruction now running, for a trap's span.
+        let at = ip - 1;
 
         match *instr {
             Instr::LoadConst { dst, k } => {
@@ -43,37 +45,77 @@ pub fn execute(chunk: &Chunk) -> Result<Value, Error> {
                 return Ok(registers[src as usize].clone());
             }
 
-            Instr::Add { dst, a, b } => binary(&mut registers, dst, a, b, Value::add)?,
-            Instr::Sub { dst, a, b } => binary(&mut registers, dst, a, b, Value::subtract)?,
-            Instr::Mul { dst, a, b } => binary(&mut registers, dst, a, b, Value::multiply)?,
-            Instr::Div { dst, a, b } => binary(&mut registers, dst, a, b, Value::divide)?,
-            Instr::Rem { dst, a, b } => binary(&mut registers, dst, a, b, Value::modulo)?,
-            Instr::Pow { dst, a, b } => binary(&mut registers, dst, a, b, Value::power)?,
-            Instr::Eq { dst, a, b } => binary(&mut registers, dst, a, b, Value::equals)?,
-            Instr::Ne { dst, a, b } => binary(&mut registers, dst, a, b, Value::not_equals)?,
-            Instr::Lt { dst, a, b } => binary(&mut registers, dst, a, b, Value::less_than)?,
-            Instr::Gt { dst, a, b } => binary(&mut registers, dst, a, b, Value::greater_than)?,
+            Instr::Add { dst, a, b } => binary(&mut registers, dst, a, b, Value::add, chunk, at)?,
+            Instr::Sub { dst, a, b } => binary(&mut registers, dst, a, b, Value::subtract, chunk, at)?,
+            Instr::Mul { dst, a, b } => binary(&mut registers, dst, a, b, Value::multiply, chunk, at)?,
+            Instr::Div { dst, a, b } => {
+                // `visit_binary_op` checks for a zero divisor before calling
+                // `Value::divide`, and reports a fuller XEN003 than `divide`'s
+                // own zero branch does -- with a note and a help line. The
+                // check is not inside `divide` because other callers depend on
+                // the barer error, so the VM makes the same check rather than
+                // moving it, and the two reports stay byte-identical.
+                if let (Some(_), Some(divisor)) = (
+                    registers[a as usize].as_number(),
+                    registers[b as usize].as_number(),
+                ) {
+                    if divisor.is_zero() {
+                        return Err(with_position(
+                            Error::division_by_zero(
+                                crate::position::Position::dummy(),
+                                crate::position::Position::dummy(),
+                            ),
+                            chunk,
+                            at,
+                        ));
+                    }
+                }
+                binary(&mut registers, dst, a, b, Value::divide, chunk, at)?
+            }
+            Instr::Rem { dst, a, b } => binary(&mut registers, dst, a, b, Value::modulo, chunk, at)?,
+            Instr::Pow { dst, a, b } => binary(&mut registers, dst, a, b, Value::power, chunk, at)?,
+            Instr::Eq { dst, a, b } => binary(&mut registers, dst, a, b, Value::equals, chunk, at)?,
+            Instr::Ne { dst, a, b } => binary(&mut registers, dst, a, b, Value::not_equals, chunk, at)?,
+            Instr::Lt { dst, a, b } => binary(&mut registers, dst, a, b, Value::less_than, chunk, at)?,
+            Instr::Gt { dst, a, b } => binary(&mut registers, dst, a, b, Value::greater_than, chunk, at)?,
             Instr::Le { dst, a, b } => {
-                binary(&mut registers, dst, a, b, Value::less_than_or_equal)?
+                binary(&mut registers, dst, a, b, Value::less_than_or_equal, chunk, at)?
             }
             Instr::Ge { dst, a, b } => {
-                binary(&mut registers, dst, a, b, Value::greater_than_or_equal)?
+                binary(&mut registers, dst, a, b, Value::greater_than_or_equal, chunk, at)?
             }
 
             Instr::Neg { dst, src } => {
-                registers[dst as usize] = registers[src as usize].negative()?;
+                registers[dst as usize] = registers[src as usize]
+                    .negative()
+                    .map_err(|e| with_position(e, chunk, at))?;
             }
             Instr::Not { dst, src } => {
-                registers[dst as usize] = registers[src as usize].logical_not()?;
+                registers[dst as usize] = registers[src as usize]
+                    .logical_not()
+                    .map_err(|e| with_position(e, chunk, at))?;
             }
 
-            // Task 5 adds the operators, task 7 `Echo`, tasks 8-10 the jumps.
-            other => {
-                return Err(internal(
-                    chunk,
-                    ip - 1,
-                    &format!("{:?} is not implemented", other),
-                ));
+            Instr::Echo { src } => {
+                // `BuiltInFunction::echo` calls this same function. It is not
+                // `utils::value_to_string`: `echo` has its own formatting
+                // rules, and a second implementation of them would diverge on
+                // the first nested list the differential harness met.
+                crate::values::echo_line(Some(&registers[src as usize]));
+            }
+
+            Instr::Jump { to } => {
+                ip = to as usize;
+            }
+            Instr::JumpIfFalse { cond, to } => {
+                if !registers[cond as usize].is_true() {
+                    ip = to as usize;
+                }
+            }
+            Instr::JumpIfTrue { cond, to } => {
+                if registers[cond as usize].is_true() {
+                    ip = to as usize;
+                }
             }
         }
     }
@@ -91,11 +133,34 @@ fn binary(
     a: u8,
     b: u8,
     op: fn(&Value, &Value) -> Result<Value, Error>,
+    chunk: &Chunk,
+    at: usize,
 ) -> Result<(), Error> {
     let left = registers[a as usize].clone();
     let right = registers[b as usize].clone();
-    registers[dst as usize] = op(&left, &right)?;
-    Ok(())
+    match op(&left, &right) {
+        Ok(value) => {
+            registers[dst as usize] = value;
+            Ok(())
+        }
+        Err(error) => Err(with_position(error, chunk, at)),
+    }
+}
+
+/// Gives a positionless error the span of the instruction that raised it.
+///
+/// The same rule `visit_binary_op` applies, and deliberately the same
+/// condition: the value-level operations in `src/values.rs` build their errors
+/// with a dummy position, and only those get overwritten. An error that
+/// already knows where it came from keeps its own span.
+fn with_position(mut error: Error, chunk: &Chunk, at: usize) -> Error {
+    if error.position_start.index == 0 && error.position_end.index == 0 {
+        if let Some((start, end)) = chunk.position_at(at as u32) {
+            error.position_start = start.clone();
+            error.position_end = end.clone();
+        }
+    }
+    error
 }
 
 /// A VM bug, not a program error.
@@ -103,14 +168,17 @@ fn binary(
 /// Given a position from the chunk where there is one, so the report at least
 /// points at the source line that produced the bad instruction.
 fn internal(chunk: &Chunk, at: usize, detail: &str) -> Error {
-    let position = chunk
-        .position_at(at as u32)
-        .cloned()
-        .unwrap_or_else(|| crate::position::Position::new(0, 0, 0, "<vm>", ""));
+    let (start, end) = match chunk.position_at(at as u32) {
+        Some((start, end)) => (start.clone(), end.clone()),
+        None => {
+            let dummy = crate::position::Position::new(0, 0, 0, "<vm>", "");
+            (dummy.clone(), dummy)
+        }
+    };
 
     Error::new(
-        position.clone(),
-        position,
+        start,
+        end,
         "Internal Error",
         &format!("bytecode: {}", detail),
     )

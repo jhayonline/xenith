@@ -40,10 +40,13 @@ pub fn compile(ast: &Node) -> Result<Chunk, Unsupported> {
         chunk: Chunk::new(),
         reg_top: 0,
         high_water: 0,
+        locals: Vec::new(),
+        depth: 0,
+        loops: Vec::new(),
     };
 
     let value = compiler.program(ast)?;
-    compiler.emit(Instr::Halt { src: value }, ast.position_start());
+    compiler.emit(Instr::Halt { src: value }, ast.position_start(), ast.position_end());
 
     // Read before the move: taking `compiler.chunk` partially moves
     // `compiler`, and `high_water` cannot be read afterwards.
@@ -53,6 +56,32 @@ pub fn compile(ast: &Node) -> Result<Chunk, Unsupported> {
     Ok(chunk)
 }
 
+/// One enclosing loop, for `break` and `continue` to find.
+struct LoopContext {
+    /// Where the body jumps back to at the end of a pass.
+    start: Addr,
+    /// Where `continue` goes. The condition for a `while`; the step for a
+    /// classic `for`, because skipping the step would never advance the
+    /// induction variable and the loop would not terminate.
+    continue_to: Addr,
+    /// Jumps out, patched to just past the loop when it closes.
+    breaks: Vec<Addr>,
+    /// Scope depth outside the loop body, so a `break` from inside a nested
+    /// `when` still knows how far to unwind. Nothing reads it until phase 4,
+    /// where closing upvalues will need it.
+    #[allow(dead_code)]
+    depth: usize,
+}
+
+/// A local binding, resolved to a register at compile time.
+struct Local {
+    name: String,
+    reg: Reg,
+    /// Scope nesting depth, so `end_scope` knows which to drop.
+    depth: usize,
+    is_constant: bool,
+}
+
 struct Compiler {
     chunk: Chunk,
     /// Next free register. Locals sit below it permanently; temporaries above
@@ -60,6 +89,9 @@ struct Compiler {
     reg_top: u16,
     /// The largest `reg_top` ever reached, which is the frame size.
     high_water: u16,
+    locals: Vec<Local>,
+    depth: usize,
+    loops: Vec<LoopContext>,
 }
 
 impl Compiler {
@@ -76,18 +108,78 @@ impl Compiler {
         Ok(reg)
     }
 
+    /// The innermost binding of a name, or `None`.
+    ///
+    /// Searched from the end so an inner scope shadows an outer one, which is
+    /// the same order `SymbolTable` walks -- except that this happens once, at
+    /// compile time, rather than on every read.
+    fn resolve(&self, name: &str) -> Option<&Local> {
+        self.locals.iter().rev().find(|local| local.name == name)
+    }
+
+    fn begin_scope(&mut self) {
+        self.depth += 1;
+    }
+
+    /// Drops the bindings this scope introduced, and frees their registers.
+    fn end_scope(&mut self) {
+        while let Some(last) = self.locals.last() {
+            if last.depth < self.depth {
+                break;
+            }
+            let reg = last.reg;
+            self.locals.pop();
+            // Registers are handed out in order, so the last local always
+            // holds the highest register and this stays a simple decrement.
+            self.reg_top = reg as u16;
+        }
+        self.depth -= 1;
+    }
+
     /// Gives back every register above `mark`.
     ///
     /// Called at the end of each statement, which is what keeps a long
     /// function from needing one register per subexpression it ever
     /// evaluates.
+    /// The first register no live local occupies.
+    ///
+    /// Locals are handed out in declaration order and never move, so the last
+    /// one holds the highest register. A statement's temporaries must be
+    /// released down to here and no further: releasing to a bare statement
+    /// mark would hand a local's register back, and the next statement would
+    /// overwrite the binding.
+    fn locals_floor(&self) -> u16 {
+        self.locals.last().map_or(0, |local| local.reg as u16 + 1)
+    }
+
     fn free_to(&mut self, mark: u16) {
         self.reg_top = mark;
     }
 
-    fn emit(&mut self, instr: Instr, position: &Position) -> Addr {
+    /// Emits a jump whose target is not known yet, and returns its address so
+    /// [`patch`] can fill it in.
+    fn emit_jump(&mut self, instr: Instr, start: &Position, end: &Position) -> Addr {
+        self.emit(instr, start, end)
+    }
+
+    /// Points a previously emitted jump at the next instruction to be emitted.
+    fn patch(&mut self, at: Addr) {
+        let target = self.chunk.code.len() as Addr;
+        match &mut self.chunk.code[at as usize] {
+            Instr::Jump { to } | Instr::JumpIfFalse { to, .. } | Instr::JumpIfTrue { to, .. } => {
+                *to = target;
+            }
+            other => unreachable!("patched a {:?}, which is not a jump", other),
+        }
+    }
+
+    /// Appends an instruction and records the source span it came from.
+    ///
+    /// Both ends, because a trap's caret must underline the whole expression,
+    /// exactly as `visit_binary_op` makes it.
+    fn emit(&mut self, instr: Instr, start: &Position, end: &Position) -> Addr {
         let at = self.chunk.push(instr);
-        self.chunk.record_position(at, position);
+        self.chunk.record_position(at, start, end);
         at
     }
 
@@ -96,21 +188,27 @@ impl Compiler {
         let Node::List(statements) = ast else {
             return Err(Unsupported::new("a top level that is not a statement list"));
         };
+        self.block(statements)
+    }
 
+    /// A statement list: the top level, or the body of a `when` or a loop.
+    ///
+    /// Its value is the last statement's. Only that one survives -- releasing
+    /// to the mark and re-allocating hands back the same register, so keeping
+    /// an earlier statement's value would mean the next statement overwrote
+    /// the very thing being held.
+    fn block(&mut self, n: &crate::nodes::ListNode) -> Result<Reg, Unsupported> {
         let mut last: Option<Reg> = None;
-        let count = statements.element_nodes.len();
+        let count = n.element_nodes.len();
 
-        for (i, statement) in statements.element_nodes.iter().enumerate() {
+        for (i, statement) in n.element_nodes.iter().enumerate() {
             let mark = self.reg_top;
             let reg = self.stmt(statement)?;
 
-            // Only the last statement's value survives -- it is the chunk's
-            // value. Every earlier one is released with its temporaries.
-            //
-            // Keeping an intermediate value would be wrong as well as
-            // wasteful: releasing to `mark` and re-allocating hands back the
-            // same register, so the next statement would overwrite the very
-            // value being held.
+            // A `let` inside this statement took a register permanently, so
+            // the mark it started from is now below the locals.
+            let mark = mark.max(self.locals_floor());
+
             if i + 1 != count {
                 self.free_to(mark);
                 continue;
@@ -123,7 +221,10 @@ impl Compiler {
                     self.free_to(mark);
                     let kept = self.alloc()?;
                     if kept != reg {
-                        self.emit(Instr::Move { dst: kept, src: reg }, statement.position_start());
+                        self.emit(
+                            Instr::Move { dst: kept, src: reg },
+                            statement.position_start(), statement.position_end(),
+                        );
                     }
                     Some(kept)
                 }
@@ -137,10 +238,52 @@ impl Compiler {
         match last {
             Some(reg) => Ok(reg),
             None => {
-                let reg = self.alloc()?;
-                self.emit(Instr::LoadNull { dst: reg }, ast.position_start());
-                Ok(reg)
+                let dst = self.alloc()?;
+                self.emit(Instr::LoadNull { dst }, &n.position_start, &n.position_end);
+                Ok(dst)
             }
+        }
+    }
+
+    /// A body whose value is discarded, as a loop body's is.
+    ///
+    /// `block` ends by moving the last statement's value somewhere it will
+    /// survive. In a loop that move runs on every pass to produce a value
+    /// nothing can read, so the loop compiles its body through this instead.
+    fn body_for_effect(&mut self, node: &Node) -> Result<(), Unsupported> {
+        let statements = match node {
+            Node::List(n) => &n.element_nodes,
+            other => return self.stmt(other).map(|_| ()),
+        };
+
+        for statement in statements {
+            let mark = self.reg_top;
+            self.stmt(statement)?;
+            // A `let` in the body took a register permanently.
+            self.free_to(mark.max(self.locals_floor()));
+        }
+        Ok(())
+    }
+
+    /// The body of a `when` or a loop: a braced block, or a single statement.
+    ///
+    /// `statements()` in the parser builds a plain `ListNode` for a block --
+    /// the same node a list literal uses, with no flag telling them apart. The
+    /// call site is the discriminator instead of the contents: a body is
+    /// reached only from `block()` or `statement()` in the parser, and a
+    /// braceless body cannot be a bare list literal, because `when c [1, 2]`
+    /// reads as an index on `c` rather than a condition and a body.
+    fn body(&mut self, node: &Node) -> Result<Reg, Unsupported> {
+        match node {
+            Node::List(n) => self.block(n),
+            other => match self.stmt(other)? {
+                Some(reg) => Ok(reg),
+                None => {
+                    let dst = self.alloc()?;
+                    self.emit(Instr::LoadNull { dst }, other.position_start(), other.position_end());
+                    Ok(dst)
+                }
+            },
         }
     }
 
@@ -157,6 +300,30 @@ impl Compiler {
             Node::EnumDef(_) => Err(Unsupported::new("an enum declaration")),
             Node::TypeAlias(_) => Err(Unsupported::new("a type alias")),
             Node::Return(_) => Err(Unsupported::new("release outside a method")),
+            Node::VarAssign(n) => self.var_assign(n).map(Some),
+            Node::Break(n) => {
+                let Some(context) = self.loops.last() else {
+                    return Err(Unsupported::new("break outside a loop"));
+                };
+                let _ = context;
+                let jump = self.emit_jump(Instr::Jump { to: 0 }, &n.position_start, &n.position_end);
+                self.loops
+                    .last_mut()
+                    .expect("checked above")
+                    .breaks
+                    .push(jump);
+                Ok(None)
+            }
+
+            Node::Continue(n) => {
+                let Some(context) = self.loops.last() else {
+                    return Err(Unsupported::new("continue outside a loop"));
+                };
+                let target = context.continue_to;
+                self.emit(Instr::Jump { to: target }, &n.position_start, &n.position_end);
+                Ok(None)
+            }
+
             other => self.expr(other).map(Some),
         }
     }
@@ -191,7 +358,7 @@ impl Compiler {
 
                 let dst = self.alloc()?;
                 let k = self.chunk.add_constant(value);
-                self.emit(Instr::LoadConst { dst, k }, &n.position_start);
+                self.emit(Instr::LoadConst { dst, k }, &n.position_start, &n.position_end);
                 Ok(dst)
             }
 
@@ -203,7 +370,7 @@ impl Compiler {
                     .ok_or_else(|| Unsupported::new("a string with no text"))?;
                 let dst = self.alloc()?;
                 let k = self.chunk.add_constant(Value::string(&text));
-                self.emit(Instr::LoadConst { dst, k }, &n.position_start);
+                self.emit(Instr::LoadConst { dst, k }, &n.position_start, &n.position_end);
                 Ok(dst)
             }
 
@@ -214,14 +381,181 @@ impl Compiler {
                         dst,
                         value: n.value,
                     },
-                    &n.position_start,
+                    &n.position_start, &n.position_end,
                 );
                 Ok(dst)
             }
 
             Node::NullLiteral(n) => {
                 let dst = self.alloc()?;
-                self.emit(Instr::LoadNull { dst }, &n.position_start);
+                self.emit(Instr::LoadNull { dst }, &n.position_start, &n.position_end);
+                Ok(dst)
+            }
+
+            Node::If(n) => {
+                // Every branch writes its value to the same register, so the
+                // whole `when` is one value however many arms it has. That is
+                // what makes `let label = when ... ` work.
+                let result = self.alloc()?;
+                let mut to_end: Vec<Addr> = Vec::new();
+
+                for (condition, body) in &n.cases {
+                    let mark = self.reg_top;
+                    let cond = self.expr(condition)?;
+                    let skip = self.emit_jump(
+                        Instr::JumpIfFalse { cond, to: 0 },
+                        condition.position_start(), condition.position_end(),
+                    );
+                    self.free_to(mark);
+
+                    self.begin_scope();
+                    let value = self.body(body)?;
+                    self.emit(Instr::Move { dst: result, src: value }, body.position_start(), body.position_end());
+                    self.end_scope();
+                    self.free_to(mark);
+
+                    to_end.push(self.emit_jump(Instr::Jump { to: 0 }, body.position_start(), body.position_end()));
+                    self.patch(skip);
+                }
+
+                match &n.else_case {
+                    Some((body, _)) => {
+                        let mark = self.reg_top;
+                        self.begin_scope();
+                        let value = self.body(body)?;
+                        self.emit(Instr::Move { dst: result, src: value }, body.position_start(), body.position_end());
+                        self.end_scope();
+                        self.free_to(mark);
+                    }
+                    None => {
+                        // A `when` with no matching arm is null, as it is today.
+                        self.emit(Instr::LoadNull { dst: result }, &n.position_start, &n.position_end);
+                    }
+                }
+
+                for jump in to_end {
+                    self.patch(jump);
+                }
+
+                Ok(result)
+            }
+
+            Node::While(n) => {
+                let mark = self.reg_top;
+
+                // Where `continue` goes and where the body jumps back to.
+                let start = self.chunk.code.len() as Addr;
+
+                let cond = self.expr(&n.condition_node)?;
+                let exit = self.emit_jump(
+                    Instr::JumpIfFalse { cond, to: 0 },
+                    n.condition_node.position_start(),
+                    n.condition_node.position_end(),
+                );
+                self.free_to(mark);
+
+                self.loops.push(LoopContext {
+                    start,
+                    continue_to: start,
+                    breaks: Vec::new(),
+                    depth: self.depth,
+                });
+
+                self.begin_scope();
+                self.body_for_effect(&n.body_node)?;
+                self.end_scope();
+                self.free_to(mark);
+
+                self.emit(Instr::Jump { to: start }, &n.position_start, &n.position_end);
+                self.patch(exit);
+
+                let context = self.loops.pop().expect("pushed above");
+                for jump in context.breaks {
+                    self.patch(jump);
+                }
+
+                // A loop is a statement, not an expression: it evaluates to
+                // null. The tree walker returns null here too -- it used to
+                // collect every iteration's value into a Vec, which nothing
+                // could read, and that was removed.
+                let dst = self.alloc()?;
+                self.emit(Instr::LoadNull { dst }, &n.position_start, &n.position_end);
+                Ok(dst)
+            }
+
+            Node::ForClassic(n) => {
+                // A scope around the whole loop, so `let i` in the init is
+                // local to it.
+                self.begin_scope();
+                let mark = self.reg_top;
+
+                if let Some(init) = &n.init_node {
+                    let init_mark = self.reg_top;
+                    self.stmt(init)?;
+                    // A `let` in the init keeps its register; anything else
+                    // was a temporary.
+                    if !matches!(&**init, Node::VarAssign(assign) if assign.is_declaration) {
+                        self.free_to(init_mark);
+                    }
+                }
+
+                // The step is emitted first, jumped over on the way in, and
+                // jumped back to from the end of the body. That gives
+                // `continue` a fixed address to aim at without a second pass.
+                let enter = self.emit_jump(Instr::Jump { to: 0 }, &n.position_start, &n.position_end);
+
+                let step_at = self.chunk.code.len() as Addr;
+                if let Some(step) = &n.step_node {
+                    let step_mark = self.reg_top;
+                    self.stmt(step)?;
+                    self.free_to(step_mark);
+                }
+
+                self.patch(enter);
+
+                let exit = match &n.condition_node {
+                    Some(condition) => {
+                        let cond_mark = self.reg_top;
+                        let cond = self.expr(condition)?;
+                        let jump = self.emit_jump(
+                            Instr::JumpIfFalse { cond, to: 0 },
+                            condition.position_start(), condition.position_end(),
+                        );
+                        self.free_to(cond_mark);
+                        Some(jump)
+                    }
+                    // `for (;;)` runs until a `break`.
+                    None => None,
+                };
+
+                self.loops.push(LoopContext {
+                    start: step_at,
+                    continue_to: step_at,
+                    breaks: Vec::new(),
+                    depth: self.depth,
+                });
+
+                self.begin_scope();
+                self.body_for_effect(&n.body_node)?;
+                self.end_scope();
+                // `mark` is below the init's `let`, which the loop still needs.
+                self.free_to(mark.max(self.locals_floor()));
+
+                self.emit(Instr::Jump { to: step_at }, &n.position_start, &n.position_end);
+
+                if let Some(exit) = exit {
+                    self.patch(exit);
+                }
+
+                let context = self.loops.pop().expect("pushed above");
+                for jump in context.breaks {
+                    self.patch(jump);
+                }
+
+                self.end_scope();
+
+                let dst = self.alloc()?;
+                self.emit(Instr::LoadNull { dst }, &n.position_start, &n.position_end);
                 Ok(dst)
             }
 
@@ -229,19 +563,99 @@ impl Compiler {
             Node::Map(_) => Err(Unsupported::new("a map literal")),
             Node::TupleLiteral(_) => Err(Unsupported::new("a tuple literal")),
             Node::InterpolatedString(_) => Err(Unsupported::new("string interpolation")),
-            Node::Call(_) => Err(Unsupported::new("a call")),
+            Node::Call(n) => {
+                // The only call phase 3 knows. Everything else -- including a
+                // local shadowing the name `echo` -- goes to the tree walker.
+                let Node::VarAccess(callee) = &*n.node_to_call else {
+                    return Err(Unsupported::new("a call to an expression"));
+                };
+                let name = callee.variable_name_token.value.as_deref().unwrap_or("");
+                if name != "echo" {
+                    return Err(Unsupported::new("a call to something other than echo"));
+                }
+                if self.resolve(name).is_some() {
+                    return Err(Unsupported::new("a call to a shadowed echo"));
+                }
+                if n.argument_nodes.len() != 1 {
+                    // `echo()` with no argument prints a blank line in the
+                    // tree walker. Rather than reimplement that here, it is
+                    // left to the tree walker.
+                    return Err(Unsupported::new("echo with other than one argument"));
+                }
+
+                let mark = self.reg_top;
+                let src = self.expr(&n.argument_nodes[0])?;
+                self.emit(Instr::Echo { src }, &n.position_start, &n.position_end);
+                self.free_to(mark);
+
+                // `echo` evaluates to null, as it does today.
+                let dst = self.alloc()?;
+                self.emit(Instr::LoadNull { dst }, &n.position_start, &n.position_end);
+                Ok(dst)
+            }
             Node::Match(_) => Err(Unsupported::new("a match")),
-            Node::VarAccess(_) => Err(Unsupported::new("a name")),
+            Node::VarAccess(n) => {
+                let name = n
+                    .variable_name_token
+                    .value
+                    .as_deref()
+                    .ok_or_else(|| Unsupported::new("a name with no text"))?;
+
+                // Not a local: it is a builtin, a global, or undefined. Phase
+                // 3 has none of those, so the tree walker takes it -- which
+                // also means it, not the VM, reports an undefined name, with
+                // the message it always used.
+                let Some(local) = self.resolve(name) else {
+                    return Err(Unsupported::new("a name that is not a local"));
+                };
+
+                let src = local.reg;
+                let dst = self.alloc()?;
+                self.emit(Instr::Move { dst, src }, &n.position_start, &n.position_end);
+                Ok(dst)
+            }
             Node::BinaryOperator(n) => {
                 use crate::tokens::TokenType;
 
                 // `&&` and `||` are not these. They must not evaluate their
                 // right side unless the left says to, so they are jumps, and
                 // they wait for task 8.
-                if n.operator_token.matches(TokenType::Keyword, Some("&&"))
-                    || n.operator_token.matches(TokenType::Keyword, Some("||"))
-                {
-                    return Err(Unsupported::new("a short-circuiting operator"));
+                let is_and = n.operator_token.matches(TokenType::Keyword, Some("&&"));
+                let is_or = n.operator_token.matches(TokenType::Keyword, Some("||"));
+
+                if is_and || is_or {
+                    // The result is the *truthiness* of whichever side decided
+                    // it, as a bool -- which is what the tree walker returns:
+                    // `Value::Bool(is_or)` on a short circuit, and
+                    // `Value::Bool(right.is_true())` otherwise.
+                    let mark = self.reg_top;
+                    let result = self.alloc()?;
+
+                    let left = self.expr(&n.left_node)?;
+                    self.emit(Instr::Not { dst: result, src: left }, &n.position_start, &n.position_end);
+                    self.emit(Instr::Not { dst: result, src: result }, &n.position_start, &n.position_end);
+
+                    let decided = if is_and {
+                        self.emit_jump(
+                            Instr::JumpIfFalse { cond: result, to: 0 },
+                            &n.position_start, &n.position_end,
+                        )
+                    } else {
+                        self.emit_jump(
+                            Instr::JumpIfTrue { cond: result, to: 0 },
+                            &n.position_start, &n.position_end,
+                        )
+                    };
+
+                    let right = self.expr(&n.right_node)?;
+                    self.emit(Instr::Not { dst: result, src: right }, &n.position_start, &n.position_end);
+                    self.emit(Instr::Not { dst: result, src: result }, &n.position_start, &n.position_end);
+
+                    self.patch(decided);
+                    // `result` sits at `mark`, and everything above it was
+                    // scratch for the two sides.
+                    self.free_to(mark + 1);
+                    return Ok(result);
                 }
 
                 // `x = v` is an assignment wearing an operator's clothes; the
@@ -276,7 +690,7 @@ impl Compiler {
                     _ => return Err(Unsupported::new("this operator")),
                 };
 
-                self.emit(instr, &n.position_start);
+                self.emit(instr, &n.position_start, &n.position_end);
                 Ok(dst)
             }
 
@@ -296,7 +710,7 @@ impl Compiler {
                     return Err(Unsupported::new("this unary operator"));
                 };
 
-                self.emit(instr, &n.position_start);
+                self.emit(instr, &n.position_start, &n.position_end);
                 Ok(dst)
             }
 
@@ -305,6 +719,54 @@ impl Compiler {
                 node_label(other)
             ))),
         }
+    }
+
+    /// `let x: int = 1`, and `x = 2`.
+    ///
+    /// A declaration takes the next register permanently. A reassignment
+    /// writes the register the declaration took.
+    fn var_assign(&mut self, n: &crate::nodes::VarAssignNode) -> Result<Reg, Unsupported> {
+        let name = n
+            .variable_name_token
+            .value
+            .clone()
+            .ok_or_else(|| Unsupported::new("a binding with no name"))?;
+
+        let mark = self.reg_top;
+        let value = self.expr(&n.value_node)?;
+
+        if n.is_declaration {
+            // A redeclaration in the same scope shadows, which is what the
+            // symbol table does today. A new register, not a reuse.
+            self.free_to(mark);
+            let reg = self.alloc()?;
+            if reg != value {
+                self.emit(Instr::Move { dst: reg, src: value }, &n.position_start, &n.position_end);
+            }
+            self.locals.push(Local {
+                name,
+                reg,
+                depth: self.depth,
+                is_constant: n.is_constant,
+            });
+            return Ok(reg);
+        }
+
+        let Some(local) = self.resolve(&name) else {
+            return Err(Unsupported::new("an assignment to an unknown name"));
+        };
+
+        if local.is_constant {
+            // XEN010 territory. The checker reports it and so does the tree
+            // walker; the VM must not be the one to decide, or the message
+            // would have to be duplicated.
+            return Err(Unsupported::new("an assignment to a constant"));
+        }
+
+        let dst = local.reg;
+        self.emit(Instr::Move { dst, src: value }, &n.position_start, &n.position_end);
+        self.free_to(mark);
+        Ok(dst)
     }
 }
 

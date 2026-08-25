@@ -1,0 +1,10 @@
+# The benchmark docs/internals/10-performance.md measures, and the one the
+# bytecode VM's phase 3 target is stated against. 400,000 iterations, the
+# figure the 1,192M instruction baseline was taken at.
+let i: int = 0
+let total: int = 0
+while i < 400000 {
+    total = total + i
+    i = i + 1
+}
+echo(total)
