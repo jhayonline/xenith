@@ -23,5 +23,5 @@ use crate::values::Value;
 /// caller should run the tree walker. It is not a failure.
 pub fn compile_and_run(ast: &Node) -> Option<Result<Value, Error>> {
     let chunk = compile::compile(ast).ok()?;
-    Some(run::execute(&chunk))
+    Some(run::execute(std::rc::Rc::new(chunk)))
 }
