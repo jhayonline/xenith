@@ -415,3 +415,31 @@ fn an_upvalue_table_is_printed_only_when_there_is_one() {
         .disassemble()
         .contains("upvalues:\n  u0  parent local r3\n  u1  parent upvalue u1\n"));
 }
+
+#[test]
+fn the_calling_instructions_disassemble() {
+    let mut chunk = Chunk::new();
+    chunk.push(Instr::Closure { dst: 0, proto: 0 });
+    chunk.push(Instr::GetUpval { dst: 1, idx: 2 });
+    chunk.push(Instr::SetUpval { idx: 2, src: 1 });
+    chunk.push(Instr::Call { dst: 0, callee: 0, argc: 2 });
+    chunk.push(Instr::CloseUpvals { from: 3 });
+    chunk.push(Instr::Ret { src: 0 });
+    chunk.registers = 4;
+
+    assert_eq!(
+        chunk.disassemble(),
+        "\
+constants:
+  (none)
+registers: 4
+code:
+  0000  CLOSURE      r0, p0
+  0001  GET_UPVAL    r1, u2
+  0002  SET_UPVAL    u2, r1
+  0003  CALL         r0, r0, 2
+  0004  CLOSE_UPVALS r3
+  0005  RET          r0
+"
+    );
+}

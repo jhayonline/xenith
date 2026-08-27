@@ -111,6 +111,12 @@ fn describe(instr: &Instr) -> String {
 
         Instr::Closure { dst, proto } => format!("{:<12} r{}, p{}", "CLOSURE", dst, proto),
         Instr::Ret { src } => format!("{:<12} r{}", "RET", src),
+        Instr::Call { dst, callee, argc } => {
+            format!("{:<12} r{}, r{}, {}", "CALL", dst, callee, argc)
+        }
+        Instr::GetUpval { dst, idx } => format!("{:<12} r{}, u{}", "GET_UPVAL", dst, idx),
+        Instr::SetUpval { idx, src } => format!("{:<12} u{}, r{}", "SET_UPVAL", idx, src),
+        Instr::CloseUpvals { from } => format!("{:<12} r{}", "CLOSE_UPVALS", from),
 
         Instr::Echo { src } => format!("{:<12} r{}", "ECHO", src),
         Instr::Halt { src } => format!("{:<12} r{}", "HALT", src),

@@ -78,6 +78,28 @@ pub enum Instr {
     /// Returns `src` to the caller. The top level ends in `Halt` instead.
     Ret { src: Reg },
 
+    /// `dst = callee(callee+1 ..= callee+argc)`.
+    ///
+    /// The callee sits in `callee` and its arguments in the registers
+    /// immediately above it, and the callee's frame begins at `callee + 1` --
+    /// so the arguments already *are* the callee's parameters and a call
+    /// copies nothing. The result is written to `dst` once the callee
+    /// returns, which is always `callee` as the compiler emits it; the field
+    /// is kept because a future direct-to-destination call is then a compiler
+    /// change and not an instruction change.
+    Call { dst: Reg, callee: Reg, argc: u8 },
+
+    /// `dst = upvalues[idx]`
+    GetUpval { dst: Reg, idx: u8 },
+    /// `upvalues[idx] = src`
+    SetUpval { idx: u8, src: Reg },
+    /// Closes every open upvalue watching `from` or above, so the closures
+    /// holding them stop sharing a register that is about to be reused.
+    ///
+    /// Emitted on scope exit, and on the `break` and `continue` that leave a
+    /// scope without reaching its end.
+    CloseUpvals { from: Reg },
+
     /// Stops, with `src` as the chunk's value.
     Halt { src: Reg },
 }
