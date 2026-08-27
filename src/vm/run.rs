@@ -159,15 +159,41 @@ pub fn execute(chunk: Rc<Chunk>) -> Result<Value, Error> {
                 let Some(proto) = current.protos.get(proto as usize).cloned() else {
                     return Err(internal(&current, at, "a closure over a proto that is not there"));
                 };
-                // Task 6 fills this in. A proto with no captures needs
-                // nothing, which is every closure until then.
-                if !proto.upvalues.is_empty() {
-                    return Err(internal(&current, at, "a capture before upvalues exist"));
+
+                let mut upvalues = Vec::with_capacity(proto.upvalues.len());
+                for desc in &proto.upvalues {
+                    let cell = if desc.in_parent_locals {
+                        capture_upvalue(&mut open, base + desc.index as usize)
+                    } else {
+                        match &current_closure {
+                            Some(closure) => match closure.upvalues.get(desc.index as usize) {
+                                Some(cell) => Rc::clone(cell),
+                                None => {
+                                    return Err(internal(
+                                        &current,
+                                        at,
+                                        "a capture of an upvalue that is not there",
+                                    ))
+                                }
+                            },
+                            None => {
+                                return Err(internal(
+                                    &current,
+                                    at,
+                                    "a capture of an enclosing capture at the top level",
+                                ))
+                            }
+                        }
+                    };
+                    upvalues.push(cell);
                 }
-                stack[base + dst as usize] = Value::Closure(Rc::new(Closure {
-                    proto,
-                    upvalues: Vec::new(),
-                }));
+
+                // Written after the captures are taken, which is what makes a
+                // named method able to call itself: its own capture is the
+                // register this is about to fill, and an open cell holds the
+                // register rather than what was in it.
+                stack[base + dst as usize] =
+                    Value::Closure(Rc::new(Closure { proto, upvalues }));
             }
 
             Instr::Call { dst, callee, argc } => {
@@ -261,12 +287,51 @@ pub fn execute(chunk: Rc<Chunk>) -> Result<Value, Error> {
                 ip = frame.ip;
             }
 
-            // Task 6 replaces these. Nothing emits them yet, so this is
-            // unreachable rather than wrong -- and XEN026 is the honest
-            // answer if it ever is reached, since an instruction the loop
-            // does not implement is a VM bug and not a program error.
-            Instr::GetUpval { .. } | Instr::SetUpval { .. } | Instr::CloseUpvals { .. } => {
-                return Err(internal(&current, at, "a capture instruction before upvalues exist"));
+            Instr::GetUpval { dst, idx } => {
+                let Some(closure) = current_closure.as_ref() else {
+                    return Err(internal(&current, at, "a capture read at the top level"));
+                };
+                let Some(cell) = closure.upvalues.get(idx as usize).cloned() else {
+                    return Err(internal(
+                        &current,
+                        at,
+                        "a capture read past the end of the table",
+                    ));
+                };
+                let value = match &*cell.borrow() {
+                    Upvalue::Open(slot) => stack[*slot].clone(),
+                    Upvalue::Closed(value) => value.clone(),
+                };
+                stack[base + dst as usize] = value;
+            }
+
+            Instr::SetUpval { idx, src } => {
+                let Some(closure) = current_closure.as_ref() else {
+                    return Err(internal(&current, at, "a capture written at the top level"));
+                };
+                let Some(cell) = closure.upvalues.get(idx as usize).cloned() else {
+                    return Err(internal(
+                        &current,
+                        at,
+                        "a capture written past the end of the table",
+                    ));
+                };
+                let value = stack[base + src as usize].clone();
+                // The slot is read out of the borrow before the write, so an
+                // open cell writing back into the stack is not holding the
+                // cell borrowed while it does it.
+                let slot = match &*cell.borrow() {
+                    Upvalue::Open(slot) => Some(*slot),
+                    Upvalue::Closed(_) => None,
+                };
+                match slot {
+                    Some(slot) => stack[slot] = value,
+                    None => *cell.borrow_mut() = Upvalue::Closed(value),
+                }
+            }
+
+            Instr::CloseUpvals { from } => {
+                close_upvalues(&mut open, &mut stack, base + from as usize);
             }
         }
     }
@@ -336,10 +401,48 @@ fn internal(chunk: &Chunk, at: usize, detail: &str) -> Error {
     .with_help("re-run with --dump-bytecode to see the code that was emitted")
 }
 
-/// Closes every open cell watching `from` or above. Task 6 gives it a body;
-/// with no captures there is never anything open.
-fn close_upvalues(open: &mut Vec<Rc<RefCell<Upvalue>>>, _stack: &mut [Value], _from: usize) {
-    debug_assert!(open.is_empty(), "upvalues arrive in task 6");
+/// Finds the cell already watching `slot`, or opens one.
+///
+/// Sharing is the point: two closures capturing the same variable must see
+/// each other's writes, and a method that writes through a capture must be
+/// seen by the variable it captured. One cell per register, not per closure.
+fn capture_upvalue(open: &mut Vec<Rc<RefCell<Upvalue>>>, slot: usize) -> Rc<RefCell<Upvalue>> {
+    // Scanned from the end: captures are made innermost-first, so the one
+    // being looked for is usually the last one opened. A linked list sorted
+    // by slot -- Lua's structure -- buys nothing at the handful of entries a
+    // Xenith scope has open at once.
+    for cell in open.iter().rev() {
+        let is_it = matches!(&*cell.borrow(), Upvalue::Open(at) if *at == slot);
+        if is_it {
+            return Rc::clone(cell);
+        }
+    }
+    let cell = Rc::new(RefCell::new(Upvalue::Open(slot)));
+    open.push(Rc::clone(&cell));
+    cell
+}
+
+/// Closes every open cell watching `from` or above, moving the register's
+/// value into the cell.
+///
+/// Moved, not copied: the register is about to be reused or cleared, and the
+/// cell is now the only owner. A `clone` here would leave a second reference
+/// behind and make the next `Rc::make_mut` on a captured list copy it.
+fn close_upvalues(open: &mut Vec<Rc<RefCell<Upvalue>>>, stack: &mut [Value], from: usize) {
+    open.retain(|cell| {
+        let slot = match &*cell.borrow() {
+            Upvalue::Open(at) => *at,
+            // Already closed by an inner scope. Dropped from the list either
+            // way; the closures holding it keep it alive.
+            Upvalue::Closed(_) => return false,
+        };
+        if slot < from {
+            return true;
+        }
+        let value = std::mem::replace(&mut stack[slot], Value::Null);
+        *cell.borrow_mut() = Upvalue::Closed(value);
+        false
+    });
 }
 
 /// The span the tree walker gives an error raised at a call site.
