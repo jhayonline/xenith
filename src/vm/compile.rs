@@ -73,6 +73,9 @@ struct Local {
     /// Scope nesting depth, so `end_scope` knows which to drop.
     depth: usize,
     is_constant: bool,
+    /// Set when a nested method captures this. Task 10 reads it to decide
+    /// whether leaving the scope has to close anything.
+    captured: bool,
 }
 
 /// One function being compiled.
@@ -177,6 +180,80 @@ impl Compiler {
     /// compile time, rather than on every read.
     fn resolve(&self, name: &str) -> Option<&Local> {
         self.state_ref().locals.iter().rev().find(|local| local.name == name)
+    }
+
+    /// Finds `name` as a capture of the function at `level`, adding an
+    /// upvalue entry at every level it passes through.
+    ///
+    /// Lua's algorithm. Either the enclosing function has the name as a
+    /// local, in which case this function captures that register directly, or
+    /// the enclosing function has to capture it first and this function
+    /// captures *that* upvalue. The second case is the recursion, and it is
+    /// what lets a method reach a name from two functions out.
+    fn resolve_upvalue(&mut self, level: usize, name: &str) -> Result<Option<u8>, Unsupported> {
+        if level == 0 {
+            return Ok(None);
+        }
+
+        // Searched from the end, so an inner scope of the enclosing function
+        // shadows an outer one -- the same order `resolve` walks.
+        if let Some(at) = self.functions[level - 1]
+            .locals
+            .iter()
+            .rposition(|local| local.name == name)
+        {
+            self.functions[level - 1].locals[at].captured = true;
+            let reg = self.functions[level - 1].locals[at].reg;
+            return self
+                .add_upvalue(
+                    level,
+                    UpvalDesc {
+                        in_parent_locals: true,
+                        index: reg,
+                    },
+                )
+                .map(Some);
+        }
+
+        if let Some(index) = self.resolve_upvalue(level - 1, name)? {
+            return self
+                .add_upvalue(
+                    level,
+                    UpvalDesc {
+                        in_parent_locals: false,
+                        index,
+                    },
+                )
+                .map(Some);
+        }
+
+        Ok(None)
+    }
+
+    /// Interns a capture, so two reads of one name share a cell rather than
+    /// opening two that would then disagree after a write.
+    fn add_upvalue(&mut self, level: usize, desc: UpvalDesc) -> Result<u8, Unsupported> {
+        let upvalues = &mut self.functions[level].upvalues;
+        if let Some(existing) = upvalues.iter().position(|u| *u == desc) {
+            return Ok(existing as u8);
+        }
+        if upvalues.len() >= 256 {
+            return Err(Unsupported::new("more than 256 captures in one method"));
+        }
+        upvalues.push(desc);
+        Ok((upvalues.len() - 1) as u8)
+    }
+
+    /// The innermost binding of a name in *any* enclosing function.
+    ///
+    /// Only for the questions that are about the binding rather than about
+    /// how to reach it -- whether it is a constant, in particular, which is
+    /// the tree walker's to report either way.
+    fn find_any(&self, name: &str) -> Option<&Local> {
+        self.functions
+            .iter()
+            .rev()
+            .find_map(|state| state.locals.iter().rev().find(|local| local.name == name))
     }
 
     fn begin_scope(&mut self) {
@@ -772,18 +849,24 @@ impl Compiler {
                     .as_deref()
                     .ok_or_else(|| Unsupported::new("a name with no text"))?;
 
-                // Not a local: it is a builtin, a global, or undefined. Phase
-                // 3 has none of those, so the tree walker takes it -- which
-                // also means it, not the VM, reports an undefined name, with
-                // the message it always used.
-                let Some(local) = self.resolve(name) else {
-                    return Err(Unsupported::new("a name that is not a local or a capture"));
-                };
+                if let Some(src) = self.resolve(name).map(|local| local.reg) {
+                    let dst = self.alloc()?;
+                    self.emit(Instr::Move { dst, src }, &n.position_start, &n.position_end);
+                    return Ok(dst);
+                }
 
-                let src = local.reg;
-                let dst = self.alloc()?;
-                self.emit(Instr::Move { dst, src }, &n.position_start, &n.position_end);
-                Ok(dst)
+                let level = self.functions.len() - 1;
+                if let Some(idx) = self.resolve_upvalue(level, name)? {
+                    let dst = self.alloc()?;
+                    self.emit(Instr::GetUpval { dst, idx }, &n.position_start, &n.position_end);
+                    return Ok(dst);
+                }
+
+                // A builtin, a global, or undefined. Phase 4 has none of
+                // those, so the tree walker takes it -- which also means it,
+                // not the VM, reports an undefined name, with the message it
+                // always used.
+                Err(Unsupported::new("a name that is not a local or a capture"))
             }
             Node::BinaryOperator(n) => {
                 use crate::tokens::TokenType;
@@ -918,6 +1001,7 @@ impl Compiler {
                 reg: dst,
                 depth,
                 is_constant: false,
+                captured: false,
             });
         }
 
@@ -938,6 +1022,7 @@ impl Compiler {
                 reg,
                 depth: 0,
                 is_constant: false,
+                captured: false,
             });
         }
 
@@ -1018,24 +1103,44 @@ impl Compiler {
                 reg,
                 depth,
                 is_constant: n.is_constant,
+                captured: false,
             });
             return Ok(reg);
         }
 
-        let Some(local) = self.resolve(&name) else {
+        if let Some(binding) = self.find_any(&name) {
+            if binding.is_constant {
+                // XEN010 territory. The checker reports it and so does the
+                // tree walker; the VM must not be the one to decide, or the
+                // message would have to be duplicated.
+                return Err(Unsupported::new("an assignment to a constant"));
+            }
+        }
+
+        // The register is copied out of the borrow before `emit` takes
+        // `&mut self`.
+        if let Some(dst) = self.resolve(&name).map(|local| local.reg) {
+            self.emit(Instr::Move { dst, src: value }, &n.position_start, &n.position_end);
+            self.free_to(mark);
+            return Ok(dst);
+        }
+
+        let level = self.functions.len() - 1;
+        let Some(idx) = self.resolve_upvalue(level, &name)? else {
             return Err(Unsupported::new("an assignment to an unknown name"));
         };
 
-        if local.is_constant {
-            // XEN010 territory. The checker reports it and so does the tree
-            // walker; the VM must not be the one to decide, or the message
-            // would have to be duplicated.
-            return Err(Unsupported::new("an assignment to a constant"));
-        }
-
-        let dst = local.reg;
-        self.emit(Instr::Move { dst, src: value }, &n.position_start, &n.position_end);
+        self.emit(Instr::SetUpval { idx, src: value }, &n.position_start, &n.position_end);
         self.free_to(mark);
+
+        // The value of an assignment is the value assigned, and it is still
+        // in the register it was computed in -- but `free_to` just handed
+        // that register back. Re-taking it is the same register, which is why
+        // the local case can do the same thing.
+        let dst = self.alloc()?;
+        if dst != value {
+            self.emit(Instr::Move { dst, src: value }, &n.position_start, &n.position_end);
+        }
         Ok(dst)
     }
 }

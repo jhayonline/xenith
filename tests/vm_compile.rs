@@ -592,3 +592,76 @@ fn a_call_to_something_that_is_not_a_method_here_goes_to_the_tree_walker() {
         "a name that is not a local or a capture"
     );
 }
+
+#[test]
+fn a_captured_local_becomes_an_upvalue() {
+    assert_eq!(
+        dis("let step: int = 1\nmethod advance(n: int) -> int => n + step\n"),
+        "\
+constants:
+  k0  int 1
+registers: 3
+code:
+  0000  LOAD_CONST   r0, k0
+  0001  CLOSURE      r1, p0
+  0002  MOVE         r2, r1
+  0003  HALT         r2
+
+proto p0  advance/1
+upvalues:
+  u0  parent local r0
+constants:
+  (none)
+registers: 2
+code:
+  0000  GET_UPVAL    r1, u0
+  0001  ADD          r1, r0, r1
+  0002  RET          r1
+"
+    );
+}
+
+#[test]
+fn writing_through_a_capture_is_a_set_upval() {
+    let text = dis(
+        "let counter: int = 0\nmethod bump() -> null { counter = counter + 1 release null }\n",
+    );
+    assert!(text.contains("GET_UPVAL"), "{text}");
+    assert!(text.contains("SET_UPVAL    u0, r"), "{text}");
+}
+
+#[test]
+fn a_method_can_reach_a_name_from_two_functions_out() {
+    // The middle method captures nothing of its own; it exists only to pass
+    // the capture through, which is the chain `resolve_upvalue` builds.
+    let text = dis(
+        "let base: int = 10\n\
+         method outer() -> method() -> int { release method() -> int => base }\n",
+    );
+    assert!(text.contains("u0  parent local r0"), "{text}");
+    assert!(text.contains("u0  parent upvalue u0"), "{text}");
+}
+
+#[test]
+fn a_named_method_can_reach_itself() {
+    let text = dis(
+        "method countdown(n: int) -> int {\n\
+             when n <= 0 { release 0 }\n\
+             release countdown(n - 1)\n\
+         }\n",
+    );
+    // Itself, captured out of the register the CLOSURE is about to fill.
+    assert!(text.contains("u0  parent local r0"), "{text}");
+    assert!(text.contains("CALL"), "{text}");
+}
+
+#[test]
+fn a_capture_of_a_constant_is_still_the_tree_walkers_to_refuse() {
+    // XEN010 territory. The checker reports it and so does the tree walker;
+    // the VM must not be the one to decide, or the message would have to be
+    // duplicated.
+    assert_eq!(
+        refuses("const let fixed: int = 1\nmethod set() -> null { fixed = 2 release null }\n"),
+        "an assignment to a constant"
+    );
+}
