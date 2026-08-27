@@ -1,0 +1,8 @@
+# The spec's third success criterion: `fib(25)` in under 60ms on an idle
+# machine. Recursive on purpose -- this benchmark measures calls and frames,
+# where the counting loop measures arithmetic and jumps.
+method fib(n: int) -> int {
+    when n < 2 { release n }
+    release fib(n - 1) + fib(n - 2)
+}
+echo(fib(25))
