@@ -503,7 +503,9 @@ Two `MOVE`s per iteration are left, both writing an assignment's result back
 into its local. Removing them needs the destination threaded down into the
 expression, which is only safe where the value emits no jumps: a `when` used
 as a value emits one `MOVE` per branch, and pointing the last of them at the
-local would leave the other branches writing somewhere else.
+local would leave the other branches writing somewhere else. Phase 4 did not
+remove them, for that same reason -- it was busy with frames, and threading a
+destination is a change to every arm of `expr` rather than a local one.
 
 Phase 3 compiles a deliberately small slice of the language -- literals,
 operators, locals, `when`, `while`, the classic `for`, and `echo`. Anything
@@ -515,5 +517,124 @@ used to.
 
 The measurement to distrust here is wall clock. Two of the false regressions
 in the history above were found that way, on a loaded machine.
+
+## The bytecode VM, phase 4
+
+Phase 4 gave the VM frames, `CALL`, `RET` and captures. The benchmark for it
+is `benches/fib.xen` -- `fib(25)`, 242,785 calls -- because the counting loop
+measures arithmetic and jumps and says nothing about the thing this phase
+built.
+
+| `fib(25)` | I refs | |
+| --- | --- | --- |
+| tree walker | 1,391,087,959 | |
+| bytecode VM | 248,783,608 | 5.59x |
+
+Wall clock, best of seven on an idle machine: 273.0 ms against 36.9 ms. The
+spec asks for `fib(25)` under 60 ms, so that criterion is met -- and it is
+stated in milliseconds, which is the only reason milliseconds appear here.
+
+### The calling convention is why
+
+The callee goes in a register and its arguments in the registers immediately
+above it, and the callee's frame begins one above the callee -- so the
+arguments already *are* the parameters and a call copies none of them. The
+result is written back onto the callee's register when it returns. A call
+moves exactly one value into place, the callee itself, and that only because
+the local holding it has to survive the call:
+
+```
+  0002  MOVE         r2, r0        the callee, into the call window
+  0003  LOAD_CONST   r3, k0        argument 1, straight into place
+  0004  LOAD_CONST   r4, k1        argument 2, straight into place
+  0005  CALL         r2, r2, 2
+```
+
+That falls out of `expr` allocating its destination from `reg_top` upward:
+compile each argument with `reg_top` already parked where the argument
+belongs, and the register it picks is the one that was wanted.
+
+### Frames cost the counting loop 8.9%
+
+Every register access now takes the frame base, and the instruction fetch
+goes through an `Rc<Chunk>` rather than a plain reference. That is not free:
+
+| `benches/counting_loop.xen` | I refs | |
+| --- | --- | --- |
+| phase 3 | 265,652,288 | 4.45x |
+| phase 4 | 289,255,472 | 4.08x |
+
+Measured on the same machine and the same build settings, with phase 3
+rebuilt from `b09bbee` as the control rather than trusting the recorded
+figure. The 23.6M difference is in exactly two functions, and no other
+function moved by a single instruction:
+
+| | phase 3 | phase 4 | |
+| --- | --- | --- | --- |
+| the interpreter loop | 98,000,332 | 118,400,413 | +20,400,081 |
+| `binary` | 33,600,000 | 36,800,000 | +3,200,000 |
+| `drop_glue`, `clone`, `add`, `compare` | | | unchanged |
+
+`binary`'s share is three `base +` per operation over 800,000 operations,
+which is about four instructions each and is simply what an offset costs. The
+loop's share is larger than the arithmetic explains: the fetch-and-dispatch
+line alone is 18.0M over 3.6M dispatches, five instructions per dispatch, and
+`current.code.get(ip)` now walks an `Rc` to reach the code. Holding the code
+as a slice across the loop and refreshing it only on `CALL` and `RET` is the
+obvious answer and was not done here -- it fights the borrow checker, since
+`current` is reassigned on those instructions, and the hot loop is the wrong
+place for a rushed change at the end of a phase. Phase 5 rewrites the dispatch
+for type-specialised opcodes and should take it then.
+
+### What a call still pays for
+
+Two things, both deliberate:
+
+- **The argument type check.** `value_matches_type` runs once per argument per
+  call, exactly as `Function::execute` runs it, so the two engines raise the
+  same XEN001 on the same argument. Phase 5 makes most of these unnecessary,
+  because the checker's `TypeTable` already knows the answer -- but removing
+  the check changes *which* XEN001s are raised and when, so it waits for the
+  phase that can prove the replacement.
+- **The window clear on return.** `RET` writes `Value::Null` over the callee's
+  registers. Not tidiness: a dead register holding the last copy of a list
+  keeps its refcount above one, and the next `Rc::make_mut` on that list
+  copies it. It is O(frame size) per return; clearing only up to the highest
+  register the callee actually wrote would fix that, and the compiler already
+  knows that number.
+
+### Coverage
+
+`tests/differential.rs` reports 6 compared and 114 skipped, up from phase 3's
+2 and 117. The two fixtures that exercise methods hardest, `methods.xen` and
+`closures.xen`, still run on the tree walker -- not because of anything to do
+with calls, but because one uses a `type` alias and the other string
+interpolation, and either sends a whole file to the tree walker. Both are
+phase 6.
+
+Three things phase 4 declines to compile, each because the tree walker does
+something the VM cannot reproduce:
+
+- **A capture of a loop body's own binding.** `visit_while` and
+  `visit_for_classic` each build one `body_ctx` and clear it every pass, so
+  every closure a loop makes shares one binding and reads the value it last
+  held. Closing per pass would give each closure its own; closing after the
+  loop reads a register the condition has already reused for a temporary.
+  Neither matches, so it goes to the tree walker.
+- **A loop that both captures and jumps out.** A `stop` or a `skip` leaves the
+  body without running the close the rest of it would have.
+- **Program mode, builtins other than `echo`, method-access calls, and `type`
+  aliases.** Phases 6 and 7.
+
+A `when` body is different and does compile: `visit_if` builds a fresh
+`Context` each time it evaluates a branch, so a capture of one of that
+branch's own locals belongs to that pass and closes as the branch ends.
+
+The 256 MB thread stack in `src/main.rs` does not come down here, though the
+spec puts it in this phase. The VM does not need it -- its frames are a heap
+vector and it enforces `MAX_CALL_DEPTH` with a counter rather than racing the
+host stack. But the tree walker is still the fallback for every program the VM
+declines, and it recurses. Lowering the constant now would turn a clean XEN019
+into a process abort. It comes down at the phase 8 cutover.
 
 Next: [The language server](11-language-server.md)
