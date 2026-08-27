@@ -665,3 +665,80 @@ fn a_capture_of_a_constant_is_still_the_tree_walkers_to_refuse() {
         "an assignment to a constant"
     );
 }
+
+#[test]
+fn a_capture_of_a_loop_bodys_own_binding_goes_to_the_tree_walker() {
+    // `visit_while` builds one `body_ctx` and clears it each pass, so every
+    // closure a loop makes shares one binding and reads the value it last
+    // held. The VM cannot reproduce that: closing per pass would give each
+    // closure its own cell, and closing after the loop reads a register the
+    // condition has already reused for its own temporary. Refused rather
+    // than guessed at.
+    assert_eq!(
+        refuses(
+            "let i: int = 0\n\
+             while i < 2 {\n\
+                 let x: int = i\n\
+                 let get: method() -> int = method() -> int => x\n\
+                 i = i + 1\n\
+             }\n"
+        ),
+        "a capture of a loop body's own binding"
+    );
+}
+
+#[test]
+fn a_loop_body_that_captured_nothing_closes_nothing() {
+    // The instruction costs a dispatch. A loop with no captures must not pay
+    // for one, and must not be refused either.
+    let text = dis("let i: int = 0\nwhile i < 2 { i = i + 1 }\n");
+    assert!(!text.contains("CLOSE_UPVALS"), "{text}");
+}
+
+#[test]
+fn a_when_body_inside_a_loop_closes_every_pass() {
+    // `visit_if` builds a fresh `Context` each time it evaluates a branch, so
+    // a capture of one of that branch's own locals belongs to that pass and
+    // closes as the branch ends -- inside the loop, before the backward jump.
+    let text = dis(
+        "let g: method() -> int = method() -> int => 0\n\
+         let i: int = 0\n\
+         while i < 2 {\n\
+             when i == 0 { let x: int = 5 g = method() -> int => x }\n\
+             i = i + 1\n\
+         }\n",
+    );
+    let close = text.find("CLOSE_UPVALS").expect(&text);
+    let back = text.rfind("JUMP  ").expect(&text);
+    assert!(close < back, "{text}");
+}
+
+#[test]
+fn a_jump_out_of_a_loop_that_captures_goes_to_the_tree_walker() {
+    // A `stop` leaves the body without running the close the rest of it
+    // would have. Refused; a loop that captures nothing is unaffected.
+    assert_eq!(
+        refuses(
+            "let g: method() -> int = method() -> int => 0\n\
+             let i: int = 0\n\
+             while i < 2 {\n\
+                 when i == 0 { let x: int = 5 g = method() -> int => x }\n\
+                 stop\n\
+             }\n"
+        ),
+        "a jump out of a loop that captures"
+    );
+}
+
+#[test]
+fn a_loop_that_captures_nothing_still_compiles_its_stop_and_skip() {
+    let text = dis(
+        "let i: int = 0\n\
+         while i < 10 {\n\
+             i = i + 1\n\
+             when i == 3 { skip }\n\
+             when i == 5 { stop }\n\
+         }\n",
+    );
+    assert!(!text.contains("CLOSE_UPVALS"), "{text}");
+}

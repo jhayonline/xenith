@@ -59,11 +59,10 @@ struct LoopContext {
     continue_to: Addr,
     /// Jumps out, patched to just past the loop when it closes.
     breaks: Vec<Addr>,
-    /// Scope depth outside the loop body, so a `break` from inside a nested
-    /// `when` still knows how far to unwind. Nothing reads it until phase 4,
-    /// where closing upvalues will need it.
-    #[allow(dead_code)]
-    depth: usize,
+    /// Whether a `skip` was compiled in this loop. A jump out of the body
+    /// skips whatever close the rest of the body would have run, so a loop
+    /// with both a jump and a capture goes to the tree walker.
+    has_continue: bool,
 }
 
 /// A local binding, resolved to a register at compile time.
@@ -94,6 +93,10 @@ struct FnState {
     locals: Vec<Local>,
     depth: usize,
     loops: Vec<LoopContext>,
+    /// How many times a local of *this* function has been captured. A loop
+    /// compares it either side of its body to find out whether the body
+    /// captured anything, which is what decides if the loop needs a close.
+    captures_made: usize,
     /// What this function captures, in the order `GET_UPVAL` indexes them.
     /// Task 9 fills it; `finish_function` moves it onto the chunk either way.
     upvalues: Vec<UpvalDesc>,
@@ -110,6 +113,7 @@ impl FnState {
             locals: Vec::new(),
             depth: 0,
             loops: Vec::new(),
+            captures_made: 0,
             upvalues: Vec::new(),
         }
     }
@@ -203,6 +207,7 @@ impl Compiler {
             .rposition(|local| local.name == name)
         {
             self.functions[level - 1].locals[at].captured = true;
+            self.functions[level - 1].captures_made += 1;
             let reg = self.functions[level - 1].locals[at].reg;
             return self
                 .add_upvalue(
@@ -260,19 +265,74 @@ impl Compiler {
         self.state().depth += 1;
     }
 
-    /// Drops the bindings this scope introduced, and frees their registers.
-    fn end_scope(&mut self) {
-        while let Some(last) = self.state_ref().locals.last() {
-            if last.depth < self.state_ref().depth {
-                break;
+    /// Drops the bindings this scope introduced and frees their registers,
+    /// reporting the lowest register a closure was still watching.
+    ///
+    /// Reports rather than emits, because *where* the close belongs depends on
+    /// the scope. A `when` body gets a fresh `Context` every time it is
+    /// evaluated, so its captures close as the scope exits. A loop body does
+    /// not: `visit_while` and `visit_for_classic` build one `body_ctx` and
+    /// call `clear_local` on it each pass, so every closure a loop makes
+    /// shares one binding and sees the value it last held. Closing that per
+    /// pass would give each pass its own, which the tree walker does not do --
+    /// so the loop arms hold this back and emit it once the loop is over.
+    fn end_scope(&mut self) -> Option<Reg> {
+        let mut lowest: Option<Reg> = None;
+
+        loop {
+            // Read out of the borrow first: the pop below needs `&mut self`,
+            // and `state_ref` is still holding a shared one.
+            let (reg, was_captured) = {
+                let state = self.state_ref();
+                let Some(last) = state.locals.last() else { break };
+                if last.depth < state.depth {
+                    break;
+                }
+                (last.reg, last.captured)
+            };
+
+            if was_captured {
+                lowest = Some(lowest.map_or(reg, |low: Reg| low.min(reg)));
             }
-            let reg = last.reg;
-            self.state().locals.pop();
+
+            let state = self.state();
+            state.locals.pop();
             // Registers are handed out in order, so the last local always
             // holds the highest register and this stays a simple decrement.
-            self.state().reg_top = reg as u16;
+            state.reg_top = reg as u16;
         }
+
         self.state().depth -= 1;
+        lowest
+    }
+
+    /// Refuses a loop that both captures something and jumps out of its body.
+    ///
+    /// A `stop` or a `skip` leaves the body without running the close that the
+    /// rest of it would have -- a nested `when`'s, in particular -- and there
+    /// is no one place to put a replacement that answers for every pass. The
+    /// tree walker takes it. Rare enough to cost nothing: a loop that captures
+    /// nothing, which is nearly all of them, never reaches the second test.
+    fn refuse_a_jump_past_a_capture(
+        &self,
+        jumps: bool,
+        captures_before: usize,
+    ) -> Result<(), Unsupported> {
+        let captured = self.state_ref().captures_made != captures_before;
+        if jumps && captured {
+            return Err(Unsupported::new("a jump out of a loop that captures"));
+        }
+        Ok(())
+    }
+
+    /// Emits a close, if the scope that just ended had anything to close.
+    ///
+    /// Skipped entirely when it does not: the instruction costs a dispatch,
+    /// and most scopes capture nothing.
+    fn close_scope(&mut self, from: Option<Reg>, start: &Position, end: &Position) {
+        if let Some(from) = from {
+            self.emit(Instr::CloseUpvals { from }, start, end);
+        }
     }
 
     /// Gives back every register above `mark`.
@@ -481,9 +541,10 @@ impl Compiler {
             }
 
             Node::Continue(n) => {
-                let Some(context) = self.state().loops.last() else {
+                let Some(context) = self.state().loops.last_mut() else {
                     return Err(Unsupported::new("continue outside a loop"));
                 };
+                context.has_continue = true;
                 let target = context.continue_to;
                 self.emit(Instr::Jump { to: target }, &n.position_start, &n.position_end);
                 Ok(None)
@@ -598,7 +659,11 @@ impl Compiler {
                     self.begin_scope();
                     let value = self.body(body)?;
                     self.emit(Instr::Move { dst: result, src: value }, body.position_start(), body.position_end());
-                    self.end_scope();
+                    // A `when` body gets a fresh `Context` every time
+                    // `visit_if` evaluates it, so a capture of one of its
+                    // locals belongs to that evaluation and closes here.
+                    let close = self.end_scope();
+                    self.close_scope(close, body.position_start(), body.position_end());
                     self.free_to(mark);
 
                     to_end.push(self.emit_jump(Instr::Jump { to: 0 }, body.position_start(), body.position_end()));
@@ -611,7 +676,8 @@ impl Compiler {
                         self.begin_scope();
                         let value = self.body(body)?;
                         self.emit(Instr::Move { dst: result, src: value }, body.position_start(), body.position_end());
-                        self.end_scope();
+                        let close = self.end_scope();
+                        self.close_scope(close, body.position_start(), body.position_end());
                         self.free_to(mark);
                     }
                     None => {
@@ -641,26 +707,31 @@ impl Compiler {
                 );
                 self.free_to(mark);
 
-                let depth = self.state_ref().depth;
                 self.state().loops.push(LoopContext {
                     start,
                     continue_to: start,
                     breaks: Vec::new(),
-                    depth,
+                    has_continue: false,
                 });
 
+                let captures_before = self.state_ref().captures_made;
                 self.begin_scope();
                 self.body_for_effect(&n.body_node)?;
-                self.end_scope();
+                if self.end_scope().is_some() {
+                    return Err(Unsupported::new("a capture of a loop body's own binding"));
+                }
                 self.free_to(mark);
 
                 self.emit(Instr::Jump { to: start }, &n.position_start, &n.position_end);
                 self.patch(exit);
 
                 let context = self.state().loops.pop().expect("pushed above");
+                let jumps = context.has_continue || !context.breaks.is_empty();
                 for jump in context.breaks {
                     self.patch(jump);
                 }
+
+                self.refuse_a_jump_past_a_capture(jumps, captures_before)?;
 
                 // A loop is a statement, not an expression: it evaluates to
                 // null. The tree walker returns null here too -- it used to
@@ -716,17 +787,19 @@ impl Compiler {
                     None => None,
                 };
 
-                let depth = self.state_ref().depth;
                 self.state().loops.push(LoopContext {
                     start: step_at,
                     continue_to: step_at,
                     breaks: Vec::new(),
-                    depth,
+                    has_continue: false,
                 });
 
+                let captures_before = self.state_ref().captures_made;
                 self.begin_scope();
                 self.body_for_effect(&n.body_node)?;
-                self.end_scope();
+                if self.end_scope().is_some() {
+                    return Err(Unsupported::new("a capture of a loop body's own binding"));
+                }
                 // `mark` is below the init's `let`, which the loop still needs.
                 self.free_to(mark.max(self.locals_floor()));
 
@@ -737,11 +810,18 @@ impl Compiler {
                 }
 
                 let context = self.state().loops.pop().expect("pushed above");
+                let jumps = context.has_continue || !context.breaks.is_empty();
                 for jump in context.breaks {
                     self.patch(jump);
                 }
 
-                self.end_scope();
+                self.refuse_a_jump_past_a_capture(jumps, captures_before)?;
+
+                // The loop's own scope: the induction variable lives here, and
+                // `visit_for_classic` keeps it in one `loop_ctx` for the whole
+                // loop, so a capture of it closes to its final value.
+                let close = self.end_scope();
+                self.close_scope(close, &n.position_start, &n.position_end);
 
                 let dst = self.alloc()?;
                 self.emit(Instr::LoadNull { dst }, &n.position_start, &n.position_end);

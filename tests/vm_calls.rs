@@ -261,3 +261,62 @@ fn two_closures_over_one_variable_share_a_cell() {
     let value = xenith::vm::run::execute(Rc::new(chunk)).expect("should run");
     assert!(matches!(value, Value::Int(2)), "got {:?}", value);
 }
+
+/// Compiles and runs a source string, or fails the test saying why not.
+fn vm(source: &str) -> Value {
+    let mut lexer = xenith::lexer::Lexer::new("<test>".to_string(), source.to_string());
+    let tokens = lexer.make_tokens().expect("should lex");
+    let mut parser = xenith::parser::Parser::new(tokens);
+    let parsed = parser.parse();
+    assert!(parsed.error.is_none(), "should parse: {:?}", parsed.error);
+    let ast = parsed.node.expect("should produce a node");
+
+    match xenith::vm::compile_and_run(&ast) {
+        Some(Ok(value)) => value,
+        Some(Err(error)) => panic!("should not have failed: {}", error.as_string()),
+        None => panic!("should have compiled"),
+    }
+}
+
+#[test]
+fn a_capture_in_a_when_inside_a_loop_keeps_that_passs_value() {
+    // A `when` body is a fresh `Context` per evaluation, so this closure
+    // keeps the 5 it was made with rather than following the register into
+    // later passes. Verified against the tree walker, which answers 5.
+    let value = vm(
+        "let g: method() -> int = method() -> int => -1\n\
+         let i: int = 0\n\
+         while i < 2 {\n\
+             when i == 0 { let x: int = 5 g = method() -> int => x }\n\
+             i = i + 1\n\
+         }\n\
+         g()\n",
+    );
+    assert!(matches!(value, Value::Int(5)), "got {:?}", value);
+}
+
+#[test]
+fn a_capture_of_a_for_induction_variable_closes_to_its_last_value() {
+    // `visit_for_classic` keeps the induction variable in one `loop_ctx` for
+    // the whole loop, so the closure sees the value the step left behind
+    // after the condition failed. The tree walker answers 3.
+    let value = vm(
+        "let g: method() -> int = method() -> int => -1\n\
+         for (let i: int = 0; i < 3; i = i + 1) {\n\
+             g = method() -> int => i\n\
+         }\n\
+         g()\n",
+    );
+    assert!(matches!(value, Value::Int(3)), "got {:?}", value);
+}
+
+#[test]
+fn a_method_passed_as_an_argument_keeps_its_capture() {
+    let value = vm(
+        "let n: int = 7\n\
+         let get: method() -> int = method() -> int => n\n\
+         method run(f: method() -> int) -> int { release f() }\n\
+         run(get)\n",
+    );
+    assert!(matches!(value, Value::Int(7)), "got {:?}", value);
+}
