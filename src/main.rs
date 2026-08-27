@@ -151,6 +151,14 @@ fn dump_bytecode(filename: &str) {
 /// bounded by it. The default 8 MB main-thread stack runs out at roughly 1,200
 /// frames; running on a dedicated large stack leaves plenty of headroom under
 /// `MAX_CALL_DEPTH`, which reports a clean error rather than aborting.
+///
+/// The VM does not need this: its frames are a heap vector and its loop does
+/// not recurse per call, so it enforces `MAX_CALL_DEPTH` with a counter. The
+/// constant stays for the tree walker, which is still the fallback for every
+/// program the VM declines to compile -- today that is anything using a list,
+/// a map, a struct or string interpolation. Lowering it now would turn a clean
+/// XEN019 into a process abort for those. It comes down at the phase 8
+/// cutover, when the tree walker goes.
 const INTERPRETER_STACK_SIZE: usize = 256 * 1024 * 1024;
 
 fn main() {
