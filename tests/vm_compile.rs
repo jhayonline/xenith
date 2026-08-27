@@ -551,3 +551,44 @@ fn release_at_the_top_level_is_still_the_tree_walkers_to_report() {
     // this; the VM must not invent a second one.
     assert_eq!(refuses("release 1\n"), "release outside a method");
 }
+
+#[test]
+fn a_call_puts_its_arguments_where_the_callee_will_read_them() {
+    assert_eq!(
+        dis("method square(n: int) -> int => n * n\nsquare(3)\n"),
+        "\
+constants:
+  k0  int 3
+registers: 3
+code:
+  0000  CLOSURE      r0, p0
+  0001  MOVE         r1, r0
+  0002  LOAD_CONST   r2, k0
+  0003  CALL         r1, r1, 1
+  0004  HALT         r1
+
+proto p0  square/1
+constants:
+  (none)
+registers: 2
+code:
+  0000  MUL          r1, r0, r0
+  0001  RET          r1
+"
+    );
+}
+
+#[test]
+fn echo_keeps_its_own_opcode() {
+    // Not folded into CALL. `echo` is a builtin, not a Xenith method, and the
+    // VM has no builtin registry until phase 7.
+    assert!(dis("echo(1)\n").contains("ECHO"));
+}
+
+#[test]
+fn a_call_to_something_that_is_not_a_method_here_goes_to_the_tree_walker() {
+    assert_eq!(
+        refuses("len([1, 2])\n"),
+        "a name that is not a local or a capture"
+    );
+}

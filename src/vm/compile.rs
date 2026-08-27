@@ -678,33 +678,90 @@ impl Compiler {
             Node::TupleLiteral(_) => Err(Unsupported::new("a tuple literal")),
             Node::InterpolatedString(_) => Err(Unsupported::new("string interpolation")),
             Node::Call(n) => {
-                // The only call phase 3 knows. Everything else -- including a
-                // local shadowing the name `echo` -- goes to the tree walker.
                 let Node::VarAccess(callee) = &*n.node_to_call else {
                     return Err(Unsupported::new("a call to an expression"));
                 };
                 let name = callee.variable_name_token.value.as_deref().unwrap_or("");
-                if name != "echo" {
-                    return Err(Unsupported::new("a call to something other than echo"));
-                }
-                if self.resolve(name).is_some() {
-                    return Err(Unsupported::new("a call to a shadowed echo"));
-                }
-                if n.argument_nodes.len() != 1 {
-                    // `echo()` with no argument prints a blank line in the
-                    // tree walker. Rather than reimplement that here, it is
-                    // left to the tree walker.
-                    return Err(Unsupported::new("echo with other than one argument"));
+
+                // `echo` keeps its own opcode rather than being folded into
+                // `CALL`: it is a builtin, not a Xenith method, and the
+                // builtin registry does not reach the VM until phase 7.
+                if name == "echo" && self.resolve(name).is_none() {
+                    if n.argument_nodes.len() != 1 {
+                        // `echo()` with no argument prints a blank line in
+                        // the tree walker. Rather than reimplement that here,
+                        // it is left to the tree walker.
+                        return Err(Unsupported::new("echo with other than one argument"));
+                    }
+
+                    let mark = self.state_ref().reg_top;
+                    let src = self.operand(&n.argument_nodes[0])?;
+                    self.emit(Instr::Echo { src }, &n.position_start, &n.position_end);
+                    self.free_to(mark);
+
+                    let dst = self.alloc()?;
+                    self.emit(Instr::LoadNull { dst }, &n.position_start, &n.position_end);
+                    return Ok(dst);
                 }
 
-                let mark = self.state().reg_top;
-                let src = self.operand(&n.argument_nodes[0])?;
-                self.emit(Instr::Echo { src }, &n.position_start, &n.position_end);
-                self.free_to(mark);
+                if n.argument_nodes.len() > u8::MAX as usize {
+                    return Err(Unsupported::new("a call with more than 255 arguments"));
+                }
 
-                // `echo` evaluates to null, as it does today.
+                // The callee first, at the bottom of the window. `expr` on a
+                // `VarAccess` refuses anything that is not a local or a
+                // capture, which is what keeps a builtin or a global out of
+                // here without a second check.
+                //
+                // `base` is a `u16` because `reg_top` is; `expr` returns a
+                // `Reg`. `alloc` refuses anything above 256, so the casts
+                // below cannot truncate.
+                let base = self.state_ref().reg_top;
+                let got = self.expr(&n.node_to_call)?;
+                if got as u16 != base {
+                    self.emit(
+                        Instr::Move { dst: base as Reg, src: got },
+                        n.node_to_call.position_start(),
+                        n.node_to_call.position_end(),
+                    );
+                }
+                self.free_to(base + 1);
+
+                // Then the arguments, each compiled with `reg_top` already at
+                // the register it has to end up in. `expr` allocates its
+                // destination from `reg_top` upward, so the register it picks
+                // is usually the one that was wanted and the `Move` below
+                // never runs. Only `operand`'s elision could return something
+                // lower, and this is deliberately `expr` and not `operand`:
+                // an argument is a value the callee owns, not a read.
+                for argument in &n.argument_nodes {
+                    let want = self.state_ref().reg_top;
+                    let got = self.expr(argument)?;
+                    if got as u16 != want {
+                        self.emit(
+                            Instr::Move { dst: want as Reg, src: got },
+                            argument.position_start(),
+                            argument.position_end(),
+                        );
+                    }
+                    self.free_to(want + 1);
+                }
+
+                let argc = n.argument_nodes.len() as u8;
+
+                // The result lands on the callee, so a call does not climb
+                // the frame any more than the widest of its arguments did.
+                self.free_to(base);
                 let dst = self.alloc()?;
-                self.emit(Instr::LoadNull { dst }, &n.position_start, &n.position_end);
+                self.emit(
+                    Instr::Call {
+                        dst,
+                        callee: base as Reg,
+                        argc,
+                    },
+                    &n.position_start,
+                    &n.position_end,
+                );
                 Ok(dst)
             }
             Node::Match(_) => Err(Unsupported::new("a match")),
@@ -720,7 +777,7 @@ impl Compiler {
                 // also means it, not the VM, reports an undefined name, with
                 // the message it always used.
                 let Some(local) = self.resolve(name) else {
-                    return Err(Unsupported::new("a name that is not a local"));
+                    return Err(Unsupported::new("a name that is not a local or a capture"));
                 };
 
                 let src = local.reg;
