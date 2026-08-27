@@ -37,23 +37,13 @@ impl Unsupported {
 /// Lowers a whole file.
 pub fn compile(ast: &Node) -> Result<Chunk, Unsupported> {
     let mut compiler = Compiler {
-        chunk: Chunk::new(),
-        reg_top: 0,
-        high_water: 0,
-        locals: Vec::new(),
-        depth: 0,
-        loops: Vec::new(),
+        functions: vec![FnState::top_level()],
     };
 
     let value = compiler.program(ast)?;
     compiler.emit(Instr::Halt { src: value }, ast.position_start(), ast.position_end());
 
-    // Read before the move: taking `compiler.chunk` partially moves
-    // `compiler`, and `high_water` cannot be read afterwards.
-    let registers = compiler.high_water as u16;
-    let mut chunk = compiler.chunk;
-    chunk.registers = registers;
-    Ok(chunk)
+    Ok(compiler.finish_function())
 }
 
 /// One enclosing loop, for `break` and `continue` to find.
@@ -82,7 +72,13 @@ struct Local {
     is_constant: bool,
 }
 
-struct Compiler {
+/// One function being compiled.
+///
+/// A nested method pushes another of these. The fields were `Compiler`'s own
+/// until phase 4: a method needs its own registers, its own locals and its
+/// own loop stack, and it needs the enclosing function's locals to still be
+/// there so it can capture them.
+struct FnState {
     chunk: Chunk,
     /// Next free register. Locals sit below it permanently; temporaries above
     /// it are handed out and taken back within a statement.
@@ -94,16 +90,65 @@ struct Compiler {
     loops: Vec<LoopContext>,
 }
 
+impl FnState {
+    /// The top level, which is a function in every respect except that it
+    /// ends in `Halt` rather than `Ret` and captures nothing.
+    fn top_level() -> Self {
+        Self {
+            chunk: Chunk::new(),
+            reg_top: 0,
+            high_water: 0,
+            locals: Vec::new(),
+            depth: 0,
+            loops: Vec::new(),
+        }
+    }
+}
+
+struct Compiler {
+    /// Innermost last. Never empty: the top level is `functions[0]`.
+    functions: Vec<FnState>,
+}
+
 impl Compiler {
+    /// The function being compiled right now.
+    ///
+    /// `expect` rather than an `Option`: `compile` pushes the top level
+    /// before anything else runs and `finish_function` is the only thing that
+    /// pops, so an empty stack is a compiler bug, not a program error.
+    fn state(&mut self) -> &mut FnState {
+        self.functions
+            .last_mut()
+            .expect("a function is always being compiled")
+    }
+
+    fn state_ref(&self) -> &FnState {
+        self.functions
+            .last()
+            .expect("a function is always being compiled")
+    }
+
+    /// Pops the innermost function and hands back its finished chunk.
+    fn finish_function(&mut self) -> Chunk {
+        let state = self
+            .functions
+            .pop()
+            .expect("a function is always being compiled");
+        let mut chunk = state.chunk;
+        chunk.registers = state.high_water;
+        chunk
+    }
+
     /// Takes the next register.
     fn alloc(&mut self) -> Result<Reg, Unsupported> {
-        if self.reg_top >= 256 {
+        let state = self.state();
+        if state.reg_top >= 256 {
             return Err(Unsupported::new("more than 256 registers in one frame"));
         }
-        let reg = self.reg_top as Reg;
-        self.reg_top += 1;
-        if self.reg_top > self.high_water {
-            self.high_water = self.reg_top;
+        let reg = state.reg_top as Reg;
+        state.reg_top += 1;
+        if state.reg_top > state.high_water {
+            state.high_water = state.reg_top;
         }
         Ok(reg)
     }
@@ -114,26 +159,26 @@ impl Compiler {
     /// the same order `SymbolTable` walks -- except that this happens once, at
     /// compile time, rather than on every read.
     fn resolve(&self, name: &str) -> Option<&Local> {
-        self.locals.iter().rev().find(|local| local.name == name)
+        self.state_ref().locals.iter().rev().find(|local| local.name == name)
     }
 
     fn begin_scope(&mut self) {
-        self.depth += 1;
+        self.state().depth += 1;
     }
 
     /// Drops the bindings this scope introduced, and frees their registers.
     fn end_scope(&mut self) {
-        while let Some(last) = self.locals.last() {
-            if last.depth < self.depth {
+        while let Some(last) = self.state_ref().locals.last() {
+            if last.depth < self.state_ref().depth {
                 break;
             }
             let reg = last.reg;
-            self.locals.pop();
+            self.state().locals.pop();
             // Registers are handed out in order, so the last local always
             // holds the highest register and this stays a simple decrement.
-            self.reg_top = reg as u16;
+            self.state().reg_top = reg as u16;
         }
-        self.depth -= 1;
+        self.state().depth -= 1;
     }
 
     /// Gives back every register above `mark`.
@@ -149,11 +194,11 @@ impl Compiler {
     /// mark would hand a local's register back, and the next statement would
     /// overwrite the binding.
     fn locals_floor(&self) -> u16 {
-        self.locals.last().map_or(0, |local| local.reg as u16 + 1)
+        self.state_ref().locals.last().map_or(0, |local| local.reg as u16 + 1)
     }
 
     fn free_to(&mut self, mark: u16) {
-        self.reg_top = mark;
+        self.state().reg_top = mark;
     }
 
     /// Emits a jump whose target is not known yet, and returns its address so
@@ -164,8 +209,9 @@ impl Compiler {
 
     /// Points a previously emitted jump at the next instruction to be emitted.
     fn patch(&mut self, at: Addr) {
-        let target = self.chunk.code.len() as Addr;
-        match &mut self.chunk.code[at as usize] {
+        let state = self.state();
+        let target = state.chunk.code.len() as Addr;
+        match &mut state.chunk.code[at as usize] {
             Instr::Jump { to } | Instr::JumpIfFalse { to, .. } | Instr::JumpIfTrue { to, .. } => {
                 *to = target;
             }
@@ -178,8 +224,9 @@ impl Compiler {
     /// Both ends, because a trap's caret must underline the whole expression,
     /// exactly as `visit_binary_op` makes it.
     fn emit(&mut self, instr: Instr, start: &Position, end: &Position) -> Addr {
-        let at = self.chunk.push(instr);
-        self.chunk.record_position(at, start, end);
+        let state = self.state();
+        let at = state.chunk.push(instr);
+        state.chunk.record_position(at, start, end);
         at
     }
 
@@ -202,7 +249,7 @@ impl Compiler {
         let count = n.element_nodes.len();
 
         for (i, statement) in n.element_nodes.iter().enumerate() {
-            let mark = self.reg_top;
+            let mark = self.state().reg_top;
             let reg = self.stmt(statement)?;
 
             // A `let` inside this statement took a register permanently, so
@@ -257,7 +304,7 @@ impl Compiler {
         };
 
         for statement in statements {
-            let mark = self.reg_top;
+            let mark = self.state().reg_top;
             self.stmt(statement)?;
             // A `let` in the body took a register permanently.
             self.free_to(mark.max(self.locals_floor()));
@@ -302,12 +349,12 @@ impl Compiler {
             Node::Return(_) => Err(Unsupported::new("release outside a method")),
             Node::VarAssign(n) => self.var_assign(n).map(Some),
             Node::Break(n) => {
-                let Some(context) = self.loops.last() else {
+                let Some(context) = self.state().loops.last() else {
                     return Err(Unsupported::new("break outside a loop"));
                 };
                 let _ = context;
                 let jump = self.emit_jump(Instr::Jump { to: 0 }, &n.position_start, &n.position_end);
-                self.loops
+                self.state().loops
                     .last_mut()
                     .expect("checked above")
                     .breaks
@@ -316,7 +363,7 @@ impl Compiler {
             }
 
             Node::Continue(n) => {
-                let Some(context) = self.loops.last() else {
+                let Some(context) = self.state().loops.last() else {
                     return Err(Unsupported::new("continue outside a loop"));
                 };
                 let target = context.continue_to;
@@ -379,7 +426,7 @@ impl Compiler {
                 };
 
                 let dst = self.alloc()?;
-                let k = self.chunk.add_constant(value);
+                let k = self.state().chunk.add_constant(value);
                 self.emit(Instr::LoadConst { dst, k }, &n.position_start, &n.position_end);
                 Ok(dst)
             }
@@ -391,7 +438,7 @@ impl Compiler {
                     .clone()
                     .ok_or_else(|| Unsupported::new("a string with no text"))?;
                 let dst = self.alloc()?;
-                let k = self.chunk.add_constant(Value::string(&text));
+                let k = self.state().chunk.add_constant(Value::string(&text));
                 self.emit(Instr::LoadConst { dst, k }, &n.position_start, &n.position_end);
                 Ok(dst)
             }
@@ -422,7 +469,7 @@ impl Compiler {
                 let mut to_end: Vec<Addr> = Vec::new();
 
                 for (condition, body) in &n.cases {
-                    let mark = self.reg_top;
+                    let mark = self.state().reg_top;
                     let cond = self.operand(condition)?;
                     let skip = self.emit_jump(
                         Instr::JumpIfFalse { cond, to: 0 },
@@ -442,7 +489,7 @@ impl Compiler {
 
                 match &n.else_case {
                     Some((body, _)) => {
-                        let mark = self.reg_top;
+                        let mark = self.state().reg_top;
                         self.begin_scope();
                         let value = self.body(body)?;
                         self.emit(Instr::Move { dst: result, src: value }, body.position_start(), body.position_end());
@@ -463,10 +510,10 @@ impl Compiler {
             }
 
             Node::While(n) => {
-                let mark = self.reg_top;
+                let mark = self.state().reg_top;
 
                 // Where `continue` goes and where the body jumps back to.
-                let start = self.chunk.code.len() as Addr;
+                let start = self.state().chunk.code.len() as Addr;
 
                 let cond = self.operand(&n.condition_node)?;
                 let exit = self.emit_jump(
@@ -476,11 +523,12 @@ impl Compiler {
                 );
                 self.free_to(mark);
 
-                self.loops.push(LoopContext {
+                let depth = self.state_ref().depth;
+                self.state().loops.push(LoopContext {
                     start,
                     continue_to: start,
                     breaks: Vec::new(),
-                    depth: self.depth,
+                    depth,
                 });
 
                 self.begin_scope();
@@ -491,7 +539,7 @@ impl Compiler {
                 self.emit(Instr::Jump { to: start }, &n.position_start, &n.position_end);
                 self.patch(exit);
 
-                let context = self.loops.pop().expect("pushed above");
+                let context = self.state().loops.pop().expect("pushed above");
                 for jump in context.breaks {
                     self.patch(jump);
                 }
@@ -509,10 +557,10 @@ impl Compiler {
                 // A scope around the whole loop, so `let i` in the init is
                 // local to it.
                 self.begin_scope();
-                let mark = self.reg_top;
+                let mark = self.state().reg_top;
 
                 if let Some(init) = &n.init_node {
-                    let init_mark = self.reg_top;
+                    let init_mark = self.state().reg_top;
                     self.stmt(init)?;
                     // A `let` in the init keeps its register; anything else
                     // was a temporary.
@@ -526,9 +574,9 @@ impl Compiler {
                 // `continue` a fixed address to aim at without a second pass.
                 let enter = self.emit_jump(Instr::Jump { to: 0 }, &n.position_start, &n.position_end);
 
-                let step_at = self.chunk.code.len() as Addr;
+                let step_at = self.state().chunk.code.len() as Addr;
                 if let Some(step) = &n.step_node {
-                    let step_mark = self.reg_top;
+                    let step_mark = self.state().reg_top;
                     self.stmt(step)?;
                     self.free_to(step_mark);
                 }
@@ -537,7 +585,7 @@ impl Compiler {
 
                 let exit = match &n.condition_node {
                     Some(condition) => {
-                        let cond_mark = self.reg_top;
+                        let cond_mark = self.state().reg_top;
                         let cond = self.operand(condition)?;
                         let jump = self.emit_jump(
                             Instr::JumpIfFalse { cond, to: 0 },
@@ -550,11 +598,12 @@ impl Compiler {
                     None => None,
                 };
 
-                self.loops.push(LoopContext {
+                let depth = self.state_ref().depth;
+                self.state().loops.push(LoopContext {
                     start: step_at,
                     continue_to: step_at,
                     breaks: Vec::new(),
-                    depth: self.depth,
+                    depth,
                 });
 
                 self.begin_scope();
@@ -569,7 +618,7 @@ impl Compiler {
                     self.patch(exit);
                 }
 
-                let context = self.loops.pop().expect("pushed above");
+                let context = self.state().loops.pop().expect("pushed above");
                 for jump in context.breaks {
                     self.patch(jump);
                 }
@@ -605,7 +654,7 @@ impl Compiler {
                     return Err(Unsupported::new("echo with other than one argument"));
                 }
 
-                let mark = self.reg_top;
+                let mark = self.state().reg_top;
                 let src = self.operand(&n.argument_nodes[0])?;
                 self.emit(Instr::Echo { src }, &n.position_start, &n.position_end);
                 self.free_to(mark);
@@ -650,7 +699,7 @@ impl Compiler {
                     // it, as a bool -- which is what the tree walker returns:
                     // `Value::Bool(is_or)` on a short circuit, and
                     // `Value::Bool(right.is_true())` otherwise.
-                    let mark = self.reg_top;
+                    let mark = self.state().reg_top;
                     let result = self.alloc()?;
 
                     let left = self.operand(&n.left_node)?;
@@ -686,7 +735,7 @@ impl Compiler {
                     return Err(Unsupported::new("an assignment"));
                 }
 
-                let mark = self.reg_top;
+                let mark = self.state().reg_top;
                 let a = self.operand(&n.left_node)?;
                 let b = self.operand(&n.right_node)?;
 
@@ -719,7 +768,7 @@ impl Compiler {
             Node::UnaryOp(n) => {
                 use crate::tokens::TokenType;
 
-                let mark = self.reg_top;
+                let mark = self.state().reg_top;
                 let src = self.operand(&n.node)?;
                 self.free_to(mark);
                 let dst = self.alloc()?;
@@ -754,7 +803,7 @@ impl Compiler {
             .clone()
             .ok_or_else(|| Unsupported::new("a binding with no name"))?;
 
-        let mark = self.reg_top;
+        let mark = self.state().reg_top;
         let value = self.operand(&n.value_node)?;
 
         if n.is_declaration {
@@ -765,10 +814,11 @@ impl Compiler {
             if reg != value {
                 self.emit(Instr::Move { dst: reg, src: value }, &n.position_start, &n.position_end);
             }
-            self.locals.push(Local {
+            let depth = self.state_ref().depth;
+            self.state().locals.push(Local {
                 name,
                 reg,
-                depth: self.depth,
+                depth,
                 is_constant: n.is_constant,
             });
             return Ok(reg);
