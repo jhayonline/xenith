@@ -10,9 +10,27 @@ use crate::values::Value;
 use crate::vm::chunk::{Chunk, Instr};
 
 impl Chunk {
-    /// One line per instruction, preceded by the constants and frame size.
+    /// One line per instruction, preceded by the constants and frame size,
+    /// followed by every nested body.
     pub fn disassemble(&self) -> String {
         let mut out = String::new();
+        self.write_into(&mut out, "");
+        out
+    }
+
+    fn write_into(&self, out: &mut String, prefix: &str) {
+        // Printed only when there is one, so that a chunk with no captures
+        // disassembles exactly as it did in phase 3.
+        if !self.upvalues.is_empty() {
+            out.push_str("upvalues:\n");
+            for (i, up) in self.upvalues.iter().enumerate() {
+                let _ = if up.in_parent_locals {
+                    writeln!(out, "  u{}  parent local r{}", i, up.index)
+                } else {
+                    writeln!(out, "  u{}  parent upvalue u{}", i, up.index)
+                };
+            }
+        }
 
         out.push_str("constants:\n");
         if self.constants.is_empty() {
@@ -30,7 +48,19 @@ impl Chunk {
             let _ = writeln!(out, "  {:04}  {}", addr, describe(instr));
         }
 
-        out
+        // After the code that makes them, not before: reading a disassembly
+        // top to bottom should meet a proto at the `CLOSURE` that refers to
+        // it, and the nesting can go deeper than a page.
+        for (i, proto) in self.protos.iter().enumerate() {
+            let name = proto.name.as_deref().unwrap_or("<anonymous>");
+            let label = if prefix.is_empty() {
+                format!("p{}", i)
+            } else {
+                format!("{}.{}", prefix, i)
+            };
+            let _ = writeln!(out, "\nproto {}  {}/{}", label, name, proto.arity);
+            proto.write_into(out, &label);
+        }
     }
 }
 
@@ -78,6 +108,9 @@ fn describe(instr: &Instr) -> String {
         Instr::JumpIfTrue { cond, to } => {
             format!("{:<12} r{}, @{:04}", "JUMP_IF_TRUE", cond, to)
         }
+
+        Instr::Closure { dst, proto } => format!("{:<12} r{}, p{}", "CLOSURE", dst, proto),
+        Instr::Ret { src } => format!("{:<12} r{}", "RET", src),
 
         Instr::Echo { src } => format!("{:<12} r{}", "ECHO", src),
         Instr::Halt { src } => format!("{:<12} r{}", "HALT", src),

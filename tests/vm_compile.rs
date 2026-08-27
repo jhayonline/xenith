@@ -356,3 +356,62 @@ fn the_counting_loop_is_small() {
         "counting loop compiled to {instructions} instructions:\n{text}"
     );
 }
+
+#[test]
+fn a_proto_disassembles_after_the_code_that_makes_it() {
+    let mut inner = Chunk::new();
+    inner.name = Some("square".to_string());
+    inner.arity = 1;
+    inner.push(Instr::Mul { dst: 1, a: 0, b: 0 });
+    inner.push(Instr::Ret { src: 1 });
+    inner.registers = 2;
+
+    let mut outer = Chunk::new();
+    outer.protos.push(std::rc::Rc::new(inner));
+    outer.push(Instr::Closure { dst: 0, proto: 0 });
+    outer.push(Instr::Halt { src: 0 });
+    outer.registers = 1;
+
+    assert_eq!(
+        outer.disassemble(),
+        "\
+constants:
+  (none)
+registers: 1
+code:
+  0000  CLOSURE      r0, p0
+  0001  HALT         r0
+
+proto p0  square/1
+constants:
+  (none)
+registers: 2
+code:
+  0000  MUL          r1, r0, r0
+  0001  RET          r1
+"
+    );
+}
+
+#[test]
+fn an_upvalue_table_is_printed_only_when_there_is_one() {
+    // The 23 tests written in phase 3 assert on exact text. A header for an
+    // empty table would change every one of them, which is why the table is
+    // conditional rather than always present.
+    let mut chunk = Chunk::new();
+    chunk.push(Instr::Halt { src: 0 });
+    chunk.registers = 1;
+    assert!(!chunk.disassemble().contains("upvalues:"));
+
+    chunk.upvalues.push(xenith::vm::chunk::UpvalDesc {
+        in_parent_locals: true,
+        index: 3,
+    });
+    chunk.upvalues.push(xenith::vm::chunk::UpvalDesc {
+        in_parent_locals: false,
+        index: 1,
+    });
+    assert!(chunk
+        .disassemble()
+        .contains("upvalues:\n  u0  parent local r3\n  u1  parent upvalue u1\n"));
+}

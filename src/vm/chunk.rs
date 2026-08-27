@@ -1,6 +1,9 @@
 //! The instruction set and the container it lives in.
 
+use std::rc::Rc;
+
 use crate::position::Position;
+use crate::types::Type;
 use crate::values::Value;
 
 /// A register index within one frame.
@@ -69,8 +72,27 @@ pub enum Instr {
     /// harness will say whether the output changed.
     Echo { src: Reg },
 
+    /// `dst` = a closure over `protos[proto]`, capturing what its `upvalues`
+    /// table says to capture.
+    Closure { dst: Reg, proto: u16 },
+    /// Returns `src` to the caller. The top level ends in `Halt` instead.
+    Ret { src: Reg },
+
     /// Stops, with `src` as the chunk's value.
     Halt { src: Reg },
+}
+
+/// How a closure finds one of its captures, at the moment it is created.
+///
+/// Two cases, which is why this is a flag rather than an enum with payloads:
+/// the value is either still in the enclosing frame, where it is a register,
+/// or the enclosing function had already captured it, where it is one of that
+/// function's own upvalues. The chain of the second case is what lets a
+/// method capture a name from two functions out.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UpvalDesc {
+    pub in_parent_locals: bool,
+    pub index: u8,
 }
 
 /// A compiled unit of code.
@@ -91,6 +113,26 @@ pub struct Chunk {
     /// instruction chunk would carry 560KB of them, on the hot path, to serve
     /// the rare case of a trap firing.
     pub positions: Vec<(Addr, Position, Position)>,
+    /// The name this body was written under. `None` for the top level and for
+    /// an anonymous method. Read only by XEN019, whose message names the
+    /// method whose call was refused.
+    pub name: Option<String>,
+    /// How many parameters. Checked at run time rather than compile time,
+    /// because a callee reached through a variable is not known until it is
+    /// in a register.
+    pub arity: u8,
+    /// The declared parameter types, checked once per call exactly as
+    /// `Function::execute` checks them. Shared rather than owned: a proto is
+    /// behind an `Rc` already and this must not be copied per call.
+    pub param_types: Rc<Vec<Type>>,
+    /// What a closure over this proto captures, in the order `GET_UPVAL`
+    /// indexes them. Held on the proto rather than emitted as pseudo-
+    /// instructions after `CLOSURE`, which is how Lua does it: an `Instr`
+    /// that is not an instruction would have to be skipped by every loop that
+    /// walks the code, including the disassembler.
+    pub upvalues: Vec<UpvalDesc>,
+    /// Nested function bodies, indexed by `Instr::Closure`.
+    pub protos: Vec<Rc<Chunk>>,
 }
 
 impl Chunk {

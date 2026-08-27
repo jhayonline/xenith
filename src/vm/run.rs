@@ -117,6 +117,14 @@ pub fn execute(chunk: &Chunk) -> Result<Value, Error> {
                     ip = to as usize;
                 }
             }
+
+            // Tasks 5 and 6 replace these. Nothing emits them yet, so this is
+            // unreachable rather than wrong -- and XEN026 is the honest
+            // answer if it ever is reached, since an instruction the loop
+            // does not implement is a VM bug and not a program error.
+            Instr::Closure { .. } | Instr::Ret { .. } => {
+                return Err(internal(chunk, at, "a call instruction before frames exist"));
+            }
         }
     }
 }
