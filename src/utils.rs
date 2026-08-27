@@ -120,6 +120,13 @@ pub fn value_to_string(value: &Value) -> String {
                 "<anonymous function>".to_string()
             }
         }
+        Value::Closure(c) => {
+            if let Some(name) = c.name() {
+                format!("<function {}>", name)
+            } else {
+                "<anonymous function>".to_string()
+            }
+        }
         Value::BuiltInFunction(b) => {
             format!("<built-in function {}>", b.name())
         }
@@ -197,6 +204,13 @@ pub fn value_to_interpolated_string(value: &Value) -> String {
         }
         Value::Function(f) => {
             if let Some(name) = &f.name {
+                format!("<function {}>", name)
+            } else {
+                "<anonymous function>".to_string()
+            }
+        }
+        Value::Closure(c) => {
+            if let Some(name) = c.name() {
                 format!("<function {}>", name)
             } else {
                 "<anonymous function>".to_string()

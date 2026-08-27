@@ -41,6 +41,12 @@ pub enum Value {
     List(List),
     Function(Box<Function>),
     BuiltInFunction(BuiltInFunction),
+    /// A compiled method. Produced only by the VM; the tree walker makes
+    /// `Function` instead, and the two never meet -- a program either
+    /// compiles whole or runs on the tree walker whole. Shared rather than
+    /// owned so a clone is a refcount bump, which is what every other payload
+    /// here is for the same reason.
+    Closure(Rc<crate::vm::closure::Closure>),
     /// Boxed: a `Map` holds a `HashMap`, which is 48 bytes inline and made
     /// every `Value` that size whether or not it was a map.
     Map(Box<Map>),
@@ -105,6 +111,7 @@ impl Value {
             Value::Enum(_) => true,
             Value::Function(_) => true,
             Value::BuiltInFunction(_) => true,
+            Value::Closure(_) => true,
             Value::Bool(b) => *b,
             Value::Null => false,
             Value::Tuple(t) => !t.is_empty(),
@@ -604,7 +611,10 @@ impl Value {
                 _ => false,
             },
             Type::Function(_) => {
-                matches!(value, Value::Function(_) | Value::BuiltInFunction(_))
+                matches!(
+                    value,
+                    Value::Function(_) | Value::BuiltInFunction(_) | Value::Closure(_)
+                )
             }
             Type::Alias(_, inner) => Self::value_matches_type(value, inner),
             Type::Unknown => true,
@@ -625,6 +635,10 @@ impl Value {
             Value::Enum(e) => e.enum_name.clone(),
             Value::Function(_) => "method".to_string(),
             Value::BuiltInFunction(_) => "method".to_string(),
+            // "method", the same word `Function` gets. An XEN001 that said
+            // "closure" would be a message change, and there are none in this
+            // phase.
+            Value::Closure(_) => "method".to_string(),
             Value::Null => "null".to_string(),
             Value::Tuple(_) => "tuple".to_string(),
         }
@@ -1131,6 +1145,13 @@ pub fn echo_line(arg: Option<&Value>) {
                     print!("<anonymous function>");
                 }
             }
+            Value::Closure(c) => {
+                if let Some(name) = c.name() {
+                    print!("<function {}>", name);
+                } else {
+                    print!("<anonymous function>");
+                }
+            }
             Value::BuiltInFunction(b) => {
                 print!("<built-in function {}>", b.name());
             }
@@ -1294,7 +1315,7 @@ impl BuiltInFunction {
     fn is_fun(&self, args: Vec<Value>, _call_pos: Position) -> RuntimeResult {
         let result = matches!(
             args.first(),
-            Some(Value::Function(_)) | Some(Value::BuiltInFunction(_))
+            Some(Value::Function(_)) | Some(Value::BuiltInFunction(_)) | Some(Value::Closure(_))
         );
         RuntimeResult::new().success(Value::Bool(result))
     }

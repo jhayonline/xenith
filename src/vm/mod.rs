@@ -8,6 +8,7 @@
 //! is what `tests/differential.rs` exists to catch.
 
 pub mod chunk;
+pub mod closure;
 pub mod compile;
 pub mod disasm;
 pub mod run;

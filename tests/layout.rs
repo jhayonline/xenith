@@ -55,3 +55,16 @@ fn an_instruction_fits_in_a_word() {
         size_of::<xenith::vm::chunk::Instr>()
     );
 }
+
+#[test]
+fn a_closure_is_a_pointer_in_a_value() {
+    // `Value` is 16 bytes and stays 16 bytes. A closure is a proto plus a
+    // vector of cells, which is 32 bytes of struct -- so what the enum holds
+    // is a pointer to it, as `List`, `String` and `Bytes` already do.
+    assert_eq!(
+        size_of::<std::rc::Rc<xenith::vm::closure::Closure>>(),
+        8,
+        "the Closure payload"
+    );
+    assert_eq!(size_of::<Value>(), 16, "Value");
+}
