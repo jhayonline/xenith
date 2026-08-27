@@ -15,10 +15,13 @@
 //! runs the tree walker. That is what makes a partial VM safe to ship: a
 //! program cannot break by failing to compile.
 
+use std::rc::Rc;
+
 use crate::nodes::Node;
 use crate::position::Position;
+use crate::types::Type;
 use crate::values::Value;
-use crate::vm::chunk::{Addr, Chunk, Instr, Reg};
+use crate::vm::chunk::{Addr, Chunk, Instr, Reg, UpvalDesc};
 
 /// Why the compiler gave up. Not an error: the caller runs the tree walker.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -88,6 +91,9 @@ struct FnState {
     locals: Vec<Local>,
     depth: usize,
     loops: Vec<LoopContext>,
+    /// What this function captures, in the order `GET_UPVAL` indexes them.
+    /// Task 9 fills it; `finish_function` moves it onto the chunk either way.
+    upvalues: Vec<UpvalDesc>,
 }
 
 impl FnState {
@@ -101,7 +107,17 @@ impl FnState {
             locals: Vec::new(),
             depth: 0,
             loops: Vec::new(),
+            upvalues: Vec::new(),
         }
+    }
+
+    /// A nested method body.
+    fn for_function(name: Option<String>, param_types: &[Type], arity: u8) -> Self {
+        let mut state = Self::top_level();
+        state.chunk.name = name;
+        state.chunk.arity = arity;
+        state.chunk.param_types = Rc::new(param_types.to_vec());
+        state
     }
 }
 
@@ -136,6 +152,7 @@ impl Compiler {
             .expect("a function is always being compiled");
         let mut chunk = state.chunk;
         chunk.registers = state.high_water;
+        chunk.upvalues = state.upvalues;
         chunk
     }
 
@@ -340,13 +357,37 @@ impl Compiler {
     /// (task 9), classic `for` (task 10), `echo` (task 7).
     fn stmt(&mut self, node: &Node) -> Result<Option<Reg>, Unsupported> {
         match node {
-            Node::FuncDef(_) => Err(Unsupported::new("a method declaration")),
             Node::Grab(_) => Err(Unsupported::new("an import")),
             Node::Export(_) => Err(Unsupported::new("an export")),
             Node::StructDef(_) => Err(Unsupported::new("a struct declaration")),
             Node::EnumDef(_) => Err(Unsupported::new("an enum declaration")),
             Node::TypeAlias(_) => Err(Unsupported::new("a type alias")),
-            Node::Return(_) => Err(Unsupported::new("release outside a method")),
+            Node::Return(n) => {
+                // The top level is not a function. `functions.len() == 1`
+                // means nothing has been pushed, so this is the top level and
+                // the message the tree walker prints is the one that should
+                // be printed.
+                if self.functions.len() == 1 {
+                    return Err(Unsupported::new("release outside a method"));
+                }
+
+                let src = match &n.node_to_return {
+                    Some(expr) => self.operand(expr)?,
+                    None => {
+                        // `release` with nothing after it returns null, which
+                        // is what `visit_return` does with a `None` node.
+                        let dst = self.alloc()?;
+                        self.emit(Instr::LoadNull { dst }, &n.position_start, &n.position_end);
+                        dst
+                    }
+                };
+
+                self.emit(Instr::Ret { src }, &n.position_start, &n.position_end);
+                // No `free_to` here, as with `break` and `continue`: the
+                // caller frees to its own mark, and this statement has no
+                // value for it to keep.
+                Ok(None)
+            }
             Node::VarAssign(n) => self.var_assign(n).map(Some),
             Node::Break(n) => {
                 let Some(context) = self.state().loops.last() else {
@@ -630,6 +671,8 @@ impl Compiler {
                 Ok(dst)
             }
 
+            Node::FuncDef(n) => self.func_def(n),
+
             Node::List(_) => Err(Unsupported::new("a list literal")),
             Node::Map(_) => Err(Unsupported::new("a map literal")),
             Node::TupleLiteral(_) => Err(Unsupported::new("a tuple literal")),
@@ -790,6 +833,104 @@ impl Compiler {
                 node_label(other)
             ))),
         }
+    }
+
+    /// A method, declared or written as an expression.
+    ///
+    /// Both make a closure; a named one also binds it. The binding is made
+    /// *before* the body is compiled, which is what lets a method find
+    /// itself -- `factorial` in `tests/cases/methods.xen` is the fixture that
+    /// needs it, and the capture it resolves to is an open upvalue pointing
+    /// at the register `CLOSURE` is about to fill.
+    fn func_def(&mut self, n: &crate::nodes::FuncDefNode) -> Result<Reg, Unsupported> {
+        let name = n
+            .variable_name_token
+            .as_ref()
+            .and_then(|token| token.value.clone());
+
+        if n.param_names.len() > u8::MAX as usize {
+            return Err(Unsupported::new("a method with more than 255 parameters"));
+        }
+        let arity = n.param_names.len() as u8;
+
+        let dst = self.alloc()?;
+        if let Some(name) = &name {
+            let depth = self.state_ref().depth;
+            self.state().locals.push(Local {
+                name: name.clone(),
+                reg: dst,
+                depth,
+                is_constant: false,
+            });
+        }
+
+        self.functions
+            .push(FnState::for_function(name, &n.param_types, arity));
+
+        // An `Unsupported` from here on abandons the whole compile -- the
+        // caller runs the tree walker -- so the pushed state being left
+        // behind costs nothing, and `?` stays readable.
+        for token in &n.param_names {
+            let param = token
+                .value
+                .clone()
+                .ok_or_else(|| Unsupported::new("a parameter with no name"))?;
+            let reg = self.alloc()?;
+            self.state().locals.push(Local {
+                name: param,
+                reg,
+                depth: 0,
+                is_constant: false,
+            });
+        }
+
+        if n.is_arrow {
+            // `=>` returns its body. `Function::execute` calls this
+            // `should_auto_return`.
+            let value = self.expr(&n.body_node)?;
+            self.emit(
+                Instr::Ret { src: value },
+                n.body_node.position_start(),
+                n.body_node.position_end(),
+            );
+        } else {
+            self.body_for_effect(&n.body_node)?;
+
+            // A body already ending in `RET` needs no second one. Not an
+            // optimisation -- the instructions would be unreachable -- but a
+            // disassembly with two dead instructions at the end of every
+            // method is harder to read than one without.
+            let ends_in_ret = matches!(
+                self.state_ref().chunk.code.last(),
+                Some(Instr::Ret { .. })
+            );
+            if !ends_in_ret {
+                let reg = self.alloc()?;
+                self.emit(Instr::LoadNull { dst: reg }, &n.position_end, &n.position_end);
+                self.emit(Instr::Ret { src: reg }, &n.position_end, &n.position_end);
+            }
+        }
+
+        let proto = self.finish_function();
+
+        let index = {
+            let state = self.state();
+            state.chunk.protos.push(Rc::new(proto));
+            state.chunk.protos.len() - 1
+        };
+        if index > u16::MAX as usize {
+            return Err(Unsupported::new("more than 65,536 methods in one method"));
+        }
+
+        self.emit(
+            Instr::Closure {
+                dst,
+                proto: index as u16,
+            },
+            &n.position_start,
+            &n.position_end,
+        );
+        Ok(dst)
     }
 
     /// `let x: int = 1`, and `x = 2`.

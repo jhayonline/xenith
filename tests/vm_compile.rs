@@ -177,14 +177,6 @@ code:
 }
 
 #[test]
-fn a_method_declaration_is_not_supported_yet() {
-    assert_eq!(
-        refuses("method f() -> int {\n  release 1\n}\n"),
-        "a method declaration"
-    );
-}
-
-#[test]
 fn a_list_literal_is_not_supported_yet() {
     // A bare list, not `let xs = [...]`: assignment is its own unsupported
     // reason until task 6, and this test is about the list.
@@ -442,4 +434,120 @@ code:
   0005  RET          r0
 "
     );
+}
+
+#[test]
+fn an_arrow_method_compiles_to_a_proto_and_a_closure() {
+    assert_eq!(
+        dis("method square(n: int) -> int => n * n\n"),
+        "\
+constants:
+  (none)
+registers: 2
+code:
+  0000  CLOSURE      r0, p0
+  0001  MOVE         r1, r0
+  0002  HALT         r1
+
+proto p0  square/1
+constants:
+  (none)
+registers: 2
+code:
+  0000  MUL          r1, r0, r0
+  0001  RET          r1
+"
+    );
+}
+
+#[test]
+fn a_parameter_is_a_register_the_caller_already_filled() {
+    // Two parameters, in declaration order, at r0 and r1 -- which is where a
+    // `CALL` puts the arguments. Nothing moves them.
+    assert_eq!(
+        dis("method add(a: int, b: int) -> int { release a + b }\n"),
+        "\
+constants:
+  (none)
+registers: 2
+code:
+  0000  CLOSURE      r0, p0
+  0001  MOVE         r1, r0
+  0002  HALT         r1
+
+proto p0  add/2
+constants:
+  (none)
+registers: 3
+code:
+  0000  ADD          r2, r0, r1
+  0001  RET          r2
+"
+    );
+}
+
+#[test]
+fn a_method_that_runs_off_the_end_returns_null() {
+    // `Function::execute` ends with `success(Value::Null)` when nothing set a
+    // return value. A block body's last statement is *not* its value -- only
+    // `release` is, and only `=>` returns an expression.
+    assert_eq!(
+        dis("method nothing() -> null { let x: int = 1 }\n"),
+        "\
+constants:
+  (none)
+registers: 2
+code:
+  0000  CLOSURE      r0, p0
+  0001  MOVE         r1, r0
+  0002  HALT         r1
+
+proto p0  nothing/0
+constants:
+  k0  int 1
+registers: 2
+code:
+  0000  LOAD_CONST   r0, k0
+  0001  LOAD_NULL    r1
+  0002  RET          r1
+"
+    );
+}
+
+#[test]
+fn a_bare_release_returns_null() {
+    assert_eq!(
+        dis("method nothing() -> null { release }\n"),
+        "\
+constants:
+  (none)
+registers: 2
+code:
+  0000  CLOSURE      r0, p0
+  0001  MOVE         r1, r0
+  0002  HALT         r1
+
+proto p0  nothing/0
+constants:
+  (none)
+registers: 1
+code:
+  0000  LOAD_NULL    r0
+  0001  RET          r0
+"
+    );
+}
+
+#[test]
+fn an_anonymous_method_is_the_same_thing_without_the_name() {
+    let text = dis("let triple: method(int) -> int = method(n: int) -> int => n * 3\n");
+    assert!(text.contains("proto p0  <anonymous>/1"), "{text}");
+    assert!(text.contains("CLOSURE      r0, p0"), "{text}");
+}
+
+#[test]
+fn release_at_the_top_level_is_still_the_tree_walkers_to_report() {
+    // The top level is not a function. The tree walker has a message for
+    // this; the VM must not invent a second one.
+    assert_eq!(refuses("release 1\n"), "release outside a method");
 }
