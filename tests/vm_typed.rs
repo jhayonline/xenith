@@ -347,3 +347,143 @@ fn a_float_opcode_on_other_types_falls_back() {
         Value::int(2),
     );
 }
+
+/// Builds `dst = a <op> k` and runs it. The constant-operand twin of `apply`.
+fn apply_k(
+    op: fn(u8, u8, u16) -> Instr,
+    a: Value,
+    k: Value,
+) -> Result<Value, xenith::error::Error> {
+    let mut chunk = Chunk::new();
+    let ka = chunk.add_constant(a);
+    let kk = chunk.add_constant(k);
+    chunk.push(Instr::LoadConst { dst: 0, k: ka });
+    chunk.push(op(1, 0, kk));
+    chunk.push(Instr::Halt { src: 1 });
+    chunk.registers = 2;
+    execute(Rc::new(chunk))
+}
+
+/// A constant-operand opcode must equal the register form on the same values.
+fn agree_k(
+    konst: fn(u8, u8, u16) -> Instr,
+    generic: fn(u8, u8, u8) -> Instr,
+    a: Value,
+    b: Value,
+) {
+    match (apply_k(konst, a.clone(), b.clone()), apply(generic, a, b)) {
+        (Ok(t), Ok(g)) => assert_eq!(
+            format!("{:?}", t),
+            format!("{:?}", g),
+            "constant-operand and register forms disagreed on the value"
+        ),
+        (Err(t), Err(g)) => {
+            assert_eq!(t.code, g.code, "error code");
+            assert_eq!(t.details, g.details, "error details");
+            assert_eq!(t.note, g.note, "error note");
+            assert_eq!(t.help, g.help, "error help");
+        }
+        (t, g) => panic!("one succeeded and the other did not: {:?} / {:?}", t, g),
+    }
+}
+
+#[test]
+fn a_constant_operand_matches_the_register_form() {
+    for (konst, generic) in [
+        (
+            (|dst, a, k| Instr::AddIK { dst, a, k }) as fn(u8, u8, u16) -> Instr,
+            (|dst, a, b| Instr::Add { dst, a, b }) as fn(u8, u8, u8) -> Instr,
+        ),
+        (
+            |dst, a, k| Instr::SubIK { dst, a, k },
+            |dst, a, b| Instr::Sub { dst, a, b },
+        ),
+        (
+            |dst, a, k| Instr::MulIK { dst, a, k },
+            |dst, a, b| Instr::Mul { dst, a, b },
+        ),
+    ] {
+        agree_k(konst, generic, Value::int(41), Value::int(1));
+        agree_k(konst, generic, Value::int(-5), Value::int(3));
+        agree_k(konst, generic, Value::int(i64::MAX), Value::int(2));
+        agree_k(konst, generic, Value::int(i64::MIN), Value::int(2));
+    }
+
+    for (konst, generic) in [
+        (
+            (|dst, a, k| Instr::LtIK { dst, a, k }) as fn(u8, u8, u16) -> Instr,
+            (|dst, a, b| Instr::Lt { dst, a, b }) as fn(u8, u8, u8) -> Instr,
+        ),
+        (
+            |dst, a, k| Instr::GtIK { dst, a, k },
+            |dst, a, b| Instr::Gt { dst, a, b },
+        ),
+        (
+            |dst, a, k| Instr::LeIK { dst, a, k },
+            |dst, a, b| Instr::Le { dst, a, b },
+        ),
+        (
+            |dst, a, k| Instr::GeIK { dst, a, k },
+            |dst, a, b| Instr::Ge { dst, a, b },
+        ),
+        (
+            |dst, a, k| Instr::EqIK { dst, a, k },
+            |dst, a, b| Instr::Eq { dst, a, b },
+        ),
+        (
+            |dst, a, k| Instr::NeIK { dst, a, k },
+            |dst, a, b| Instr::Ne { dst, a, b },
+        ),
+    ] {
+        agree_k(konst, generic, Value::int(1), Value::int(400000));
+        agree_k(konst, generic, Value::int(400000), Value::int(400000));
+        agree_k(konst, generic, Value::int(400001), Value::int(400000));
+    }
+}
+
+#[test]
+fn a_constant_operand_falls_back_when_the_register_is_not_an_int() {
+    // The constant is an int by construction -- the compiler only emits these
+    // forms for an int literal -- but the register can still surprise it.
+    agree_k(
+        |dst, a, k| Instr::AddIK { dst, a, k },
+        |dst, a, b| Instr::Add { dst, a, b },
+        Value::float(1.0),
+        Value::int(1),
+    );
+    agree_k(
+        |dst, a, k| Instr::LtIK { dst, a, k },
+        |dst, a, b| Instr::Lt { dst, a, b },
+        Value::string("a"),
+        Value::int(1),
+    );
+    agree_k(
+        |dst, a, k| Instr::EqIK { dst, a, k },
+        |dst, a, b| Instr::Eq { dst, a, b },
+        Value::string("a"),
+        Value::int(1),
+    );
+}
+
+#[test]
+fn the_constant_operand_mnemonics_disassemble() {
+    let mut chunk = Chunk::new();
+    let k = chunk.add_constant(Value::int(400000));
+    chunk.push(Instr::LtIK { dst: 1, a: 0, k });
+    chunk.push(Instr::AddIK { dst: 0, a: 0, k });
+    chunk.push(Instr::Halt { src: 1 });
+    chunk.registers = 2;
+
+    assert_eq!(
+        chunk.disassemble(),
+        "\
+constants:
+  k0  int 400000
+registers: 2
+code:
+  0000  LT_IK        r1, r0, k0
+  0001  ADD_IK       r0, r0, k0
+  0002  HALT         r1
+"
+    );
+}

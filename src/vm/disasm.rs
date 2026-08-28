@@ -121,6 +121,16 @@ fn describe(instr: &Instr) -> String {
         Instr::EqF { dst, a, b } => binary("EQ_F", dst, a, b),
         Instr::NeF { dst, a, b } => binary("NE_F", dst, a, b),
 
+        Instr::AddIK { dst, a, k } => binary_k("ADD_IK", dst, a, k),
+        Instr::SubIK { dst, a, k } => binary_k("SUB_IK", dst, a, k),
+        Instr::MulIK { dst, a, k } => binary_k("MUL_IK", dst, a, k),
+        Instr::LtIK { dst, a, k } => binary_k("LT_IK", dst, a, k),
+        Instr::GtIK { dst, a, k } => binary_k("GT_IK", dst, a, k),
+        Instr::LeIK { dst, a, k } => binary_k("LE_IK", dst, a, k),
+        Instr::GeIK { dst, a, k } => binary_k("GE_IK", dst, a, k),
+        Instr::EqIK { dst, a, k } => binary_k("EQ_IK", dst, a, k),
+        Instr::NeIK { dst, a, k } => binary_k("NE_IK", dst, a, k),
+
         Instr::Neg { dst, src } => format!("{:<12} r{}, r{}", "NEG", dst, src),
         Instr::Not { dst, src } => format!("{:<12} r{}, r{}", "NOT", dst, src),
 
@@ -148,4 +158,9 @@ fn describe(instr: &Instr) -> String {
 
 fn binary(name: &str, dst: &u8, a: &u8, b: &u8) -> String {
     format!("{:<12} r{}, r{}, r{}", name, dst, a, b)
+}
+
+/// `NAME  rDST, rA, kK` -- a register and a constant.
+fn binary_k(name: &str, dst: &u8, a: &u8, k: &u16) -> String {
+    format!("{:<12} r{}, r{}, k{}", name, dst, a, k)
 }

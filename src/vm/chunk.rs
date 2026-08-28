@@ -104,6 +104,29 @@ pub enum Instr {
     EqF { dst: Reg, a: Reg, b: Reg },
     NeF { dst: Reg, a: Reg, b: Reg },
 
+    // Constant right-hand operand. `while i < 400000` loaded that constant
+    // into a register on every one of 400,000 passes; this reads it where it
+    // already lives, and the `LOAD_CONST` disappears.
+    //
+    // Right-hand side only. A mirrored set for `k - i` would double the
+    // opcodes to serve a shape that a bound, a step and an increment never
+    // take. No `DIV_IK` or `REM_IK` either: a literal divisor is either
+    // something the programmer could have folded or a zero that raises.
+    //
+    // `k` is a constant index and not an immediate on purpose. A 16-bit
+    // immediate would hold the `1` and not the `400000`, so it would need a
+    // second encoding and a compile-time choice between them, to save a read
+    // of something already interned and already in cache.
+    AddIK { dst: Reg, a: Reg, k: ConstIdx },
+    SubIK { dst: Reg, a: Reg, k: ConstIdx },
+    MulIK { dst: Reg, a: Reg, k: ConstIdx },
+    LtIK { dst: Reg, a: Reg, k: ConstIdx },
+    GtIK { dst: Reg, a: Reg, k: ConstIdx },
+    LeIK { dst: Reg, a: Reg, k: ConstIdx },
+    GeIK { dst: Reg, a: Reg, k: ConstIdx },
+    EqIK { dst: Reg, a: Reg, k: ConstIdx },
+    NeIK { dst: Reg, a: Reg, k: ConstIdx },
+
     /// `dst = -src`
     Neg { dst: Reg, src: Reg },
     /// `dst = !src`

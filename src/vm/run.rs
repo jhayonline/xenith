@@ -116,6 +116,36 @@ macro_rules! float_cmp {
     }};
 }
 
+/// A guarded opcode with a constant right operand.
+///
+/// The fallback cannot call `binary` -- that takes two registers and this has
+/// a constant -- so it runs the generic operation over the register and the
+/// constant directly, producing byte-identically what `LOAD_CONST` followed by
+/// the generic opcode would have. Both arms compute an owned answer before
+/// assigning, so no borrow of the stack is held across a write to it.
+macro_rules! int_k {
+    ($stack:expr, $base:expr, $consts:expr, $dst:expr, $a:expr, $k:expr,
+     $fast:expr, $generic:path, $chunk:expr, $at:expr) => {{
+        let fast = match (&$stack[$base + $a as usize], &$consts[$k as usize]) {
+            (Value::Int(x), Value::Int(y)) => Some((*x, *y)),
+            _ => None,
+        };
+        match fast {
+            Some((x, y)) => match ($fast)(x, y) {
+                Ok(answer) => $stack[$base + $dst as usize] = answer,
+                Err(error) => return Err(with_position(error, $chunk, $at)),
+            },
+            None => {
+                let outcome = $generic(&$stack[$base + $a as usize], &$consts[$k as usize]);
+                match outcome {
+                    Ok(answer) => $stack[$base + $dst as usize] = answer,
+                    Err(error) => return Err(with_position(error, $chunk, $at)),
+                }
+            }
+        }
+    }};
+}
+
 /// The zero-divisor report, which is the *caller's* and not `Value::divide`'s.
 ///
 /// `visit_binary_op` checks for a zero divisor before calling `divide` and
@@ -372,6 +402,58 @@ pub fn execute(chunk: Rc<Chunk>) -> Result<Value, Error> {
                 Some((x, y)) => stack[base + dst as usize] = Value::Bool(x != y),
                 None => binary(&mut stack, base, dst, a, b, Value::not_equals, &current, at)?,
             },
+
+            // The same operators again, with the right operand read from the
+            // constants instead of a register. No DIV_IK or REM_IK: see the
+            // note on the variants.
+            Instr::AddIK { dst, a, k } => int_k!(
+                stack, base, current.constants, dst, a, k,
+                |x: i64, y: i64| x
+                    .checked_add(y)
+                    .map(Value::Int)
+                    .ok_or_else(|| Value::overflow_err("addition")),
+                Value::add, &current, at
+            ),
+            Instr::SubIK { dst, a, k } => int_k!(
+                stack, base, current.constants, dst, a, k,
+                |x: i64, y: i64| x
+                    .checked_sub(y)
+                    .map(Value::Int)
+                    .ok_or_else(|| Value::overflow_err("subtraction")),
+                Value::subtract, &current, at
+            ),
+            Instr::MulIK { dst, a, k } => int_k!(
+                stack, base, current.constants, dst, a, k,
+                |x: i64, y: i64| x
+                    .checked_mul(y)
+                    .map(Value::Int)
+                    .ok_or_else(|| Value::overflow_err("multiplication")),
+                Value::multiply, &current, at
+            ),
+            Instr::LtIK { dst, a, k } => int_k!(
+                stack, base, current.constants, dst, a, k,
+                |x: i64, y: i64| Ok::<_, Box<Error>>(Value::Bool(x < y)), Value::less_than, &current, at
+            ),
+            Instr::GtIK { dst, a, k } => int_k!(
+                stack, base, current.constants, dst, a, k,
+                |x: i64, y: i64| Ok::<_, Box<Error>>(Value::Bool(x > y)), Value::greater_than, &current, at
+            ),
+            Instr::LeIK { dst, a, k } => int_k!(
+                stack, base, current.constants, dst, a, k,
+                |x: i64, y: i64| Ok::<_, Box<Error>>(Value::Bool(x <= y)), Value::less_than_or_equal, &current, at
+            ),
+            Instr::GeIK { dst, a, k } => int_k!(
+                stack, base, current.constants, dst, a, k,
+                |x: i64, y: i64| Ok::<_, Box<Error>>(Value::Bool(x >= y)), Value::greater_than_or_equal, &current, at
+            ),
+            Instr::EqIK { dst, a, k } => int_k!(
+                stack, base, current.constants, dst, a, k,
+                |x: i64, y: i64| Ok::<_, Box<Error>>(Value::Bool(x == y)), Value::equals, &current, at
+            ),
+            Instr::NeIK { dst, a, k } => int_k!(
+                stack, base, current.constants, dst, a, k,
+                |x: i64, y: i64| Ok::<_, Box<Error>>(Value::Bool(x != y)), Value::not_equals, &current, at
+            ),
 
             Instr::Neg { dst, src } => {
                 stack[base + dst as usize] = stack[base + src as usize]
