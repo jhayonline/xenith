@@ -78,6 +78,7 @@ code:
 use xenith::lexer::Lexer;
 use xenith::nodes::Node;
 use xenith::parser::Parser;
+use xenith::type_table::TypeTable;
 use xenith::vm::compile::{compile, Unsupported};
 
 fn parse(source: &str) -> Node {
@@ -89,20 +90,82 @@ fn parse(source: &str) -> Node {
     result.node.expect("should produce a node")
 }
 
-/// Compiles, or fails the test with what stopped it.
+/// Lexes, parses *and checks*, so the compiler sees the types the checker
+/// proved.
+///
+/// The old helper stopped at the parser, which meant every test in this file
+/// compiled against an empty table -- fine while no opcode depended on one,
+/// and misleading the moment one does.
+fn checked(source: &str) -> (Node, TypeTable) {
+    let (errors, types, ast) =
+        xenith::check_source_typed("<test>", source).expect("should lex and parse");
+    assert!(errors.is_empty(), "should check: {:?}", errors);
+    (ast, types)
+}
+
+/// Compiles with the checker's types, or fails the test with what stopped it.
 fn dis(source: &str) -> String {
-    match compile(&parse(source)) {
+    let (ast, types) = checked(source);
+    match compile(&ast, &types) {
+        Ok(chunk) => chunk.disassemble(),
+        Err(Unsupported { what }) => panic!("should have compiled, but: {what}"),
+    }
+}
+
+/// Compiles against an empty table, which is what the compiler sees for any
+/// node the checker could not prove.
+///
+/// Every typed opcode has to have a generic twin that behaves identically, and
+/// this is how the twin is exercised. Also the home for sources the parser
+/// accepts and the checker does not.
+#[allow(dead_code)]
+fn dis_untyped(source: &str) -> String {
+    let ast = parse(source);
+    match compile(&ast, &TypeTable::default()) {
         Ok(chunk) => chunk.disassemble(),
         Err(Unsupported { what }) => panic!("should have compiled, but: {what}"),
     }
 }
 
 /// What stopped the compiler, for the cases that are meant to bail out.
+/// Checked, so a refusal is never an artefact of a missing type.
 fn refuses(source: &str) -> String {
-    match compile(&parse(source)) {
+    let (ast, types) = checked(source);
+    match compile(&ast, &types) {
         Ok(_) => panic!("should not have compiled"),
         Err(Unsupported { what }) => what,
     }
+}
+
+/// Parsed but not checked, for a refusal the checker would reject first.
+#[allow(dead_code)]
+fn refuses_untyped(source: &str) -> String {
+    match compile(&parse(source), &TypeTable::default()) {
+        Ok(_) => panic!("should not have compiled"),
+        Err(Unsupported { what }) => what,
+    }
+}
+
+#[test]
+fn the_compiler_is_given_the_checkers_types() {
+    let (ast, types) = checked("let i: int = 1\n");
+    assert!(
+        matches!(types.get(first_value(&ast)), xenith::types::Type::Int),
+        "the checker should have proved the literal an int"
+    );
+    // The point of the test: this signature exists.
+    compile(&ast, &types).expect("should compile");
+}
+
+/// The `NodeId` of the value in the file's first `let`.
+fn first_value(ast: &Node) -> xenith::nodes::NodeId {
+    let Node::List(list) = ast else {
+        panic!("expected a statement list")
+    };
+    let Node::VarAssign(assign) = &*list.element_nodes[0] else {
+        panic!("expected an assignment")
+    };
+    assign.value_node.id()
 }
 
 #[test]
@@ -660,8 +723,14 @@ fn a_capture_of_a_constant_is_still_the_tree_walkers_to_refuse() {
     // XEN010 territory. The checker reports it and so does the tree walker;
     // the VM must not be the one to decide, or the message would have to be
     // duplicated.
+    //
+    // Unchecked, because the checker gets there first: this source is XEN018
+    // before it is anything else, so `refuses` would never reach the compiler.
+    // What is under test is what the *compiler* does when handed it anyway.
     assert_eq!(
-        refuses("const let fixed: int = 1\nmethod set() -> null { fixed = 2 release null }\n"),
+        refuses_untyped(
+            "const let fixed: int = 1\nmethod set() -> null { fixed = 2 release null }\n"
+        ),
         "an assignment to a constant"
     );
 }

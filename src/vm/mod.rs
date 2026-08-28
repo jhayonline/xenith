@@ -21,7 +21,10 @@ use crate::values::Value;
 ///
 /// `None` means the program used something this phase does not cover, and the
 /// caller should run the tree walker. It is not a failure.
-pub fn compile_and_run(ast: &Node) -> Option<Result<Value, Error>> {
-    let chunk = compile::compile(ast).ok()?;
+pub fn compile_and_run(
+    ast: &Node,
+    types: &crate::type_table::TypeTable,
+) -> Option<Result<Value, Error>> {
+    let chunk = compile::compile(ast, types).ok()?;
     Some(run::execute(std::rc::Rc::new(chunk)))
 }

@@ -124,8 +124,11 @@ fn dump_bytecode(filename: &str) {
         }
     };
 
-    let ast = match xenith::check_source_typed(filename, &source) {
-        Ok((errors, _, ast)) if errors.is_empty() => ast,
+    // The table comes along: a disassembly produced against a different table
+    // than the run uses would be a debugging tool that lies about the code it
+    // is showing you.
+    let (ast, types) = match xenith::check_source_typed(filename, &source) {
+        Ok((errors, types, ast)) if errors.is_empty() => (ast, types),
         Ok((errors, _, _)) => {
             for error in &errors {
                 eprintln!("{}", error.as_string_colored());
@@ -138,7 +141,7 @@ fn dump_bytecode(filename: &str) {
         }
     };
 
-    match xenith::vm::compile::compile(&ast) {
+    match xenith::vm::compile::compile(&ast, &types) {
         Ok(chunk) => print!("{}", chunk.disassemble()),
         Err(unsupported) => {
             println!("not compiled: {}", unsupported.what);

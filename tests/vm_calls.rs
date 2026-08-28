@@ -264,14 +264,14 @@ fn two_closures_over_one_variable_share_a_cell() {
 
 /// Compiles and runs a source string, or fails the test saying why not.
 fn vm(source: &str) -> Value {
-    let mut lexer = xenith::lexer::Lexer::new("<test>".to_string(), source.to_string());
-    let tokens = lexer.make_tokens().expect("should lex");
-    let mut parser = xenith::parser::Parser::new(tokens);
-    let parsed = parser.parse();
-    assert!(parsed.error.is_none(), "should parse: {:?}", parsed.error);
-    let ast = parsed.node.expect("should produce a node");
+    // Checked, not merely parsed: a user's code always reaches the compiler
+    // with the checker's types behind it, so a test that skipped the checker
+    // would be exercising a path nothing actually takes.
+    let (errors, types, ast) =
+        xenith::check_source_typed("<test>", source).expect("should lex and parse");
+    assert!(errors.is_empty(), "should check: {:?}", errors);
 
-    match xenith::vm::compile_and_run(&ast) {
+    match xenith::vm::compile_and_run(&ast, &types) {
         Some(Ok(value)) => value,
         Some(Err(error)) => panic!("should not have failed: {}", error.as_string()),
         None => panic!("should have compiled"),

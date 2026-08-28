@@ -19,6 +19,7 @@ use std::rc::Rc;
 
 use crate::nodes::Node;
 use crate::position::Position;
+use crate::type_table::TypeTable;
 use crate::types::Type;
 use crate::values::Value;
 use crate::vm::chunk::{Addr, Chunk, Instr, Reg, UpvalDesc};
@@ -38,9 +39,16 @@ impl Unsupported {
 }
 
 /// Lowers a whole file.
-pub fn compile(ast: &Node) -> Result<Chunk, Unsupported> {
+///
+/// `types` is what the checker proved, indexed by `NodeId`. The compiler reads
+/// it only to pick a narrower opcode; an absent, `Unknown` or unproven entry
+/// selects the generic one, which does exactly what the tree walker does. That
+/// asymmetry is the whole safety argument for typed opcodes: a table that is
+/// wrong about a node costs a program speed, never correctness.
+pub fn compile(ast: &Node, types: &TypeTable) -> Result<Chunk, Unsupported> {
     let mut compiler = Compiler {
         functions: vec![FnState::top_level()],
+        types,
     };
 
     let value = compiler.program(ast)?;
@@ -128,12 +136,15 @@ impl FnState {
     }
 }
 
-struct Compiler {
+struct Compiler<'a> {
     /// Innermost last. Never empty: the top level is `functions[0]`.
     functions: Vec<FnState>,
+    /// What the checker proved. Read in `narrow` and nowhere else.
+    #[allow(dead_code)]
+    types: &'a TypeTable,
 }
 
-impl Compiler {
+impl<'a> Compiler<'a> {
     /// The function being compiled right now.
     ///
     /// `expect` rather than an `Option`: `compile` pushes the top level

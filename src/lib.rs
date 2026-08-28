@@ -139,14 +139,16 @@ pub fn run_with_graph(
         None => crate::program::Exports::default(),
     };
 
-    let static_errors = crate::checker::check_typed(
+    // Both halves are kept now. The table is what lets the compiler emit a
+    // narrow opcode where the checker proved a type, instead of rediscovering
+    // at run time what this pass already knows.
+    let (static_errors, types) = crate::checker::check_typed(
         &ast,
         &parser.type_aliases,
         parser.node_count(),
         crate::entry::shape_of(&ast),
         &imported,
-    )
-    .0;
+    );
     if let Some(first) = static_errors.into_iter().next() {
         return Err(first);
     }
@@ -178,7 +180,7 @@ pub fn run_with_graph(
     if std::env::var_os("XENITH_VM").is_some()
         && crate::entry::shape_of(&ast) == crate::entry::ProgramShape::Script
     {
-        if let Some(outcome) = crate::vm::compile_and_run(&ast) {
+        if let Some(outcome) = crate::vm::compile_and_run(&ast, &types) {
             // The returned value has to be what the tree walker would return,
             // because `run_file` prints it. `visit_list` collects every
             // top-level statement's value into a `Value::List`, and
