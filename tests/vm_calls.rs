@@ -320,3 +320,56 @@ fn a_method_passed_as_an_argument_keeps_its_capture() {
     );
     assert!(matches!(value, Value::Int(7)), "got {:?}", value);
 }
+
+#[test]
+fn a_return_resumes_the_callers_own_code() {
+    // The failure this guards: the interpreter loop caches a borrow of the
+    // running chunk's code, and a return has to re-establish it against the
+    // caller's. Resuming the *callee's* code at the caller's ip is the bug,
+    // and it is invisible unless the caller is longer than the callee -- here
+    // the caller has eight instructions and `double` has two, so a return that
+    // failed to switch back would run past the end of the callee and report an
+    // internal error instead of answering 26.
+    let mut chunk = Chunk::new();
+    chunk.protos.push(Rc::new(double_proto()));
+    let three = chunk.add_constant(Value::int(3));
+    let ten = chunk.add_constant(Value::int(10));
+
+    chunk.push(Instr::Closure { dst: 0, proto: 0 });
+    chunk.push(Instr::LoadConst { dst: 1, k: three });
+    // Callee in r0, its one argument in r1.
+    chunk.push(Instr::Call { dst: 0, callee: 0, argc: 1 });
+    // Everything from here on runs only if the return came back to this chunk.
+    chunk.push(Instr::LoadConst { dst: 1, k: ten });
+    chunk.push(Instr::Add { dst: 0, a: 0, b: 1 });
+    chunk.push(Instr::LoadConst { dst: 1, k: ten });
+    chunk.push(Instr::Add { dst: 0, a: 0, b: 1 });
+    chunk.push(Instr::Halt { src: 0 });
+    chunk.registers = 2;
+
+    let value = xenith::vm::run::execute(Rc::new(chunk)).expect("should run");
+    assert!(matches!(value, Value::Int(26)), "got {:?}", value);
+}
+
+#[test]
+fn a_second_call_reaches_the_callee_again() {
+    // A return restores the caller's code; the next call has to switch away
+    // from it again. One call proves neither.
+    let mut chunk = Chunk::new();
+    chunk.protos.push(Rc::new(double_proto()));
+    let three = chunk.add_constant(Value::int(3));
+
+    chunk.push(Instr::Closure { dst: 0, proto: 0 });
+    chunk.push(Instr::LoadConst { dst: 1, k: three });
+    chunk.push(Instr::Call { dst: 0, callee: 0, argc: 1 });
+    // r0 holds 6 now and the closure is gone from it, so re-make it.
+    chunk.push(Instr::Move { dst: 2, src: 0 });
+    chunk.push(Instr::Closure { dst: 0, proto: 0 });
+    chunk.push(Instr::Move { dst: 1, src: 2 });
+    chunk.push(Instr::Call { dst: 0, callee: 0, argc: 1 });
+    chunk.push(Instr::Halt { src: 0 });
+    chunk.registers = 3;
+
+    let value = xenith::vm::run::execute(Rc::new(chunk)).expect("should run");
+    assert!(matches!(value, Value::Int(12)), "got {:?}", value);
+}

@@ -188,6 +188,123 @@ quietly collecting a list of its own iterations.
 [Performance](docs/internals/10-performance.md) describes each, since they are
 all easy to reintroduce.
 
+## The bytecode VM
+
+The tree walker is finished, in the sense that there is nothing left to fix in
+it. The profile that remains is 36% dispatch and 21% binary operators, variable
+lookup does not appear at all, and allocation does not appear at all. That is
+what a tree walker costs when nothing is being wasted.
+
+So it is being replaced by a **register based bytecode VM with type specialised
+opcodes**, in place, one phase at a time. The target is 5 to 15 times the
+current throughput, measured by instruction count rather than wall clock -- a
+loaded machine has produced two false regressions in this project's history.
+
+The lever is that Xenith is statically typed. Python, Ruby, Lua and JavaScript
+spend most of a VM's budget rediscovering types at run time; every `+`
+dispatches on a pair of tags. Xenith does not have to. Where the checker knows
+both operands are `int`, the compiler emits `ADD_I` instead. Where it does not
+know, the compiler emits the generic opcode, which does exactly what the tree
+walker does today -- so checker completeness turns into speed continuously,
+rather than gating it.
+
+### How it is being built without breaking anything
+
+Three rules, and they are the reason a rewrite of this size is survivable:
+
+- **Anything the compiler cannot handle runs on the tree walker.** Returning
+  "unsupported" is never a failure. Compiling to something that behaves
+  differently is.
+- **Every fixture runs through both engines and is compared byte for byte** --
+  stdout, stderr and exit status. That harness has run on every commit since
+  phase 3, not at the end.
+- **A disassembler was written before the VM loop.** Register allocation bugs
+  produce wrong answers rather than crashes, so `xenith --dump-bytecode
+  file.xen` exists to make them visible.
+
+The VM is opt in while it is built: `XENITH_VM=1 xenith program.xen`. Without
+it, nothing has changed.
+
+### The phases
+
+| | | |
+| --- | --- | --- |
+| 0 | Shrink `Value` to 16 bytes, node ids, the checker emits a type table | done |
+| 1 | `main` as an entry point; program mode and script mode | done |
+| 2 | Whole program front end, cross module type checking | done |
+| 3 | Chunks, opcodes, register allocation, the disassembler, the VM loop, the differential harness | done |
+| 4 | Frames, `CALL` and `RET`, upvalues, `release` | done |
+| 5 | Typed opcodes, wired to the checker's table | **in progress** |
+| 6 | Structs with indexed fields, tagged enums, `match` jump tables, lists, maps, indexing | not started |
+| 7 | Modules, builtins, string interpolation, the standard library precompiled into the binary | not started |
+| 8 | The REPL onto the VM, and `src/interpreter.rs` deleted | not started |
+
+### Where it has got to
+
+Phases 0 to 4 are merged. Measured by callgrind instruction count on one
+machine and one build:
+
+| | tree walker | VM | |
+| --- | --- | --- | --- |
+| `fib(25)`, 242,785 calls | 1,391,087,959 | 248,783,608 | 5.59x |
+| 400,000 iteration counting loop | 1,181,300,349 | 289,255,472 | 4.08x |
+
+`fib(25)` also runs in 36.9 ms against 273.0 ms, which meets the one success
+criterion stated in milliseconds rather than instructions.
+
+The counting loop is the honest number: phase 3 reached 4.45x and **phase 4
+gave 8.9% of it back**, because frames made every register access take a base
+offset and every instruction fetch walk an `Rc`. That was measured, attributed
+to two functions, written down and left, rather than papered over.
+
+Phase 5 is under way and has not been measured yet. What can be said without
+measuring is what the counting loop now compiles to. Before, nine instructions
+a pass:
+
+```
+LOAD_CONST    r2, k1        the bound, reloaded every pass
+LT            r2, r0, r2
+JUMP_IF_FALSE r2, @0011
+ADD           r2, r1, r0
+MOVE          r1, r2        total = ...
+LOAD_CONST    r2, k2        the step, reloaded every pass
+ADD           r2, r0, r2
+MOVE          r0, r2        i = ...
+JUMP          @0002
+```
+
+After, five:
+
+```
+LT_IK         r2, r0, k1    the bound read where it already lives
+JUMP_IF_FALSE r2, @0007
+ADD_I         r1, r1, r0    written straight into total
+ADD_IK        r0, r0, k2    and into i
+JUMP          @0002
+```
+
+Four separate changes, and only the first is what the phase is named after: the
+narrowed opcodes, a constant right operand read where it already lives instead
+of being loaded into a register, an assignment written straight into its own
+variable, and an error that now travels behind a pointer -- every operation in
+`src/values.rs` used to return 240 bytes to carry a 16 byte answer.
+
+### What is left
+
+In phase 5: the interpreter loop still reaches its code through an `Rc` on
+every dispatch, which is where phase 4's regression went and which phase 4's
+notes deferred to here. Then a differential fixture that exercises the narrow
+paths and the wide ones together, and the callgrind run that says whether any
+of this worked.
+
+After phase 5, the three phases that have not started. Phase 6 is the one that
+matters most for real programs: a struct field is a hashed string lookup today,
+and `match` compares variant names as strings.
+
+The whole of it is written up in
+[Performance](docs/internals/10-performance.md), phase by phase, including the
+things that did not work.
+
 ## Contributing
 
 ```sh
