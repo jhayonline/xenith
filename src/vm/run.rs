@@ -16,6 +16,81 @@ use crate::values::Value;
 use crate::vm::chunk::{Chunk, Instr};
 use crate::vm::closure::{Closure, Upvalue};
 
+/// Reads two registers as a pair of `i64`s, or `None` if they are not both
+/// ints.
+///
+/// The copy is not incidental. Matching on `(&stack[a], &stack[b])` and then
+/// writing `stack[dst]` inside the arm holds borrows of the stack across a
+/// write to it; NLL will sometimes allow that and sometimes not, depending on
+/// how long the bindings stay live, and the hottest match in the program is
+/// the wrong place to depend on the difference. Two `i64`s live in registers,
+/// so this costs nothing to be sure about.
+macro_rules! two_ints {
+    ($stack:expr, $base:expr, $a:expr, $b:expr) => {
+        match (&$stack[$base + $a as usize], &$stack[$base + $b as usize]) {
+            (Value::Int(x), Value::Int(y)) => Some((*x, *y)),
+            _ => None,
+        }
+    };
+}
+
+/// A guarded integer arithmetic opcode.
+///
+/// `$checked` is the `i64` method that reports overflow and `$what` is the word
+/// `Value::overflow_err` puts in its message; they must agree with what the
+/// generic opcode would have said, because the two are required to be
+/// indistinguishable.
+macro_rules! int_arith {
+    ($stack:expr, $base:expr, $dst:expr, $a:expr, $b:expr,
+     $checked:ident, $what:literal, $generic:path, $chunk:expr, $at:expr) => {{
+        match two_ints!($stack, $base, $a, $b) {
+            Some((x, y)) => match x.$checked(y) {
+                Some(answer) => {
+                    $stack[$base + $dst as usize] = Value::Int(answer);
+                }
+                None => return Err(with_position(Value::overflow_err($what), $chunk, $at)),
+            },
+            // The TypeTable said these were ints and they are not. Do exactly
+            // what the generic opcode does.
+            None => binary(&mut $stack, $base, $dst, $a, $b, $generic, $chunk, $at)?,
+        }
+    }};
+}
+
+/// A guarded integer comparison. Cannot fail on two ints.
+macro_rules! int_cmp {
+    ($stack:expr, $base:expr, $dst:expr, $a:expr, $b:expr,
+     $cmp:expr, $generic:path, $chunk:expr, $at:expr) => {{
+        match two_ints!($stack, $base, $a, $b) {
+            Some((x, y)) => {
+                let answer = ($cmp)(x, y);
+                $stack[$base + $dst as usize] = Value::Bool(answer);
+            }
+            None => binary(&mut $stack, $base, $dst, $a, $b, $generic, $chunk, $at)?,
+        }
+    }};
+}
+
+/// The zero-divisor report, which is the *caller's* and not `Value::divide`'s.
+///
+/// `visit_binary_op` checks for a zero divisor before calling `divide` and
+/// reports a fuller XEN003 than `divide`'s own branch does -- with a note and
+/// a help line. The check is not inside `divide` because other callers depend
+/// on the barer error, so every opcode that can divide makes the same check
+/// rather than moving it, and the two reports stay byte-identical.
+macro_rules! divide_by_zero {
+    ($chunk:expr, $at:expr) => {
+        return Err(with_position(
+            Error::division_by_zero(
+                crate::position::Position::dummy(),
+                crate::position::Position::dummy(),
+            ),
+            $chunk,
+            $at,
+        ))
+    };
+}
+
 /// One suspended caller.
 ///
 /// Not the running frame: that is the loop's own `current`, `base` and `ip`,
@@ -121,6 +196,78 @@ pub fn execute(chunk: Rc<Chunk>) -> Result<Value, Error> {
             Instr::Ge { dst, a, b } => {
                 binary(&mut stack, base, dst, a, b, Value::greater_than_or_equal, &current, at)?
             }
+
+            // The typed half. Each guards on the pair it expects and falls
+            // through to the generic opcode above on anything else.
+            Instr::AddI { dst, a, b } => int_arith!(
+                stack, base, dst, a, b, checked_add, "addition", Value::add, &current, at
+            ),
+            Instr::SubI { dst, a, b } => int_arith!(
+                stack, base, dst, a, b, checked_sub, "subtraction", Value::subtract, &current, at
+            ),
+            Instr::MulI { dst, a, b } => int_arith!(
+                stack, base, dst, a, b, checked_mul, "multiplication", Value::multiply, &current, at
+            ),
+
+            // Division and remainder guard the divisor first, and raise the
+            // caller's fuller XEN003 exactly as the generic `Div` arm does.
+            Instr::DivI { dst, a, b } => match two_ints!(stack, base, a, b) {
+                Some((_, 0)) => divide_by_zero!(&current, at),
+                // The only overflowing division is MIN / -1, which
+                // `checked_div` catches -- the same call `Value::divide` makes.
+                Some((x, y)) => match x.checked_div(y) {
+                    Some(answer) => stack[base + dst as usize] = Value::Int(answer),
+                    None => {
+                        return Err(with_position(Value::overflow_err("division"), &current, at))
+                    }
+                },
+                None => {
+                    // The generic arm's zero check runs on the fallback too:
+                    // a float divisor of 0.0 raises here, it does not give inf.
+                    if let (Some(_), Some(divisor)) = (
+                        stack[base + a as usize].as_number(),
+                        stack[base + b as usize].as_number(),
+                    ) {
+                        if divisor.is_zero() {
+                            divide_by_zero!(&current, at);
+                        }
+                    }
+                    binary(&mut stack, base, dst, a, b, Value::divide, &current, at)?
+                }
+            },
+            Instr::RemI { dst, a, b } => match two_ints!(stack, base, a, b) {
+                // Not the caller's XEN003. `Rem` has no zero pre-check --
+                // neither here nor in `visit_binary_op` -- so a zero divisor
+                // is `Value::modulo`'s own "remainder by zero", and the way to
+                // be sure of saying it identically is to let it say it.
+                Some((_, 0)) => binary(&mut stack, base, dst, a, b, Value::modulo, &current, at)?,
+                Some((x, y)) => match x.checked_rem(y) {
+                    Some(answer) => stack[base + dst as usize] = Value::Int(answer),
+                    None => {
+                        return Err(with_position(Value::overflow_err("remainder"), &current, at))
+                    }
+                },
+                None => binary(&mut stack, base, dst, a, b, Value::modulo, &current, at)?,
+            },
+
+            Instr::LtI { dst, a, b } => int_cmp!(
+                stack, base, dst, a, b, |x, y| x < y, Value::less_than, &current, at
+            ),
+            Instr::GtI { dst, a, b } => int_cmp!(
+                stack, base, dst, a, b, |x, y| x > y, Value::greater_than, &current, at
+            ),
+            Instr::LeI { dst, a, b } => int_cmp!(
+                stack, base, dst, a, b, |x, y| x <= y, Value::less_than_or_equal, &current, at
+            ),
+            Instr::GeI { dst, a, b } => int_cmp!(
+                stack, base, dst, a, b, |x, y| x >= y, Value::greater_than_or_equal, &current, at
+            ),
+            Instr::EqI { dst, a, b } => int_cmp!(
+                stack, base, dst, a, b, |x, y| x == y, Value::equals, &current, at
+            ),
+            Instr::NeI { dst, a, b } => int_cmp!(
+                stack, base, dst, a, b, |x, y| x != y, Value::not_equals, &current, at
+            ),
 
             Instr::Neg { dst, src } => {
                 stack[base + dst as usize] = stack[base + src as usize]

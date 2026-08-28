@@ -53,6 +53,32 @@ pub enum Instr {
     Le { dst: Reg, a: Reg, b: Reg },
     Ge { dst: Reg, a: Reg, b: Reg },
 
+    // Typed operators, chosen by the compiler from what the checker proved.
+    //
+    // Each is *guarded*: it matches the pair of variants it expects and falls
+    // through to the generic opcode's own path on anything else. So a wrong
+    // `TypeTable` entry costs a program speed and never correctness, which is
+    // the safety argument for emitting these at all.
+    //
+    // The win is not the skipped tag match -- `Value::add` matches `(Int, Int)`
+    // first anyway. It is that the fast path writes its answer straight into a
+    // register and never builds the `Result` that would have carried it.
+    //
+    // `POW` gets no typed form: integer exponentiation has a negative-exponent
+    // case and an overflow case whose wording lives in `Value::power`, and it
+    // is never on a hot path worth a second copy of them.
+    AddI { dst: Reg, a: Reg, b: Reg },
+    SubI { dst: Reg, a: Reg, b: Reg },
+    MulI { dst: Reg, a: Reg, b: Reg },
+    DivI { dst: Reg, a: Reg, b: Reg },
+    RemI { dst: Reg, a: Reg, b: Reg },
+    LtI { dst: Reg, a: Reg, b: Reg },
+    GtI { dst: Reg, a: Reg, b: Reg },
+    LeI { dst: Reg, a: Reg, b: Reg },
+    GeI { dst: Reg, a: Reg, b: Reg },
+    EqI { dst: Reg, a: Reg, b: Reg },
+    NeI { dst: Reg, a: Reg, b: Reg },
+
     /// `dst = -src`
     Neg { dst: Reg, src: Reg },
     /// `dst = !src`
