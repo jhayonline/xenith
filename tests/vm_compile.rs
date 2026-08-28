@@ -250,36 +250,47 @@ fn a_list_literal_is_not_supported_yet() {
 fn addition_is_three_address() {
     // Two operands into two registers, the result into a third. No shuffling,
     // which is the whole point of a register machine over a stack one.
+    //
+    // Locals rather than literals: a literal right operand folds into the
+    // instruction now, and a folded form would not show the two operand
+    // registers this test is about.
     assert_eq!(
-        dis("1 + 2\n"),
+        dis("let a: int = 1\nlet b: int = 2\na + b\n"),
         "\
 constants:
   k0  int 1
   k1  int 2
-registers: 2
+registers: 3
 code:
   0000  LOAD_CONST   r0, k0
   0001  LOAD_CONST   r1, k1
-  0002  ADD_I        r0, r0, r1
-  0003  HALT         r0
+  0002  ADD_I        r2, r0, r1
+  0003  HALT         r2
 "
     );
 }
 
 #[test]
 fn temporaries_are_reused_across_statements() {
-    // Two statements, each using two registers, must not need four. The frame
-    // stays at 2 because the first statement's temporaries are released.
-    let text = dis("1 + 2\n3 + 4\n");
+    // Two statements, each taking a temporary above the locals, must not need
+    // two temporaries. The frame stays at 3 because the first statement's is
+    // released before the second asks for one.
+    //
+    // Named operands rather than literals: a literal right operand folds into
+    // the instruction, and a statement that needs no temporary would not test
+    // whether temporaries are reused.
+    let text = dis("let a: int = 1\nlet b: int = 2\na * b\nb * a\n");
     assert!(
-        text.contains("registers: 2"),
+        text.contains("registers: 3"),
         "temporaries were not reused:\n{text}"
     );
 }
 
 #[test]
 fn nesting_deepens_the_frame() {
-    let text = dis("1 + 2 * 3\n");
+    // Named operands, because `2 * 3` folds into one instruction now and a
+    // folded expression does not nest in the register sense.
+    let text = dis("let a: int = 2\nlet b: int = 3\na + b * b\n");
     assert!(
         text.contains("registers: 3"),
         "expected three registers for a nested expression:\n{text}"
@@ -312,13 +323,12 @@ fn unary_minus_compiles() {
 constants:
   k0  int 1
   k1  int 2
-registers: 2
+registers: 1
 code:
   0000  LOAD_CONST   r0, k0
-  0001  LOAD_CONST   r1, k1
-  0002  ADD_I        r0, r0, r1
-  0003  NEG          r0, r0
-  0004  HALT         r0
+  0001  ADD_IK       r0, r0, k1
+  0002  NEG          r0, r0
+  0003  HALT         r0
 "
     );
 }
@@ -342,9 +352,9 @@ code:
 #[test]
 fn a_local_is_a_register_not_a_lookup() {
     // `x` is read as `r0` directly -- no lookup, and no copy into a temporary
-    // either. `ADD` reads both operand registers before it writes `r1`, and a
-    // destination is always above every live local, so naming the local as an
-    // operand is safe. See `Compiler::operand`.
+    // either. The instruction reads the operand register before it writes
+    // `r1`, and a destination is always above every live local, so naming the
+    // local as an operand is safe. See `Compiler::operand`.
     assert_eq!(
         dis("let x: int = 1\nx + 1\n"),
         "\
@@ -353,9 +363,8 @@ constants:
 registers: 2
 code:
   0000  LOAD_CONST   r0, k0
-  0001  LOAD_CONST   r1, k0
-  0002  ADD_I        r1, r0, r1
-  0003  HALT         r1
+  0001  ADD_IK       r1, r0, k0
+  0002  HALT         r1
 "
     );
 }
@@ -906,3 +915,90 @@ fn an_alias_is_peeled_before_the_opcode_is_chosen() {
     let text = dis("let a: int = 1\nlet b: int = 2\na - b\n");
     assert!(text.contains("SUB_I        "), "{text}");
 }
+
+#[test]
+fn an_int_literal_folds_into_the_operator() {
+    assert_eq!(
+        dis("let i: int = 0\ni + 1\n"),
+        "\
+constants:
+  k0  int 0
+  k1  int 1
+registers: 2
+code:
+  0000  LOAD_CONST   r0, k0
+  0001  ADD_IK       r1, r0, k1
+  0002  HALT         r1
+"
+    );
+}
+
+#[test]
+fn a_comparison_against_a_literal_folds() {
+    assert_eq!(
+        dis("let i: int = 0\ni < 400000\n"),
+        "\
+constants:
+  k0  int 0
+  k1  int 400000
+registers: 2
+code:
+  0000  LOAD_CONST   r0, k0
+  0001  LT_IK        r1, r0, k1
+  0002  HALT         r1
+"
+    );
+}
+
+#[test]
+fn a_literal_on_the_left_does_not_fold() {
+    // Only the right operand folds. A mirrored set of opcodes for `1 + i`
+    // would double the instruction count of this phase to serve a shape that
+    // bounds, steps and increments never take.
+    let text = dis("let i: int = 0\n1 + i\n");
+    assert!(
+        text.contains("ADD_I        ") && !text.contains("ADD_IK"),
+        "a literal on the left keeps the register form:\n{text}"
+    );
+}
+
+#[test]
+fn a_float_literal_does_not_fold() {
+    // There is no ADD_FK. Float loops are not the shape this serves.
+    let text = dis("let x: float = 1.0\nx + 2.0\n");
+    assert!(
+        text.contains("ADD_F        "),
+        "a float literal must not fold:\n{text}"
+    );
+}
+
+#[test]
+fn a_literal_does_not_fold_into_a_division() {
+    // No DIV_IK or REM_IK exist.
+    let text = dis("let i: int = 8\ni / 2\n");
+    assert!(
+        text.contains("DIV_I        "),
+        "division keeps its register form:\n{text}"
+    );
+    let text = dis("let i: int = 8\ni % 2\n");
+    assert!(
+        text.contains("REM_I        "),
+        "remainder keeps its register form:\n{text}"
+    );
+}
+
+#[test]
+fn a_literal_does_not_fold_into_a_power() {
+    let text = dis("let i: int = 2\ni ^ 10\n");
+    assert!(text.contains("POW          "), "{text}");
+}
+
+#[test]
+fn an_unproven_operand_does_not_fold() {
+    let text = dis_untyped("let i: int = 0\ni + 1\n");
+    assert!(
+        text.contains("ADD          "),
+        "without a proof there is nothing to fold into:\n{text}"
+    );
+}
+

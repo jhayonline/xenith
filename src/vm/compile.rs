@@ -211,6 +211,25 @@ impl<'a> Compiler<'a> {
         Ok(reg)
     }
 
+    /// The value of an int literal, if this node is one.
+    ///
+    /// The same rule `Node::Number`'s own arm uses, so the two agree about
+    /// what `1e3` is -- a float, and therefore not foldable.
+    ///
+    /// `-1` *is* a literal here and does fold. The lexer emits one negative
+    /// number token rather than a unary minus over `1`, which
+    /// `a_negative_literal_is_folded_by_the_lexer` in `tests/vm_compile.rs`
+    /// records; so `i + -1` becomes a single `ADD_IK` with a negative
+    /// constant.
+    fn int_literal(&self, node: &Node) -> Option<i64> {
+        let Node::Number(n) = node else { return None };
+        let text = n.token.value.as_ref()?;
+        if text.contains('.') || text.contains('e') || text.contains('E') {
+            return None;
+        }
+        text.parse::<i64>().ok()
+    }
+
     /// What the checker proved about both sides of an operator.
     ///
     /// The only place the `TypeTable` is read. Everything about the safety of
@@ -1050,6 +1069,59 @@ impl<'a> Compiler<'a> {
                 }
 
                 let mark = self.state().reg_top;
+
+                // A literal right operand folds into the instruction, and the
+                // LOAD_CONST that would have staged it is never emitted. This
+                // has to be decided *before* the operands are compiled: a fold
+                // discovered afterwards would already have emitted the
+                // instruction it exists to avoid.
+                //
+                // Only when the left side is a proven int, because the opcode
+                // reads the constant as an `i64` and has to be right about it,
+                // and only for the operators that have a `K` form.
+                let folded = self.int_literal(&n.right_node).filter(|_| {
+                    matches!(
+                        n.operator_token.kind,
+                        TokenType::Plus
+                            | TokenType::Minus
+                            | TokenType::Mul
+                            | TokenType::Lt
+                            | TokenType::Gt
+                            | TokenType::Lte
+                            | TokenType::Gte
+                            | TokenType::Ee
+                            | TokenType::Ne
+                    )
+                });
+
+                if let Some(literal) = folded {
+                    if matches!(peel(self.types.get(n.left_node.id())), Type::Int) {
+                        let a = self.operand(&n.left_node)?;
+                        self.free_to(mark);
+                        let dst = self.alloc()?;
+                        let k = self.state().chunk.add_constant(Value::int(literal));
+
+                        let instr = match n.operator_token.kind {
+                            TokenType::Plus => Instr::AddIK { dst, a, k },
+                            TokenType::Minus => Instr::SubIK { dst, a, k },
+                            TokenType::Mul => Instr::MulIK { dst, a, k },
+                            TokenType::Lt => Instr::LtIK { dst, a, k },
+                            TokenType::Gt => Instr::GtIK { dst, a, k },
+                            TokenType::Lte => Instr::LeIK { dst, a, k },
+                            TokenType::Gte => Instr::GeIK { dst, a, k },
+                            TokenType::Ee => Instr::EqIK { dst, a, k },
+                            TokenType::Ne => Instr::NeIK { dst, a, k },
+                            // The filter above admits nothing else.
+                            ref other => {
+                                unreachable!("folded a {:?}, which has no K form", other)
+                            }
+                        };
+
+                        self.emit(instr, &n.position_start, &n.position_end);
+                        return Ok(dst);
+                    }
+                }
+
                 let a = self.operand(&n.left_node)?;
                 let b = self.operand(&n.right_node)?;
 
