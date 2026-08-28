@@ -1789,7 +1789,10 @@ impl Interpreter {
             crate::tokens::TokenType::Gt => left.greater_than(&right),
             crate::tokens::TokenType::Lte => left.less_than_or_equal(&right),
             crate::tokens::TokenType::Gte => left.greater_than_or_equal(&right),
-            crate::tokens::TokenType::Index => match (&left, &right) {
+            // Indexing builds its errors inline rather than through the shared
+            // builders in `src/values.rs`, so it is the one arm still producing a
+            // bare `Error` and it is boxed here to match the rest of the match.
+            crate::tokens::TokenType::Index => (match (&left, &right) {
                 (Value::List(list), index @ (Value::Int(_) | Value::Float(_))) => {
                     let Some(idx_usize) = index.as_number().unwrap().as_index() else {
                         return RuntimeResult::new().failure(
@@ -1899,7 +1902,8 @@ impl Interpreter {
                 .with_name("Index Out of Bounds")
                 .with_help("a list takes an int, a map takes a string, and a string takes an int")
                 .base),
-            },
+            })
+            .map_err(Box::new),
             _ if op.matches(crate::tokens::TokenType::Keyword, Some("&&")) => left.anded_by(&right),
             _ if op.matches(crate::tokens::TokenType::Keyword, Some("||")) => left.ored_by(&right),
             _ if op.matches(crate::tokens::TokenType::Keyword, Some("as")) => {
@@ -1907,16 +1911,20 @@ impl Interpreter {
                     Value::String(s) => s.value.clone(),
                     _ => String::new(),
                 };
+                // Boxed, like everything else this match produces: an
+                // inline `Error` made the result 240 bytes.
                 let convert_err = |detail: String| {
-                    RuntimeError::new(
-                        node.position_start.clone(),
-                        node.position_end.clone(),
-                        &detail,
-                        Some(context.clone()),
+                    Box::new(
+                        RuntimeError::new(
+                            node.position_start.clone(),
+                            node.position_end.clone(),
+                            &detail,
+                            Some(context.clone()),
+                        )
+                        .with_code("XEN011")
+                        .with_name("Invalid Type Conversion")
+                        .base,
                     )
-                    .with_code("XEN011")
-                    .with_name("Invalid Type Conversion")
-                    .base
                 };
 
                 match (&left, target.as_str()) {

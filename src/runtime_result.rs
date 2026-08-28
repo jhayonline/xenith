@@ -72,8 +72,15 @@ impl RuntimeResult {
     }
 
     /// Creates a failure result
-    pub fn failure(mut self, error: Error) -> Self {
-        self.error = Some(Box::new(error));
+    /// Takes either an `Error` or an already-boxed one.
+    ///
+    /// The operations in `src/values.rs` hand back a `Box<Error>`, because
+    /// returning one inline made every arithmetic result 240 bytes. Everything
+    /// else in the tree walker builds a bare `Error`. `impl Into<Box<Error>>`
+    /// accepts both, which is what keeps this change from touching all 252
+    /// call sites of this method.
+    pub fn failure(mut self, error: impl Into<Box<Error>>) -> Self {
+        self.error = Some(error.into());
         self
     }
 

@@ -98,6 +98,39 @@ fn describe(instr: &Instr) -> String {
         Instr::Le { dst, a, b } => binary("LE", dst, a, b),
         Instr::Ge { dst, a, b } => binary("GE", dst, a, b),
 
+        Instr::AddI { dst, a, b } => binary("ADD_I", dst, a, b),
+        Instr::SubI { dst, a, b } => binary("SUB_I", dst, a, b),
+        Instr::MulI { dst, a, b } => binary("MUL_I", dst, a, b),
+        Instr::DivI { dst, a, b } => binary("DIV_I", dst, a, b),
+        Instr::RemI { dst, a, b } => binary("REM_I", dst, a, b),
+        Instr::LtI { dst, a, b } => binary("LT_I", dst, a, b),
+        Instr::GtI { dst, a, b } => binary("GT_I", dst, a, b),
+        Instr::LeI { dst, a, b } => binary("LE_I", dst, a, b),
+        Instr::GeI { dst, a, b } => binary("GE_I", dst, a, b),
+        Instr::EqI { dst, a, b } => binary("EQ_I", dst, a, b),
+        Instr::NeI { dst, a, b } => binary("NE_I", dst, a, b),
+
+        Instr::AddF { dst, a, b } => binary("ADD_F", dst, a, b),
+        Instr::SubF { dst, a, b } => binary("SUB_F", dst, a, b),
+        Instr::MulF { dst, a, b } => binary("MUL_F", dst, a, b),
+        Instr::DivF { dst, a, b } => binary("DIV_F", dst, a, b),
+        Instr::LtF { dst, a, b } => binary("LT_F", dst, a, b),
+        Instr::GtF { dst, a, b } => binary("GT_F", dst, a, b),
+        Instr::LeF { dst, a, b } => binary("LE_F", dst, a, b),
+        Instr::GeF { dst, a, b } => binary("GE_F", dst, a, b),
+        Instr::EqF { dst, a, b } => binary("EQ_F", dst, a, b),
+        Instr::NeF { dst, a, b } => binary("NE_F", dst, a, b),
+
+        Instr::AddIK { dst, a, k } => binary_k("ADD_IK", dst, a, k),
+        Instr::SubIK { dst, a, k } => binary_k("SUB_IK", dst, a, k),
+        Instr::MulIK { dst, a, k } => binary_k("MUL_IK", dst, a, k),
+        Instr::LtIK { dst, a, k } => binary_k("LT_IK", dst, a, k),
+        Instr::GtIK { dst, a, k } => binary_k("GT_IK", dst, a, k),
+        Instr::LeIK { dst, a, k } => binary_k("LE_IK", dst, a, k),
+        Instr::GeIK { dst, a, k } => binary_k("GE_IK", dst, a, k),
+        Instr::EqIK { dst, a, k } => binary_k("EQ_IK", dst, a, k),
+        Instr::NeIK { dst, a, k } => binary_k("NE_IK", dst, a, k),
+
         Instr::Neg { dst, src } => format!("{:<12} r{}, r{}", "NEG", dst, src),
         Instr::Not { dst, src } => format!("{:<12} r{}, r{}", "NOT", dst, src),
 
@@ -125,4 +158,9 @@ fn describe(instr: &Instr) -> String {
 
 fn binary(name: &str, dst: &u8, a: &u8, b: &u8) -> String {
     format!("{:<12} r{}, r{}, r{}", name, dst, a, b)
+}
+
+/// `NAME  rDST, rA, kK` -- a register and a constant.
+fn binary_k(name: &str, dst: &u8, a: &u8, k: &u16) -> String {
+    format!("{:<12} r{}, r{}, k{}", name, dst, a, k)
 }

@@ -1,19 +1,17 @@
 //! End-to-end: source in, value out, through the compiler and the VM.
 
-use xenith::lexer::Lexer;
-use xenith::parser::Parser;
 use xenith::values::Value;
 
 /// Runs through the VM, or fails the test saying why it could not.
 fn vm(source: &str) -> Value {
-    let mut lexer = Lexer::new("<test>".to_string(), source.to_string());
-    let tokens = lexer.make_tokens().expect("should lex");
-    let mut parser = Parser::new(tokens);
-    let parsed = parser.parse();
-    assert!(parsed.error.is_none(), "should parse: {:?}", parsed.error);
-    let ast = parsed.node.expect("should produce a node");
+    // Checked, not merely parsed: a user's code always reaches the compiler
+    // with the checker's types behind it, so a test that skipped the checker
+    // would be exercising a path nothing actually takes.
+    let (errors, types, ast) =
+        xenith::check_source_typed("<test>", source).expect("should lex and parse");
+    assert!(errors.is_empty(), "should check: {:?}", errors);
 
-    match xenith::vm::compile_and_run(&ast) {
+    match xenith::vm::compile_and_run(&ast, &types) {
         Some(Ok(value)) => value,
         Some(Err(error)) => panic!("should not have failed: {}", error.as_string()),
         None => panic!("should have compiled"),
@@ -100,12 +98,10 @@ fn a_later_local_can_read_an_earlier_one() {
 fn echo_compiles_to_its_own_opcode() {
     // Not asserting on stdout -- that is what tests/differential.rs is for.
     // This only proves the call is recognised rather than refused.
-    let mut lexer = Lexer::new("<test>".to_string(), "echo(1)\n".to_string());
-    let tokens = lexer.make_tokens().expect("should lex");
-    let mut parser = Parser::new(tokens);
-    let ast = parser.parse().node.expect("should parse");
+    let (_, types, ast) =
+        xenith::check_source_typed("<test>", "echo(1)\n").expect("should lex and parse");
 
-    let chunk = xenith::vm::compile::compile(&ast).expect("echo should compile");
+    let chunk = xenith::vm::compile::compile(&ast, &types).expect("echo should compile");
     assert!(
         chunk.disassemble().contains("ECHO"),
         "{}",
@@ -115,12 +111,10 @@ fn echo_compiles_to_its_own_opcode() {
 
 #[test]
 fn a_call_to_anything_else_is_still_refused() {
-    let mut lexer = Lexer::new("<test>".to_string(), "len(\"ab\")\n".to_string());
-    let tokens = lexer.make_tokens().expect("should lex");
-    let mut parser = Parser::new(tokens);
-    let ast = parser.parse().node.expect("should parse");
+    let (_, types, ast) =
+        xenith::check_source_typed("<test>", "len(\"ab\")\n").expect("should lex and parse");
 
-    assert!(xenith::vm::compile::compile(&ast).is_err());
+    assert!(xenith::vm::compile::compile(&ast, &types).is_err());
 }
 
 #[test]
@@ -279,12 +273,13 @@ use xenith::error::Error;
 
 /// Runs through the VM and returns the error it produced.
 fn vm_error(source: &str) -> Error {
-    let mut lexer = Lexer::new("<test>".to_string(), source.to_string());
-    let tokens = lexer.make_tokens().expect("should lex");
-    let mut parser = Parser::new(tokens);
-    let ast = parser.parse().node.expect("should parse");
+    // The table is taken but static errors are not asserted away: these
+    // sources are built to fail at *run* time, and some of them the checker
+    // also has an opinion about. What is under test is the VM's report.
+    let (_, types, ast) =
+        xenith::check_source_typed("<test>", source).expect("should lex and parse");
 
-    match xenith::vm::compile_and_run(&ast) {
+    match xenith::vm::compile_and_run(&ast, &types) {
         Some(Err(error)) => error,
         Some(Ok(value)) => panic!("should have failed, got {value:?}"),
         None => panic!("should have compiled"),

@@ -16,6 +16,156 @@ use crate::values::Value;
 use crate::vm::chunk::{Chunk, Instr};
 use crate::vm::closure::{Closure, Upvalue};
 
+/// Reads two registers as a pair of `i64`s, or `None` if they are not both
+/// ints.
+///
+/// The copy is not incidental. Matching on `(&stack[a], &stack[b])` and then
+/// writing `stack[dst]` inside the arm holds borrows of the stack across a
+/// write to it; NLL will sometimes allow that and sometimes not, depending on
+/// how long the bindings stay live, and the hottest match in the program is
+/// the wrong place to depend on the difference. Two `i64`s live in registers,
+/// so this costs nothing to be sure about.
+macro_rules! two_ints {
+    ($stack:expr, $base:expr, $a:expr, $b:expr) => {
+        match (&$stack[$base + $a as usize], &$stack[$base + $b as usize]) {
+            (Value::Int(x), Value::Int(y)) => Some((*x, *y)),
+            _ => None,
+        }
+    };
+}
+
+/// A guarded integer arithmetic opcode.
+///
+/// `$checked` is the `i64` method that reports overflow and `$what` is the word
+/// `Value::overflow_err` puts in its message; they must agree with what the
+/// generic opcode would have said, because the two are required to be
+/// indistinguishable.
+macro_rules! int_arith {
+    ($stack:expr, $base:expr, $dst:expr, $a:expr, $b:expr,
+     $checked:ident, $what:literal, $generic:path, $chunk:expr, $at:expr) => {{
+        match two_ints!($stack, $base, $a, $b) {
+            Some((x, y)) => match x.$checked(y) {
+                Some(answer) => {
+                    $stack[$base + $dst as usize] = Value::Int(answer);
+                }
+                None => return Err(with_position(Value::overflow_err($what), $chunk, $at)),
+            },
+            // The TypeTable said these were ints and they are not. Do exactly
+            // what the generic opcode does.
+            None => binary(&mut $stack, $base, $dst, $a, $b, $generic, $chunk, $at)?,
+        }
+    }};
+}
+
+/// A guarded integer comparison. Cannot fail on two ints.
+macro_rules! int_cmp {
+    ($stack:expr, $base:expr, $dst:expr, $a:expr, $b:expr,
+     $cmp:expr, $generic:path, $chunk:expr, $at:expr) => {{
+        match two_ints!($stack, $base, $a, $b) {
+            Some((x, y)) => {
+                let answer = ($cmp)(x, y);
+                $stack[$base + $dst as usize] = Value::Bool(answer);
+            }
+            None => binary(&mut $stack, $base, $dst, $a, $b, $generic, $chunk, $at)?,
+        }
+    }};
+}
+
+/// Reads two registers as a pair of `f64`s, or `None` if they are not both
+/// floats. The float twin of `two_ints!`, and copied out for the same reason.
+macro_rules! two_floats {
+    ($stack:expr, $base:expr, $a:expr, $b:expr) => {
+        match (&$stack[$base + $a as usize], &$stack[$base + $b as usize]) {
+            (Value::Float(x), Value::Float(y)) => Some((*x, *y)),
+            _ => None,
+        }
+    };
+}
+
+/// A guarded float arithmetic opcode. Cannot fail: IEEE saturates.
+macro_rules! float_arith {
+    ($stack:expr, $base:expr, $dst:expr, $a:expr, $b:expr,
+     $op:expr, $generic:path, $chunk:expr, $at:expr) => {{
+        match two_floats!($stack, $base, $a, $b) {
+            Some((x, y)) => {
+                let answer = ($op)(x, y);
+                $stack[$base + $dst as usize] = Value::float(answer);
+            }
+            None => binary(&mut $stack, $base, $dst, $a, $b, $generic, $chunk, $at)?,
+        }
+    }};
+}
+
+/// A guarded float ordering.
+///
+/// Falls back on NaN rather than answering, so the generic path raises
+/// "cannot compare NaN". A plain Rust `<` here would silently turn that error
+/// into `false`.
+macro_rules! float_cmp {
+    ($stack:expr, $base:expr, $dst:expr, $a:expr, $b:expr,
+     $want:expr, $generic:path, $chunk:expr, $at:expr) => {{
+        match two_floats!($stack, $base, $a, $b) {
+            Some((x, y)) => match x.partial_cmp(&y) {
+                Some(ordering) => {
+                    $stack[$base + $dst as usize] = Value::Bool(($want)(ordering));
+                }
+                None => binary(&mut $stack, $base, $dst, $a, $b, $generic, $chunk, $at)?,
+            },
+            None => binary(&mut $stack, $base, $dst, $a, $b, $generic, $chunk, $at)?,
+        }
+    }};
+}
+
+/// A guarded opcode with a constant right operand.
+///
+/// The fallback cannot call `binary` -- that takes two registers and this has
+/// a constant -- so it runs the generic operation over the register and the
+/// constant directly, producing byte-identically what `LOAD_CONST` followed by
+/// the generic opcode would have. Both arms compute an owned answer before
+/// assigning, so no borrow of the stack is held across a write to it.
+macro_rules! int_k {
+    ($stack:expr, $base:expr, $consts:expr, $dst:expr, $a:expr, $k:expr,
+     $fast:expr, $generic:path, $chunk:expr, $at:expr) => {{
+        let fast = match (&$stack[$base + $a as usize], &$consts[$k as usize]) {
+            (Value::Int(x), Value::Int(y)) => Some((*x, *y)),
+            _ => None,
+        };
+        match fast {
+            Some((x, y)) => match ($fast)(x, y) {
+                Ok(answer) => $stack[$base + $dst as usize] = answer,
+                Err(error) => return Err(with_position(error, $chunk, $at)),
+            },
+            None => {
+                let outcome = $generic(&$stack[$base + $a as usize], &$consts[$k as usize]);
+                match outcome {
+                    Ok(answer) => $stack[$base + $dst as usize] = answer,
+                    Err(error) => return Err(with_position(error, $chunk, $at)),
+                }
+            }
+        }
+    }};
+}
+
+/// The zero-divisor report, which is the *caller's* and not `Value::divide`'s.
+///
+/// `visit_binary_op` checks for a zero divisor before calling `divide` and
+/// reports a fuller XEN003 than `divide`'s own branch does -- with a note and
+/// a help line. The check is not inside `divide` because other callers depend
+/// on the barer error, so every opcode that can divide makes the same check
+/// rather than moving it, and the two reports stay byte-identical.
+macro_rules! divide_by_zero {
+    ($chunk:expr, $at:expr) => {
+        return Err(with_position(
+            Error::division_by_zero(
+                crate::position::Position::dummy(),
+                crate::position::Position::dummy(),
+            ),
+            $chunk,
+            $at,
+        ))
+    };
+}
+
 /// One suspended caller.
 ///
 /// Not the running frame: that is the loop's own `current`, `base` and `ip`,
@@ -47,291 +197,491 @@ pub fn execute(chunk: Rc<Chunk>) -> Result<Value, Error> {
     // variable currently in scope, not one per closure.
     let mut open: Vec<Rc<RefCell<Upvalue>>> = Vec::new();
 
-    let mut current = chunk;
+    // What to run next. Separate from the borrow below, because the borrow
+    // checker will not let `code` point into a variable the loop reassigns --
+    // and that constraint is the reason for this shape. The shape is the
+    // optimisation: the inner loop fetches from a plain slice instead of
+    // walking an `Rc` and a `Vec` on every dispatch.
+    let mut next = chunk;
     let mut current_closure: Option<Rc<Closure>> = None;
     let mut base: usize = 0;
     let mut ip: usize = 0;
 
-    loop {
-        // A chunk always ends in `Halt`, so running off the end is a compiler
-        // bug rather than a program error. Reported rather than indexed out of
-        // bounds, because a wrong jump target is exactly the kind of mistake
-        // this phase is expected to make.
-        let Some(instr) = current.code.get(ip) else {
-            return Err(internal(&current, ip, "ran past the end of the chunk"));
-        };
-        ip += 1;
-        // The address of the instruction now running, for a trap's span.
-        let at = ip - 1;
+    // Outer loop: one iteration per frame. Inner loop: one per instruction.
+    'frames: loop {
+        // Owned for the length of this frame, so the two slices below stay
+        // valid however `next` is reassigned. One refcount bump per Xenith
+        // call, against every dispatch in the frame.
+        let current = Rc::clone(&next);
+        let code: &[Instr] = &current.code;
+        let constants: &[Value] = &current.constants;
 
-        match *instr {
-            Instr::LoadConst { dst, k } => {
-                stack[base + dst as usize] = current.constants[k as usize].clone();
-            }
-            Instr::LoadBool { dst, value } => {
-                stack[base + dst as usize] = Value::Bool(value);
-            }
-            Instr::LoadNull { dst } => {
-                stack[base + dst as usize] = Value::Null;
-            }
-            Instr::Move { dst, src } => {
-                stack[base + dst as usize] = stack[base + src as usize].clone();
-            }
+        loop {
+            // A chunk always ends in `Halt`, so running off the end is a compiler
+            // bug rather than a program error. Reported rather than indexed out of
+            // bounds, because a wrong jump target is exactly the kind of mistake
+            // this design is expected to make.
+            let Some(instr) = code.get(ip) else {
+                return Err(internal(&current, ip, "ran past the end of the chunk"));
+            };
+            ip += 1;
+            // The address of the instruction now running, for a trap's span.
+            let at = ip - 1;
 
-            Instr::Halt { src } => {
-                return Ok(stack[base + src as usize].clone());
-            }
+            match *instr {
+                Instr::LoadConst { dst, k } => {
+                    stack[base + dst as usize] = constants[k as usize].clone();
+                }
+                Instr::LoadBool { dst, value } => {
+                    stack[base + dst as usize] = Value::Bool(value);
+                }
+                Instr::LoadNull { dst } => {
+                    stack[base + dst as usize] = Value::Null;
+                }
+                Instr::Move { dst, src } => {
+                    stack[base + dst as usize] = stack[base + src as usize].clone();
+                }
 
-            Instr::Add { dst, a, b } => binary(&mut stack, base, dst, a, b, Value::add, &current, at)?,
-            Instr::Sub { dst, a, b } => binary(&mut stack, base, dst, a, b, Value::subtract, &current, at)?,
-            Instr::Mul { dst, a, b } => binary(&mut stack, base, dst, a, b, Value::multiply, &current, at)?,
-            Instr::Div { dst, a, b } => {
-                // `visit_binary_op` checks for a zero divisor before calling
-                // `Value::divide`, and reports a fuller XEN003 than `divide`'s
-                // own zero branch does -- with a note and a help line. The
-                // check is not inside `divide` because other callers depend on
-                // the barer error, so the VM makes the same check rather than
-                // moving it, and the two reports stay byte-identical.
-                if let (Some(_), Some(divisor)) = (
-                    stack[base + a as usize].as_number(),
-                    stack[base + b as usize].as_number(),
-                ) {
-                    if divisor.is_zero() {
-                        return Err(with_position(
-                            Error::division_by_zero(
-                                crate::position::Position::dummy(),
-                                crate::position::Position::dummy(),
-                            ),
-                            &current,
-                            at,
-                        ));
+                Instr::Halt { src } => {
+                    return Ok(stack[base + src as usize].clone());
+                }
+
+                Instr::Add { dst, a, b } => binary(&mut stack, base, dst, a, b, Value::add, &current, at)?,
+                Instr::Sub { dst, a, b } => binary(&mut stack, base, dst, a, b, Value::subtract, &current, at)?,
+                Instr::Mul { dst, a, b } => binary(&mut stack, base, dst, a, b, Value::multiply, &current, at)?,
+                Instr::Div { dst, a, b } => {
+                    // `visit_binary_op` checks for a zero divisor before calling
+                    // `Value::divide`, and reports a fuller XEN003 than `divide`'s
+                    // own zero branch does -- with a note and a help line. The
+                    // check is not inside `divide` because other callers depend on
+                    // the barer error, so the VM makes the same check rather than
+                    // moving it, and the two reports stay byte-identical.
+                    if let (Some(_), Some(divisor)) = (
+                        stack[base + a as usize].as_number(),
+                        stack[base + b as usize].as_number(),
+                    ) {
+                        if divisor.is_zero() {
+                            return Err(with_position(
+                                Error::division_by_zero(
+                                    crate::position::Position::dummy(),
+                                    crate::position::Position::dummy(),
+                                ),
+                                &current,
+                                at,
+                            ));
+                        }
+                    }
+                    binary(&mut stack, base, dst, a, b, Value::divide, &current, at)?
+                }
+                Instr::Rem { dst, a, b } => binary(&mut stack, base, dst, a, b, Value::modulo, &current, at)?,
+                Instr::Pow { dst, a, b } => binary(&mut stack, base, dst, a, b, Value::power, &current, at)?,
+                Instr::Eq { dst, a, b } => binary(&mut stack, base, dst, a, b, Value::equals, &current, at)?,
+                Instr::Ne { dst, a, b } => binary(&mut stack, base, dst, a, b, Value::not_equals, &current, at)?,
+                Instr::Lt { dst, a, b } => binary(&mut stack, base, dst, a, b, Value::less_than, &current, at)?,
+                Instr::Gt { dst, a, b } => binary(&mut stack, base, dst, a, b, Value::greater_than, &current, at)?,
+                Instr::Le { dst, a, b } => {
+                    binary(&mut stack, base, dst, a, b, Value::less_than_or_equal, &current, at)?
+                }
+                Instr::Ge { dst, a, b } => {
+                    binary(&mut stack, base, dst, a, b, Value::greater_than_or_equal, &current, at)?
+                }
+
+                // The typed half. Each guards on the pair it expects and falls
+                // through to the generic opcode above on anything else.
+                Instr::AddI { dst, a, b } => int_arith!(
+                    stack, base, dst, a, b, checked_add, "addition", Value::add, &current, at
+                ),
+                Instr::SubI { dst, a, b } => int_arith!(
+                    stack, base, dst, a, b, checked_sub, "subtraction", Value::subtract, &current, at
+                ),
+                Instr::MulI { dst, a, b } => int_arith!(
+                    stack, base, dst, a, b, checked_mul, "multiplication", Value::multiply, &current, at
+                ),
+
+                // Division and remainder guard the divisor first, and raise the
+                // caller's fuller XEN003 exactly as the generic `Div` arm does.
+                Instr::DivI { dst, a, b } => match two_ints!(stack, base, a, b) {
+                    Some((_, 0)) => divide_by_zero!(&current, at),
+                    // The only overflowing division is MIN / -1, which
+                    // `checked_div` catches -- the same call `Value::divide` makes.
+                    Some((x, y)) => match x.checked_div(y) {
+                        Some(answer) => stack[base + dst as usize] = Value::Int(answer),
+                        None => {
+                            return Err(with_position(Value::overflow_err("division"), &current, at))
+                        }
+                    },
+                    None => {
+                        // The generic arm's zero check runs on the fallback too:
+                        // a float divisor of 0.0 raises here, it does not give inf.
+                        if let (Some(_), Some(divisor)) = (
+                            stack[base + a as usize].as_number(),
+                            stack[base + b as usize].as_number(),
+                        ) {
+                            if divisor.is_zero() {
+                                divide_by_zero!(&current, at);
+                            }
+                        }
+                        binary(&mut stack, base, dst, a, b, Value::divide, &current, at)?
+                    }
+                },
+                Instr::RemI { dst, a, b } => match two_ints!(stack, base, a, b) {
+                    // Not the caller's XEN003. `Rem` has no zero pre-check --
+                    // neither here nor in `visit_binary_op` -- so a zero divisor
+                    // is `Value::modulo`'s own "remainder by zero", and the way to
+                    // be sure of saying it identically is to let it say it.
+                    Some((_, 0)) => binary(&mut stack, base, dst, a, b, Value::modulo, &current, at)?,
+                    Some((x, y)) => match x.checked_rem(y) {
+                        Some(answer) => stack[base + dst as usize] = Value::Int(answer),
+                        None => {
+                            return Err(with_position(Value::overflow_err("remainder"), &current, at))
+                        }
+                    },
+                    None => binary(&mut stack, base, dst, a, b, Value::modulo, &current, at)?,
+                },
+
+                Instr::LtI { dst, a, b } => int_cmp!(
+                    stack, base, dst, a, b, |x, y| x < y, Value::less_than, &current, at
+                ),
+                Instr::GtI { dst, a, b } => int_cmp!(
+                    stack, base, dst, a, b, |x, y| x > y, Value::greater_than, &current, at
+                ),
+                Instr::LeI { dst, a, b } => int_cmp!(
+                    stack, base, dst, a, b, |x, y| x <= y, Value::less_than_or_equal, &current, at
+                ),
+                Instr::GeI { dst, a, b } => int_cmp!(
+                    stack, base, dst, a, b, |x, y| x >= y, Value::greater_than_or_equal, &current, at
+                ),
+                Instr::EqI { dst, a, b } => int_cmp!(
+                    stack, base, dst, a, b, |x, y| x == y, Value::equals, &current, at
+                ),
+                Instr::NeI { dst, a, b } => int_cmp!(
+                    stack, base, dst, a, b, |x, y| x != y, Value::not_equals, &current, at
+                ),
+
+                Instr::AddF { dst, a, b } => float_arith!(
+                    stack, base, dst, a, b, |x: f64, y: f64| x + y, Value::add, &current, at
+                ),
+                Instr::SubF { dst, a, b } => float_arith!(
+                    stack, base, dst, a, b, |x: f64, y: f64| x - y, Value::subtract, &current, at
+                ),
+                Instr::MulF { dst, a, b } => float_arith!(
+                    stack, base, dst, a, b, |x: f64, y: f64| x * y, Value::multiply, &current, at
+                ),
+
+                // Guards zero exactly as the generic `Div` arm does. `1.0 / 0.0`
+                // is XEN003 in this language, not `inf`, because `Number::is_zero`
+                // answers true for `0.0`.
+                Instr::DivF { dst, a, b } => match two_floats!(stack, base, a, b) {
+                    Some((_, y)) if y == 0.0 => divide_by_zero!(&current, at),
+                    Some((x, y)) => {
+                        stack[base + dst as usize] = Value::float(x / y);
+                    }
+                    None => {
+                        if let (Some(_), Some(divisor)) = (
+                            stack[base + a as usize].as_number(),
+                            stack[base + b as usize].as_number(),
+                        ) {
+                            if divisor.is_zero() {
+                                divide_by_zero!(&current, at);
+                            }
+                        }
+                        binary(&mut stack, base, dst, a, b, Value::divide, &current, at)?
+                    }
+                },
+
+                Instr::LtF { dst, a, b } => float_cmp!(
+                    stack, base, dst, a, b,
+                    std::cmp::Ordering::is_lt, Value::less_than, &current, at
+                ),
+                Instr::GtF { dst, a, b } => float_cmp!(
+                    stack, base, dst, a, b,
+                    std::cmp::Ordering::is_gt, Value::greater_than, &current, at
+                ),
+                Instr::LeF { dst, a, b } => float_cmp!(
+                    stack, base, dst, a, b,
+                    std::cmp::Ordering::is_le, Value::less_than_or_equal, &current, at
+                ),
+                Instr::GeF { dst, a, b } => float_cmp!(
+                    stack, base, dst, a, b,
+                    std::cmp::Ordering::is_ge, Value::greater_than_or_equal, &current, at
+                ),
+
+                // Equality does not go through `compare`: `eq_value` uses `==`, so
+                // NaN is unequal to everything and never an error.
+                Instr::EqF { dst, a, b } => match two_floats!(stack, base, a, b) {
+                    Some((x, y)) => stack[base + dst as usize] = Value::Bool(x == y),
+                    None => binary(&mut stack, base, dst, a, b, Value::equals, &current, at)?,
+                },
+                Instr::NeF { dst, a, b } => match two_floats!(stack, base, a, b) {
+                    Some((x, y)) => stack[base + dst as usize] = Value::Bool(x != y),
+                    None => binary(&mut stack, base, dst, a, b, Value::not_equals, &current, at)?,
+                },
+
+                // The same operators again, with the right operand read from the
+                // constants instead of a register. No DIV_IK or REM_IK: see the
+                // note on the variants.
+                Instr::AddIK { dst, a, k } => int_k!(
+                    stack, base, constants, dst, a, k,
+                    |x: i64, y: i64| x
+                        .checked_add(y)
+                        .map(Value::Int)
+                        .ok_or_else(|| Value::overflow_err("addition")),
+                    Value::add, &current, at
+                ),
+                Instr::SubIK { dst, a, k } => int_k!(
+                    stack, base, constants, dst, a, k,
+                    |x: i64, y: i64| x
+                        .checked_sub(y)
+                        .map(Value::Int)
+                        .ok_or_else(|| Value::overflow_err("subtraction")),
+                    Value::subtract, &current, at
+                ),
+                Instr::MulIK { dst, a, k } => int_k!(
+                    stack, base, constants, dst, a, k,
+                    |x: i64, y: i64| x
+                        .checked_mul(y)
+                        .map(Value::Int)
+                        .ok_or_else(|| Value::overflow_err("multiplication")),
+                    Value::multiply, &current, at
+                ),
+                Instr::LtIK { dst, a, k } => int_k!(
+                    stack, base, constants, dst, a, k,
+                    |x: i64, y: i64| Ok::<_, Box<Error>>(Value::Bool(x < y)), Value::less_than, &current, at
+                ),
+                Instr::GtIK { dst, a, k } => int_k!(
+                    stack, base, constants, dst, a, k,
+                    |x: i64, y: i64| Ok::<_, Box<Error>>(Value::Bool(x > y)), Value::greater_than, &current, at
+                ),
+                Instr::LeIK { dst, a, k } => int_k!(
+                    stack, base, constants, dst, a, k,
+                    |x: i64, y: i64| Ok::<_, Box<Error>>(Value::Bool(x <= y)), Value::less_than_or_equal, &current, at
+                ),
+                Instr::GeIK { dst, a, k } => int_k!(
+                    stack, base, constants, dst, a, k,
+                    |x: i64, y: i64| Ok::<_, Box<Error>>(Value::Bool(x >= y)), Value::greater_than_or_equal, &current, at
+                ),
+                Instr::EqIK { dst, a, k } => int_k!(
+                    stack, base, constants, dst, a, k,
+                    |x: i64, y: i64| Ok::<_, Box<Error>>(Value::Bool(x == y)), Value::equals, &current, at
+                ),
+                Instr::NeIK { dst, a, k } => int_k!(
+                    stack, base, constants, dst, a, k,
+                    |x: i64, y: i64| Ok::<_, Box<Error>>(Value::Bool(x != y)), Value::not_equals, &current, at
+                ),
+
+                Instr::Neg { dst, src } => {
+                    stack[base + dst as usize] = stack[base + src as usize]
+                        .negative()
+                        .map_err(|e| with_position(e, &current, at))?;
+                }
+                Instr::Not { dst, src } => {
+                    stack[base + dst as usize] = stack[base + src as usize]
+                        .logical_not()
+                        .map_err(|e| with_position(e, &current, at))?;
+                }
+
+                Instr::Echo { src } => {
+                    // `BuiltInFunction::echo` calls this same function. It is not
+                    // `utils::value_to_string`: `echo` has its own formatting
+                    // rules, and a second implementation of them would diverge on
+                    // the first nested list the differential harness met.
+                    crate::values::echo_line(Some(&stack[base + src as usize]));
+                }
+
+                Instr::Jump { to } => {
+                    ip = to as usize;
+                }
+                Instr::JumpIfFalse { cond, to } => {
+                    if !stack[base + cond as usize].is_true() {
+                        ip = to as usize;
                     }
                 }
-                binary(&mut stack, base, dst, a, b, Value::divide, &current, at)?
-            }
-            Instr::Rem { dst, a, b } => binary(&mut stack, base, dst, a, b, Value::modulo, &current, at)?,
-            Instr::Pow { dst, a, b } => binary(&mut stack, base, dst, a, b, Value::power, &current, at)?,
-            Instr::Eq { dst, a, b } => binary(&mut stack, base, dst, a, b, Value::equals, &current, at)?,
-            Instr::Ne { dst, a, b } => binary(&mut stack, base, dst, a, b, Value::not_equals, &current, at)?,
-            Instr::Lt { dst, a, b } => binary(&mut stack, base, dst, a, b, Value::less_than, &current, at)?,
-            Instr::Gt { dst, a, b } => binary(&mut stack, base, dst, a, b, Value::greater_than, &current, at)?,
-            Instr::Le { dst, a, b } => {
-                binary(&mut stack, base, dst, a, b, Value::less_than_or_equal, &current, at)?
-            }
-            Instr::Ge { dst, a, b } => {
-                binary(&mut stack, base, dst, a, b, Value::greater_than_or_equal, &current, at)?
-            }
-
-            Instr::Neg { dst, src } => {
-                stack[base + dst as usize] = stack[base + src as usize]
-                    .negative()
-                    .map_err(|e| with_position(e, &current, at))?;
-            }
-            Instr::Not { dst, src } => {
-                stack[base + dst as usize] = stack[base + src as usize]
-                    .logical_not()
-                    .map_err(|e| with_position(e, &current, at))?;
-            }
-
-            Instr::Echo { src } => {
-                // `BuiltInFunction::echo` calls this same function. It is not
-                // `utils::value_to_string`: `echo` has its own formatting
-                // rules, and a second implementation of them would diverge on
-                // the first nested list the differential harness met.
-                crate::values::echo_line(Some(&stack[base + src as usize]));
-            }
-
-            Instr::Jump { to } => {
-                ip = to as usize;
-            }
-            Instr::JumpIfFalse { cond, to } => {
-                if !stack[base + cond as usize].is_true() {
-                    ip = to as usize;
+                Instr::JumpIfTrue { cond, to } => {
+                    if stack[base + cond as usize].is_true() {
+                        ip = to as usize;
+                    }
                 }
-            }
-            Instr::JumpIfTrue { cond, to } => {
-                if stack[base + cond as usize].is_true() {
-                    ip = to as usize;
-                }
-            }
 
-            Instr::Closure { dst, proto } => {
-                let Some(proto) = current.protos.get(proto as usize).cloned() else {
-                    return Err(internal(&current, at, "a closure over a proto that is not there"));
-                };
+                Instr::Closure { dst, proto } => {
+                    let Some(proto) = current.protos.get(proto as usize).cloned() else {
+                        return Err(internal(&current, at, "a closure over a proto that is not there"));
+                    };
 
-                let mut upvalues = Vec::with_capacity(proto.upvalues.len());
-                for desc in &proto.upvalues {
-                    let cell = if desc.in_parent_locals {
-                        capture_upvalue(&mut open, base + desc.index as usize)
-                    } else {
-                        match &current_closure {
-                            Some(closure) => match closure.upvalues.get(desc.index as usize) {
-                                Some(cell) => Rc::clone(cell),
+                    let mut upvalues = Vec::with_capacity(proto.upvalues.len());
+                    for desc in &proto.upvalues {
+                        let cell = if desc.in_parent_locals {
+                            capture_upvalue(&mut open, base + desc.index as usize)
+                        } else {
+                            match &current_closure {
+                                Some(closure) => match closure.upvalues.get(desc.index as usize) {
+                                    Some(cell) => Rc::clone(cell),
+                                    None => {
+                                        return Err(internal(
+                                            &current,
+                                            at,
+                                            "a capture of an upvalue that is not there",
+                                        ))
+                                    }
+                                },
                                 None => {
                                     return Err(internal(
                                         &current,
                                         at,
-                                        "a capture of an upvalue that is not there",
+                                        "a capture of an enclosing capture at the top level",
                                     ))
                                 }
-                            },
-                            None => {
-                                return Err(internal(
-                                    &current,
-                                    at,
-                                    "a capture of an enclosing capture at the top level",
-                                ))
                             }
-                        }
+                        };
+                        upvalues.push(cell);
+                    }
+
+                    // Written after the captures are taken, which is what makes a
+                    // named method able to call itself: its own capture is the
+                    // register this is about to fill, and an open cell holds the
+                    // register rather than what was in it.
+                    stack[base + dst as usize] =
+                        Value::Closure(Rc::new(Closure { proto, upvalues }));
+                }
+
+                Instr::Call { dst, callee, argc } => {
+                    let callee_at = base + callee as usize;
+                    let Value::Closure(closure) = stack[callee_at].clone() else {
+                        // The compiler only emits a `CALL` for a callee it
+                        // resolved to a method, and nothing else can put a
+                        // non-closure there -- so this is a compiler bug, and
+                        // XEN026 says so rather than inventing a message the tree
+                        // walker does not have.
+                        return Err(internal(&current, at, "called a value that is not a compiled method"));
                     };
-                    upvalues.push(cell);
+
+                    let proto = Rc::clone(&closure.proto);
+
+                    // Arity, then parameter types, then depth. That is the order
+                    // `Function::execute` checks them in, and a VM that checked
+                    // depth first would answer XEN019 where the tree walker
+                    // answers XEN015.
+                    if argc != proto.arity {
+                        return Err(arity_error(&proto, argc, &current, at));
+                    }
+
+                    let new_base = callee_at + 1;
+
+                    let needed = new_base + proto.registers as usize;
+                    if stack.len() < needed {
+                        stack.resize(needed, Value::Null);
+                    }
+
+                    // The same check `Function::execute` makes, in the same
+                    // order, over the same `value_matches_type`. Borrowed, never
+                    // cloned: an argument is already in the register it will be
+                    // read from.
+                    for (i, expected) in proto.param_types.iter().enumerate() {
+                        if !Value::value_matches_type(&stack[new_base + i], expected) {
+                            return Err(param_type_error(
+                                expected,
+                                &stack[new_base + i],
+                                &current,
+                                at,
+                            ));
+                        }
+                    }
+
+                    // The counter the spec asks for, checked before the frame is
+                    // pushed. `Function::execute` tests the *caller's* depth,
+                    // which is the number of frames already on the stack.
+                    if frames.len() >= crate::context::MAX_CALL_DEPTH {
+                        return Err(recursion_limit(closure.name(), &current, at));
+                    }
+
+                    frames.push(Frame {
+                        chunk: Rc::clone(&current),
+                        closure: current_closure.take(),
+                        base,
+                        ip,
+                        result: base + dst as usize,
+                    });
+
+                    current_closure = Some(closure);
+                    base = new_base;
+                    ip = 0;
+                    next = proto;
+                    continue 'frames;
                 }
 
-                // Written after the captures are taken, which is what makes a
-                // named method able to call itself: its own capture is the
-                // register this is about to fill, and an open cell holds the
-                // register rather than what was in it.
-                stack[base + dst as usize] =
-                    Value::Closure(Rc::new(Closure { proto, upvalues }));
-            }
+                Instr::Ret { src } => {
+                    // Moved out, not cloned: this is the one value the frame
+                    // keeps and everything else in the window is about to go.
+                    let value = std::mem::replace(&mut stack[base + src as usize], Value::Null);
 
-            Instr::Call { dst, callee, argc } => {
-                let callee_at = base + callee as usize;
-                let Value::Closure(closure) = stack[callee_at].clone() else {
-                    // The compiler only emits a `CALL` for a callee it
-                    // resolved to a method, and nothing else can put a
-                    // non-closure there -- so this is a compiler bug, and
-                    // XEN026 says so rather than inventing a message the tree
-                    // walker does not have.
-                    return Err(internal(&current, at, "called a value that is not a compiled method"));
-                };
+                    close_upvalues(&mut open, &mut stack, base);
 
-                let proto = Rc::clone(&closure.proto);
+                    let Some(frame) = frames.pop() else {
+                        return Err(internal(&current, at, "returned from the top level"));
+                    };
 
-                // Arity, then parameter types, then depth. That is the order
-                // `Function::execute` checks them in, and a VM that checked
-                // depth first would answer XEN019 where the tree walker
-                // answers XEN015.
-                if argc != proto.arity {
-                    return Err(arity_error(&proto, argc, &current, at));
+                    // Clear the window. Not tidiness: a dead register holding the
+                    // last copy of a list keeps its refcount above one, and the
+                    // next `Rc::make_mut` on that list copies it. `cow_semantics`
+                    // is the fixture that would notice.
+                    let width = current.registers as usize;
+                    for slot in &mut stack[base..base + width] {
+                        *slot = Value::Null;
+                    }
+
+                    stack[frame.result] = value;
+                    current_closure = frame.closure;
+                    base = frame.base;
+                    ip = frame.ip;
+                    next = frame.chunk;
+                    continue 'frames;
                 }
 
-                let new_base = callee_at + 1;
-
-                let needed = new_base + proto.registers as usize;
-                if stack.len() < needed {
-                    stack.resize(needed, Value::Null);
-                }
-
-                // The same check `Function::execute` makes, in the same
-                // order, over the same `value_matches_type`. Borrowed, never
-                // cloned: an argument is already in the register it will be
-                // read from.
-                for (i, expected) in proto.param_types.iter().enumerate() {
-                    if !Value::value_matches_type(&stack[new_base + i], expected) {
-                        return Err(param_type_error(
-                            expected,
-                            &stack[new_base + i],
+                Instr::GetUpval { dst, idx } => {
+                    let Some(closure) = current_closure.as_ref() else {
+                        return Err(internal(&current, at, "a capture read at the top level"));
+                    };
+                    let Some(cell) = closure.upvalues.get(idx as usize).cloned() else {
+                        return Err(internal(
                             &current,
                             at,
+                            "a capture read past the end of the table",
                         ));
+                    };
+                    let value = match &*cell.borrow() {
+                        Upvalue::Open(slot) => stack[*slot].clone(),
+                        Upvalue::Closed(value) => value.clone(),
+                    };
+                    stack[base + dst as usize] = value;
+                }
+
+                Instr::SetUpval { idx, src } => {
+                    let Some(closure) = current_closure.as_ref() else {
+                        return Err(internal(&current, at, "a capture written at the top level"));
+                    };
+                    let Some(cell) = closure.upvalues.get(idx as usize).cloned() else {
+                        return Err(internal(
+                            &current,
+                            at,
+                            "a capture written past the end of the table",
+                        ));
+                    };
+                    let value = stack[base + src as usize].clone();
+                    // The slot is read out of the borrow before the write, so an
+                    // open cell writing back into the stack is not holding the
+                    // cell borrowed while it does it.
+                    let slot = match &*cell.borrow() {
+                        Upvalue::Open(slot) => Some(*slot),
+                        Upvalue::Closed(_) => None,
+                    };
+                    match slot {
+                        Some(slot) => stack[slot] = value,
+                        None => *cell.borrow_mut() = Upvalue::Closed(value),
                     }
                 }
 
-                // The counter the spec asks for, checked before the frame is
-                // pushed. `Function::execute` tests the *caller's* depth,
-                // which is the number of frames already on the stack.
-                if frames.len() >= crate::context::MAX_CALL_DEPTH {
-                    return Err(recursion_limit(closure.name(), &current, at));
+                Instr::CloseUpvals { from } => {
+                    close_upvalues(&mut open, &mut stack, base + from as usize);
                 }
-
-                frames.push(Frame {
-                    chunk: Rc::clone(&current),
-                    closure: current_closure.take(),
-                    base,
-                    ip,
-                    result: base + dst as usize,
-                });
-
-                current = proto;
-                current_closure = Some(closure);
-                base = new_base;
-                ip = 0;
-            }
-
-            Instr::Ret { src } => {
-                // Moved out, not cloned: this is the one value the frame
-                // keeps and everything else in the window is about to go.
-                let value = std::mem::replace(&mut stack[base + src as usize], Value::Null);
-
-                close_upvalues(&mut open, &mut stack, base);
-
-                let Some(frame) = frames.pop() else {
-                    return Err(internal(&current, at, "returned from the top level"));
-                };
-
-                // Clear the window. Not tidiness: a dead register holding the
-                // last copy of a list keeps its refcount above one, and the
-                // next `Rc::make_mut` on that list copies it. `cow_semantics`
-                // is the fixture that would notice.
-                let width = current.registers as usize;
-                for slot in &mut stack[base..base + width] {
-                    *slot = Value::Null;
-                }
-
-                stack[frame.result] = value;
-                current = frame.chunk;
-                current_closure = frame.closure;
-                base = frame.base;
-                ip = frame.ip;
-            }
-
-            Instr::GetUpval { dst, idx } => {
-                let Some(closure) = current_closure.as_ref() else {
-                    return Err(internal(&current, at, "a capture read at the top level"));
-                };
-                let Some(cell) = closure.upvalues.get(idx as usize).cloned() else {
-                    return Err(internal(
-                        &current,
-                        at,
-                        "a capture read past the end of the table",
-                    ));
-                };
-                let value = match &*cell.borrow() {
-                    Upvalue::Open(slot) => stack[*slot].clone(),
-                    Upvalue::Closed(value) => value.clone(),
-                };
-                stack[base + dst as usize] = value;
-            }
-
-            Instr::SetUpval { idx, src } => {
-                let Some(closure) = current_closure.as_ref() else {
-                    return Err(internal(&current, at, "a capture written at the top level"));
-                };
-                let Some(cell) = closure.upvalues.get(idx as usize).cloned() else {
-                    return Err(internal(
-                        &current,
-                        at,
-                        "a capture written past the end of the table",
-                    ));
-                };
-                let value = stack[base + src as usize].clone();
-                // The slot is read out of the borrow before the write, so an
-                // open cell writing back into the stack is not holding the
-                // cell borrowed while it does it.
-                let slot = match &*cell.borrow() {
-                    Upvalue::Open(slot) => Some(*slot),
-                    Upvalue::Closed(_) => None,
-                };
-                match slot {
-                    Some(slot) => stack[slot] = value,
-                    None => *cell.borrow_mut() = Upvalue::Closed(value),
-                }
-            }
-
-            Instr::CloseUpvals { from } => {
-                close_upvalues(&mut open, &mut stack, base + from as usize);
             }
         }
     }
@@ -344,7 +694,7 @@ fn binary(
     dst: u8,
     a: u8,
     b: u8,
-    op: fn(&Value, &Value) -> Result<Value, Error>,
+    op: fn(&Value, &Value) -> Result<Value, Box<Error>>,
     chunk: &Chunk,
     at: usize,
 ) -> Result<(), Error> {
@@ -367,14 +717,20 @@ fn binary(
 /// condition: the value-level operations in `src/values.rs` build their errors
 /// with a dummy position, and only those get overwritten. An error that
 /// already knows where it came from keeps its own span.
-fn with_position(mut error: Error, chunk: &Chunk, at: usize) -> Error {
+///
+/// Takes either shape. The value-level operations hand back a `Box<Error>`,
+/// because returning one inline made every arithmetic result 240 bytes; the
+/// VM's own error builders hand back an `Error`. Unboxes on the way out, which
+/// costs a 240-byte move on a path that is about to stop the program anyway.
+fn with_position(error: impl Into<Box<Error>>, chunk: &Chunk, at: usize) -> Error {
+    let mut error = error.into();
     if error.position_start.index == 0 && error.position_end.index == 0 {
         if let Some((start, end)) = chunk.position_at(at as u32) {
             error.position_start = start.clone();
             error.position_end = end.clone();
         }
     }
-    error
+    *error
 }
 
 /// A VM bug, not a program error.

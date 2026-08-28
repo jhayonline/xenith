@@ -19,6 +19,10 @@ use std::rc::Rc;
 
 use crate::nodes::Node;
 use crate::position::Position;
+// Module scope, for `writes_once`. The operator arms inside `expr` import it
+// locally as well; those are left alone rather than untangled here.
+use crate::tokens::TokenType;
+use crate::type_table::TypeTable;
 use crate::types::Type;
 use crate::values::Value;
 use crate::vm::chunk::{Addr, Chunk, Instr, Reg, UpvalDesc};
@@ -38,15 +42,84 @@ impl Unsupported {
 }
 
 /// Lowers a whole file.
-pub fn compile(ast: &Node) -> Result<Chunk, Unsupported> {
+///
+/// `types` is what the checker proved, indexed by `NodeId`. The compiler reads
+/// it only to pick a narrower opcode; an absent, `Unknown` or unproven entry
+/// selects the generic one, which does exactly what the tree walker does. That
+/// asymmetry is the whole safety argument for typed opcodes: a table that is
+/// wrong about a node costs a program speed, never correctness.
+pub fn compile(ast: &Node, types: &TypeTable) -> Result<Chunk, Unsupported> {
     let mut compiler = Compiler {
         functions: vec![FnState::top_level()],
+        types,
     };
 
     let value = compiler.program(ast)?;
     compiler.emit(Instr::Halt { src: value }, ast.position_start(), ast.position_end());
 
     Ok(compiler.finish_function())
+}
+
+/// How narrow an operator's operands were proved to be.
+///
+/// `Neither` is not a failure and not rare -- it is what an unannotated
+/// binding, an imported name, or anything the checker declined to prove looks
+/// like, and it selects the generic opcode, which does exactly what the tree
+/// walker does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Narrow {
+    Int,
+    Float,
+    Neither,
+}
+
+/// An alias stands for what it aliases.
+///
+/// `type Count = int` must not cost a program the speed that `int` gets, and
+/// the checker records the alias rather than its target.
+fn peel(ty: &Type) -> &Type {
+    match ty {
+        Type::Alias(_, inner) => peel(inner),
+        other => other,
+    }
+}
+
+/// Whether this node compiles to exactly one value-producing instruction.
+///
+/// The condition for redirecting that instruction's destination instead of
+/// emitting a `MOVE` after it. A three-address instruction reads both operands
+/// and then writes, so pointing the write at a register it also reads is the
+/// same computation -- but only when there is one write. `&&` and `||` write
+/// their result, jump, and write it again; a `when` used as an expression does
+/// the same; and a bare name emits nothing at all, so the "last instruction"
+/// would belong to an earlier statement and rewriting it would corrupt that
+/// statement.
+///
+/// A whitelist rather than an analysis, because the cases it admits are the
+/// ones whose shape can be read off the node in one line.
+fn writes_once(node: &Node) -> bool {
+    match node {
+        Node::BinaryOperator(n) => matches!(
+            n.operator_token.kind,
+            TokenType::Plus
+                | TokenType::Minus
+                | TokenType::Mul
+                | TokenType::Div
+                | TokenType::Mod
+                | TokenType::Pow
+                | TokenType::Ee
+                | TokenType::Ne
+                | TokenType::Lt
+                | TokenType::Gt
+                | TokenType::Lte
+                | TokenType::Gte
+        ),
+        Node::UnaryOp(n) => {
+            n.operator_token.kind == TokenType::Minus
+                || n.operator_token.matches(TokenType::Keyword, Some("!"))
+        }
+        _ => false,
+    }
 }
 
 /// One enclosing loop, for `break` and `continue` to find.
@@ -128,12 +201,14 @@ impl FnState {
     }
 }
 
-struct Compiler {
+struct Compiler<'a> {
     /// Innermost last. Never empty: the top level is `functions[0]`.
     functions: Vec<FnState>,
+    /// What the checker proved. Read in `narrow` and nowhere else.
+    types: &'a TypeTable,
 }
 
-impl Compiler {
+impl<'a> Compiler<'a> {
     /// The function being compiled right now.
     ///
     /// `expect` rather than an `Option`: `compile` pushes the top level
@@ -175,6 +250,61 @@ impl Compiler {
             state.high_water = state.reg_top;
         }
         Ok(reg)
+    }
+
+    /// Points the last emitted instruction at a different destination.
+    ///
+    /// Answers whether it did. `false` when the last instruction writes no
+    /// register or writes a different one, in which case the caller emits the
+    /// `MOVE` it would have emitted anyway.
+    fn redirect_last(&mut self, from: Reg, to: Reg) -> bool {
+        let state = self.state();
+        let Some(last) = state.chunk.code.last_mut() else {
+            return false;
+        };
+        match last.result_register_mut() {
+            Some(dst) if *dst == from => {
+                *dst = to;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// The value of an int literal, if this node is one.
+    ///
+    /// The same rule `Node::Number`'s own arm uses, so the two agree about
+    /// what `1e3` is -- a float, and therefore not foldable.
+    ///
+    /// `-1` *is* a literal here and does fold. The lexer emits one negative
+    /// number token rather than a unary minus over `1`, which
+    /// `a_negative_literal_is_folded_by_the_lexer` in `tests/vm_compile.rs`
+    /// records; so `i + -1` becomes a single `ADD_IK` with a negative
+    /// constant.
+    fn int_literal(&self, node: &Node) -> Option<i64> {
+        let Node::Number(n) = node else { return None };
+        let text = n.token.value.as_ref()?;
+        if text.contains('.') || text.contains('e') || text.contains('E') {
+            return None;
+        }
+        text.parse::<i64>().ok()
+    }
+
+    /// What the checker proved about both sides of an operator.
+    ///
+    /// The only place the `TypeTable` is read. Everything about the safety of
+    /// typed opcodes rests on this being conservative: `Neither` is always a
+    /// correct answer, so an absent, `Unknown` or mismatched pair simply does
+    /// not narrow.
+    fn narrow(&self, left: &Node, right: &Node) -> Narrow {
+        match (
+            peel(self.types.get(left.id())),
+            peel(self.types.get(right.id())),
+        ) {
+            (Type::Int, Type::Int) => Narrow::Int,
+            (Type::Float, Type::Float) => Narrow::Float,
+            _ => Narrow::Neither,
+        }
     }
 
     /// The innermost binding of a name, or `None`.
@@ -999,6 +1129,59 @@ impl Compiler {
                 }
 
                 let mark = self.state().reg_top;
+
+                // A literal right operand folds into the instruction, and the
+                // LOAD_CONST that would have staged it is never emitted. This
+                // has to be decided *before* the operands are compiled: a fold
+                // discovered afterwards would already have emitted the
+                // instruction it exists to avoid.
+                //
+                // Only when the left side is a proven int, because the opcode
+                // reads the constant as an `i64` and has to be right about it,
+                // and only for the operators that have a `K` form.
+                let folded = self.int_literal(&n.right_node).filter(|_| {
+                    matches!(
+                        n.operator_token.kind,
+                        TokenType::Plus
+                            | TokenType::Minus
+                            | TokenType::Mul
+                            | TokenType::Lt
+                            | TokenType::Gt
+                            | TokenType::Lte
+                            | TokenType::Gte
+                            | TokenType::Ee
+                            | TokenType::Ne
+                    )
+                });
+
+                if let Some(literal) = folded {
+                    if matches!(peel(self.types.get(n.left_node.id())), Type::Int) {
+                        let a = self.operand(&n.left_node)?;
+                        self.free_to(mark);
+                        let dst = self.alloc()?;
+                        let k = self.state().chunk.add_constant(Value::int(literal));
+
+                        let instr = match n.operator_token.kind {
+                            TokenType::Plus => Instr::AddIK { dst, a, k },
+                            TokenType::Minus => Instr::SubIK { dst, a, k },
+                            TokenType::Mul => Instr::MulIK { dst, a, k },
+                            TokenType::Lt => Instr::LtIK { dst, a, k },
+                            TokenType::Gt => Instr::GtIK { dst, a, k },
+                            TokenType::Lte => Instr::LeIK { dst, a, k },
+                            TokenType::Gte => Instr::GeIK { dst, a, k },
+                            TokenType::Ee => Instr::EqIK { dst, a, k },
+                            TokenType::Ne => Instr::NeIK { dst, a, k },
+                            // The filter above admits nothing else.
+                            ref other => {
+                                unreachable!("folded a {:?}, which has no K form", other)
+                            }
+                        };
+
+                        self.emit(instr, &n.position_start, &n.position_end);
+                        return Ok(dst);
+                    }
+                }
+
                 let a = self.operand(&n.left_node)?;
                 let b = self.operand(&n.right_node)?;
 
@@ -1007,19 +1190,62 @@ impl Compiler {
                 self.free_to(mark);
                 let dst = self.alloc()?;
 
-                let instr = match n.operator_token.kind {
-                    TokenType::Plus => Instr::Add { dst, a, b },
-                    TokenType::Minus => Instr::Sub { dst, a, b },
-                    TokenType::Mul => Instr::Mul { dst, a, b },
-                    TokenType::Div => Instr::Div { dst, a, b },
-                    TokenType::Mod => Instr::Rem { dst, a, b },
-                    TokenType::Pow => Instr::Pow { dst, a, b },
-                    TokenType::Ee => Instr::Eq { dst, a, b },
-                    TokenType::Ne => Instr::Ne { dst, a, b },
-                    TokenType::Lt => Instr::Lt { dst, a, b },
-                    TokenType::Gt => Instr::Gt { dst, a, b },
-                    TokenType::Lte => Instr::Le { dst, a, b },
-                    TokenType::Gte => Instr::Ge { dst, a, b },
+                // What the checker proved decides which opcode this is.
+                // `Neither` selects the generic one, which is the normal case
+                // for an unannotated program and not a failure.
+                let narrow = self.narrow(&n.left_node, &n.right_node);
+
+                // By reference: `TokenType` is not `Copy`, and a tuple
+                // scrutinee would move it out of the node.
+                let instr = match (&n.operator_token.kind, narrow) {
+                    (TokenType::Plus, Narrow::Int) => Instr::AddI { dst, a, b },
+                    (TokenType::Plus, Narrow::Float) => Instr::AddF { dst, a, b },
+                    (TokenType::Plus, Narrow::Neither) => Instr::Add { dst, a, b },
+
+                    (TokenType::Minus, Narrow::Int) => Instr::SubI { dst, a, b },
+                    (TokenType::Minus, Narrow::Float) => Instr::SubF { dst, a, b },
+                    (TokenType::Minus, Narrow::Neither) => Instr::Sub { dst, a, b },
+
+                    (TokenType::Mul, Narrow::Int) => Instr::MulI { dst, a, b },
+                    (TokenType::Mul, Narrow::Float) => Instr::MulF { dst, a, b },
+                    (TokenType::Mul, Narrow::Neither) => Instr::Mul { dst, a, b },
+
+                    (TokenType::Div, Narrow::Int) => Instr::DivI { dst, a, b },
+                    (TokenType::Div, Narrow::Float) => Instr::DivF { dst, a, b },
+                    (TokenType::Div, Narrow::Neither) => Instr::Div { dst, a, b },
+
+                    // No REM_F: float remainder has its own rounding rule in
+                    // `Value::modulo` and is not hot.
+                    (TokenType::Mod, Narrow::Int) => Instr::RemI { dst, a, b },
+                    (TokenType::Mod, _) => Instr::Rem { dst, a, b },
+
+                    // No POW_I or POW_F, deliberately. See `Value::power`.
+                    (TokenType::Pow, _) => Instr::Pow { dst, a, b },
+
+                    (TokenType::Ee, Narrow::Int) => Instr::EqI { dst, a, b },
+                    (TokenType::Ee, Narrow::Float) => Instr::EqF { dst, a, b },
+                    (TokenType::Ee, Narrow::Neither) => Instr::Eq { dst, a, b },
+
+                    (TokenType::Ne, Narrow::Int) => Instr::NeI { dst, a, b },
+                    (TokenType::Ne, Narrow::Float) => Instr::NeF { dst, a, b },
+                    (TokenType::Ne, Narrow::Neither) => Instr::Ne { dst, a, b },
+
+                    (TokenType::Lt, Narrow::Int) => Instr::LtI { dst, a, b },
+                    (TokenType::Lt, Narrow::Float) => Instr::LtF { dst, a, b },
+                    (TokenType::Lt, Narrow::Neither) => Instr::Lt { dst, a, b },
+
+                    (TokenType::Gt, Narrow::Int) => Instr::GtI { dst, a, b },
+                    (TokenType::Gt, Narrow::Float) => Instr::GtF { dst, a, b },
+                    (TokenType::Gt, Narrow::Neither) => Instr::Gt { dst, a, b },
+
+                    (TokenType::Lte, Narrow::Int) => Instr::LeI { dst, a, b },
+                    (TokenType::Lte, Narrow::Float) => Instr::LeF { dst, a, b },
+                    (TokenType::Lte, Narrow::Neither) => Instr::Le { dst, a, b },
+
+                    (TokenType::Gte, Narrow::Int) => Instr::GeI { dst, a, b },
+                    (TokenType::Gte, Narrow::Float) => Instr::GeF { dst, a, b },
+                    (TokenType::Gte, Narrow::Neither) => Instr::Ge { dst, a, b },
+
                     // `.` and `[` are field access and indexing: phase 6.
                     _ => return Err(Unsupported::new("this operator")),
                 };
@@ -1200,7 +1426,16 @@ impl Compiler {
         // The register is copied out of the borrow before `emit` takes
         // `&mut self`.
         if let Some(dst) = self.resolve(&name).map(|local| local.reg) {
-            self.emit(Instr::Move { dst, src: value }, &n.position_start, &n.position_end);
+            // The instruction that computed the value can write it where it
+            // belongs, instead of writing a temporary that is immediately
+            // copied down. This is the loose end phase 3 left: `total = total
+            // + i` was ADD then MOVE, and the ADD could always have written
+            // `total`.
+            let redirected =
+                value != dst && writes_once(&n.value_node) && self.redirect_last(value, dst);
+            if !redirected && value != dst {
+                self.emit(Instr::Move { dst, src: value }, &n.position_start, &n.position_end);
+            }
             self.free_to(mark);
             return Ok(dst);
         }

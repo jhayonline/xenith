@@ -68,3 +68,28 @@ fn a_closure_is_a_pointer_in_a_value() {
     );
     assert_eq!(size_of::<Value>(), 16, "Value");
 }
+
+#[test]
+fn a_value_operation_returns_a_small_result() {
+    // `Error` is 240 bytes: two 56-byte `Position`s, three `String`s and two
+    // `Option<String>`s. Returned inline, every `a + b` in the language moved
+    // 240 bytes to carry a 16-byte answer.
+    //
+    // `RuntimeResult` learned this once already -- see the comment on its
+    // `error` field -- but the `Result` coming out of `src/values.rs` did not.
+    // 16, not 24: a `Box` is a non-null pointer and `Value` has a spare niche
+    // in `Number`'s tag -- the same one that lets `Value` itself cost nothing
+    // beyond its largest member -- so the `Result` is exactly as wide as the
+    // value it carries and the error side is free.
+    assert_eq!(
+        size_of::<Result<Value, Box<xenith::error::Error>>>(),
+        16,
+        "a value operation's Result"
+    );
+
+    // The signature is the thing being guarded. A function item of the wrong
+    // shape will not coerce to this pointer type.
+    let _: fn(&Value, &Value) -> Result<Value, Box<xenith::error::Error>> = Value::add;
+    let _: fn(&Value, &Value) -> Result<Value, Box<xenith::error::Error>> = Value::less_than;
+    let _: fn(&Value) -> Result<Value, Box<xenith::error::Error>> = Value::negative;
+}

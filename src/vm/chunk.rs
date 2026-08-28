@@ -53,6 +53,80 @@ pub enum Instr {
     Le { dst: Reg, a: Reg, b: Reg },
     Ge { dst: Reg, a: Reg, b: Reg },
 
+    // Typed operators, chosen by the compiler from what the checker proved.
+    //
+    // Each is *guarded*: it matches the pair of variants it expects and falls
+    // through to the generic opcode's own path on anything else. So a wrong
+    // `TypeTable` entry costs a program speed and never correctness, which is
+    // the safety argument for emitting these at all.
+    //
+    // The win is not the skipped tag match -- `Value::add` matches `(Int, Int)`
+    // first anyway. It is that the fast path writes its answer straight into a
+    // register and never builds the `Result` that would have carried it.
+    //
+    // `POW` gets no typed form: integer exponentiation has a negative-exponent
+    // case and an overflow case whose wording lives in `Value::power`, and it
+    // is never on a hot path worth a second copy of them.
+    AddI { dst: Reg, a: Reg, b: Reg },
+    SubI { dst: Reg, a: Reg, b: Reg },
+    MulI { dst: Reg, a: Reg, b: Reg },
+    DivI { dst: Reg, a: Reg, b: Reg },
+    RemI { dst: Reg, a: Reg, b: Reg },
+    LtI { dst: Reg, a: Reg, b: Reg },
+    GtI { dst: Reg, a: Reg, b: Reg },
+    LeI { dst: Reg, a: Reg, b: Reg },
+    GeI { dst: Reg, a: Reg, b: Reg },
+    EqI { dst: Reg, a: Reg, b: Reg },
+    NeI { dst: Reg, a: Reg, b: Reg },
+
+    // The float half. Not a mirror of the int half, because floats are not
+    // ints with a different tag:
+    //
+    // - Float arithmetic cannot overflow. IEEE saturates to infinity and the
+    //   generic opcode allows it, so there is no `checked_*` and no XEN017.
+    // - Float division by zero *does* raise. `Number::is_zero` answers true
+    //   for `0.0`, so `1.0 / 0.0` is XEN003 in this language and not `inf`.
+    // - Float ordering can fail. `compare` goes through `partial_cmp` and
+    //   turns `None` into "cannot compare NaN", so `LT_F` cannot be a plain
+    //   `<`. Equality is the exception: `eq_value` uses `==`, where NaN is
+    //   simply unequal and never an error.
+    //
+    // There is no `REM_F`: float remainder has its own rounding rule in
+    // `Value::modulo` and is not hot.
+    AddF { dst: Reg, a: Reg, b: Reg },
+    SubF { dst: Reg, a: Reg, b: Reg },
+    MulF { dst: Reg, a: Reg, b: Reg },
+    DivF { dst: Reg, a: Reg, b: Reg },
+    LtF { dst: Reg, a: Reg, b: Reg },
+    GtF { dst: Reg, a: Reg, b: Reg },
+    LeF { dst: Reg, a: Reg, b: Reg },
+    GeF { dst: Reg, a: Reg, b: Reg },
+    EqF { dst: Reg, a: Reg, b: Reg },
+    NeF { dst: Reg, a: Reg, b: Reg },
+
+    // Constant right-hand operand. `while i < 400000` loaded that constant
+    // into a register on every one of 400,000 passes; this reads it where it
+    // already lives, and the `LOAD_CONST` disappears.
+    //
+    // Right-hand side only. A mirrored set for `k - i` would double the
+    // opcodes to serve a shape that a bound, a step and an increment never
+    // take. No `DIV_IK` or `REM_IK` either: a literal divisor is either
+    // something the programmer could have folded or a zero that raises.
+    //
+    // `k` is a constant index and not an immediate on purpose. A 16-bit
+    // immediate would hold the `1` and not the `400000`, so it would need a
+    // second encoding and a compile-time choice between them, to save a read
+    // of something already interned and already in cache.
+    AddIK { dst: Reg, a: Reg, k: ConstIdx },
+    SubIK { dst: Reg, a: Reg, k: ConstIdx },
+    MulIK { dst: Reg, a: Reg, k: ConstIdx },
+    LtIK { dst: Reg, a: Reg, k: ConstIdx },
+    GtIK { dst: Reg, a: Reg, k: ConstIdx },
+    LeIK { dst: Reg, a: Reg, k: ConstIdx },
+    GeIK { dst: Reg, a: Reg, k: ConstIdx },
+    EqIK { dst: Reg, a: Reg, k: ConstIdx },
+    NeIK { dst: Reg, a: Reg, k: ConstIdx },
+
     /// `dst = -src`
     Neg { dst: Reg, src: Reg },
     /// `dst = !src`
@@ -102,6 +176,85 @@ pub enum Instr {
 
     /// Stops, with `src` as the chunk's value.
     Halt { src: Reg },
+}
+
+impl Instr {
+    /// The register this instruction writes, for the instructions whose only
+    /// effect is that write.
+    ///
+    /// `None` for everything else, and the list is deliberately short. `Call`
+    /// is excluded even though it has a `dst`: it also runs a whole function,
+    /// and an optimisation that redirects its result should have to be written
+    /// on purpose rather than inherited from a helper. Jumps, `Echo`, `Halt`,
+    /// `Ret`, `SetUpval` and `CloseUpvals` write no register at all.
+    ///
+    /// Every variant is listed rather than ending in `_ => None`, so that
+    /// adding an instruction in a later phase is a decision about this
+    /// function rather than a silent opt-out from it.
+    pub fn result_register_mut(&mut self) -> Option<&mut Reg> {
+        match self {
+            Instr::LoadConst { dst, .. }
+            | Instr::LoadBool { dst, .. }
+            | Instr::LoadNull { dst }
+            | Instr::Move { dst, .. }
+            | Instr::Add { dst, .. }
+            | Instr::Sub { dst, .. }
+            | Instr::Mul { dst, .. }
+            | Instr::Div { dst, .. }
+            | Instr::Rem { dst, .. }
+            | Instr::Pow { dst, .. }
+            | Instr::Eq { dst, .. }
+            | Instr::Ne { dst, .. }
+            | Instr::Lt { dst, .. }
+            | Instr::Gt { dst, .. }
+            | Instr::Le { dst, .. }
+            | Instr::Ge { dst, .. }
+            | Instr::AddI { dst, .. }
+            | Instr::SubI { dst, .. }
+            | Instr::MulI { dst, .. }
+            | Instr::DivI { dst, .. }
+            | Instr::RemI { dst, .. }
+            | Instr::LtI { dst, .. }
+            | Instr::GtI { dst, .. }
+            | Instr::LeI { dst, .. }
+            | Instr::GeI { dst, .. }
+            | Instr::EqI { dst, .. }
+            | Instr::NeI { dst, .. }
+            | Instr::AddF { dst, .. }
+            | Instr::SubF { dst, .. }
+            | Instr::MulF { dst, .. }
+            | Instr::DivF { dst, .. }
+            | Instr::LtF { dst, .. }
+            | Instr::GtF { dst, .. }
+            | Instr::LeF { dst, .. }
+            | Instr::GeF { dst, .. }
+            | Instr::EqF { dst, .. }
+            | Instr::NeF { dst, .. }
+            | Instr::AddIK { dst, .. }
+            | Instr::SubIK { dst, .. }
+            | Instr::MulIK { dst, .. }
+            | Instr::LtIK { dst, .. }
+            | Instr::GtIK { dst, .. }
+            | Instr::LeIK { dst, .. }
+            | Instr::GeIK { dst, .. }
+            | Instr::EqIK { dst, .. }
+            | Instr::NeIK { dst, .. }
+            | Instr::Neg { dst, .. }
+            | Instr::Not { dst, .. }
+            | Instr::GetUpval { dst, .. }
+            | Instr::Closure { dst, .. } => Some(dst),
+
+            Instr::Call { .. }
+            | Instr::SetUpval { .. }
+            | Instr::CloseUpvals { .. }
+            | Instr::Jump { .. }
+            | Instr::JumpIfFalse { .. }
+            | Instr::JumpIfTrue { .. }
+            | Instr::Echo { .. }
+            | Instr::Ret { .. }
+            | Instr::Halt { .. } => None,
+        }
+    }
 }
 
 /// How a closure finds one of its captures, at the moment it is created.
