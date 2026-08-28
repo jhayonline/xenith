@@ -71,6 +71,51 @@ macro_rules! int_cmp {
     }};
 }
 
+/// Reads two registers as a pair of `f64`s, or `None` if they are not both
+/// floats. The float twin of `two_ints!`, and copied out for the same reason.
+macro_rules! two_floats {
+    ($stack:expr, $base:expr, $a:expr, $b:expr) => {
+        match (&$stack[$base + $a as usize], &$stack[$base + $b as usize]) {
+            (Value::Float(x), Value::Float(y)) => Some((*x, *y)),
+            _ => None,
+        }
+    };
+}
+
+/// A guarded float arithmetic opcode. Cannot fail: IEEE saturates.
+macro_rules! float_arith {
+    ($stack:expr, $base:expr, $dst:expr, $a:expr, $b:expr,
+     $op:expr, $generic:path, $chunk:expr, $at:expr) => {{
+        match two_floats!($stack, $base, $a, $b) {
+            Some((x, y)) => {
+                let answer = ($op)(x, y);
+                $stack[$base + $dst as usize] = Value::float(answer);
+            }
+            None => binary(&mut $stack, $base, $dst, $a, $b, $generic, $chunk, $at)?,
+        }
+    }};
+}
+
+/// A guarded float ordering.
+///
+/// Falls back on NaN rather than answering, so the generic path raises
+/// "cannot compare NaN". A plain Rust `<` here would silently turn that error
+/// into `false`.
+macro_rules! float_cmp {
+    ($stack:expr, $base:expr, $dst:expr, $a:expr, $b:expr,
+     $want:expr, $generic:path, $chunk:expr, $at:expr) => {{
+        match two_floats!($stack, $base, $a, $b) {
+            Some((x, y)) => match x.partial_cmp(&y) {
+                Some(ordering) => {
+                    $stack[$base + $dst as usize] = Value::Bool(($want)(ordering));
+                }
+                None => binary(&mut $stack, $base, $dst, $a, $b, $generic, $chunk, $at)?,
+            },
+            None => binary(&mut $stack, $base, $dst, $a, $b, $generic, $chunk, $at)?,
+        }
+    }};
+}
+
 /// The zero-divisor report, which is the *caller's* and not `Value::divide`'s.
 ///
 /// `visit_binary_op` checks for a zero divisor before calling `divide` and
@@ -268,6 +313,65 @@ pub fn execute(chunk: Rc<Chunk>) -> Result<Value, Error> {
             Instr::NeI { dst, a, b } => int_cmp!(
                 stack, base, dst, a, b, |x, y| x != y, Value::not_equals, &current, at
             ),
+
+            Instr::AddF { dst, a, b } => float_arith!(
+                stack, base, dst, a, b, |x: f64, y: f64| x + y, Value::add, &current, at
+            ),
+            Instr::SubF { dst, a, b } => float_arith!(
+                stack, base, dst, a, b, |x: f64, y: f64| x - y, Value::subtract, &current, at
+            ),
+            Instr::MulF { dst, a, b } => float_arith!(
+                stack, base, dst, a, b, |x: f64, y: f64| x * y, Value::multiply, &current, at
+            ),
+
+            // Guards zero exactly as the generic `Div` arm does. `1.0 / 0.0`
+            // is XEN003 in this language, not `inf`, because `Number::is_zero`
+            // answers true for `0.0`.
+            Instr::DivF { dst, a, b } => match two_floats!(stack, base, a, b) {
+                Some((_, y)) if y == 0.0 => divide_by_zero!(&current, at),
+                Some((x, y)) => {
+                    stack[base + dst as usize] = Value::float(x / y);
+                }
+                None => {
+                    if let (Some(_), Some(divisor)) = (
+                        stack[base + a as usize].as_number(),
+                        stack[base + b as usize].as_number(),
+                    ) {
+                        if divisor.is_zero() {
+                            divide_by_zero!(&current, at);
+                        }
+                    }
+                    binary(&mut stack, base, dst, a, b, Value::divide, &current, at)?
+                }
+            },
+
+            Instr::LtF { dst, a, b } => float_cmp!(
+                stack, base, dst, a, b,
+                std::cmp::Ordering::is_lt, Value::less_than, &current, at
+            ),
+            Instr::GtF { dst, a, b } => float_cmp!(
+                stack, base, dst, a, b,
+                std::cmp::Ordering::is_gt, Value::greater_than, &current, at
+            ),
+            Instr::LeF { dst, a, b } => float_cmp!(
+                stack, base, dst, a, b,
+                std::cmp::Ordering::is_le, Value::less_than_or_equal, &current, at
+            ),
+            Instr::GeF { dst, a, b } => float_cmp!(
+                stack, base, dst, a, b,
+                std::cmp::Ordering::is_ge, Value::greater_than_or_equal, &current, at
+            ),
+
+            // Equality does not go through `compare`: `eq_value` uses `==`, so
+            // NaN is unequal to everything and never an error.
+            Instr::EqF { dst, a, b } => match two_floats!(stack, base, a, b) {
+                Some((x, y)) => stack[base + dst as usize] = Value::Bool(x == y),
+                None => binary(&mut stack, base, dst, a, b, Value::equals, &current, at)?,
+            },
+            Instr::NeF { dst, a, b } => match two_floats!(stack, base, a, b) {
+                Some((x, y)) => stack[base + dst as usize] = Value::Bool(x != y),
+                None => binary(&mut stack, base, dst, a, b, Value::not_equals, &current, at)?,
+            },
 
             Instr::Neg { dst, src } => {
                 stack[base + dst as usize] = stack[base + src as usize]

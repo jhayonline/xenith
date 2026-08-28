@@ -214,3 +214,136 @@ code:
 "
     );
 }
+
+#[test]
+fn float_arithmetic_matches_the_generic_opcode() {
+    for (typed, generic) in [
+        (
+            (|dst, a, b| Instr::AddF { dst, a, b }) as fn(u8, u8, u8) -> Instr,
+            (|dst, a, b| Instr::Add { dst, a, b }) as fn(u8, u8, u8) -> Instr,
+        ),
+        (
+            |dst, a, b| Instr::SubF { dst, a, b },
+            |dst, a, b| Instr::Sub { dst, a, b },
+        ),
+        (
+            |dst, a, b| Instr::MulF { dst, a, b },
+            |dst, a, b| Instr::Mul { dst, a, b },
+        ),
+    ] {
+        agree(typed, generic, Value::float(1.5), Value::float(2.25));
+        agree(typed, generic, Value::float(-0.0), Value::float(0.0));
+        // No overflow trap: IEEE saturates to infinity, and the generic opcode
+        // allows it, so the typed one must too.
+        agree(typed, generic, Value::float(f64::MAX), Value::float(f64::MAX));
+        agree(typed, generic, Value::float(f64::NAN), Value::float(1.0));
+    }
+}
+
+#[test]
+fn float_division_by_zero_still_raises() {
+    // Number::is_zero() answers true for 0.0, so the generic Div arm raises
+    // XEN003 rather than returning inf. The typed opcode must agree, which is
+    // the one thing about floats most likely to be got wrong here.
+    agree(
+        |dst, a, b| Instr::DivF { dst, a, b },
+        |dst, a, b| Instr::Div { dst, a, b },
+        Value::float(1.0),
+        Value::float(0.0),
+    );
+    // Negative zero is still zero.
+    agree(
+        |dst, a, b| Instr::DivF { dst, a, b },
+        |dst, a, b| Instr::Div { dst, a, b },
+        Value::float(1.0),
+        Value::float(-0.0),
+    );
+    agree(
+        |dst, a, b| Instr::DivF { dst, a, b },
+        |dst, a, b| Instr::Div { dst, a, b },
+        Value::float(7.0),
+        Value::float(2.0),
+    );
+}
+
+#[test]
+fn comparing_nan_raises_through_the_typed_opcode_too() {
+    // `compare` uses partial_cmp and raises "cannot compare NaN" on None. A
+    // typed `<` that were a plain Rust `<` would answer false and lose the
+    // error.
+    for (typed, generic) in [
+        (
+            (|dst, a, b| Instr::LtF { dst, a, b }) as fn(u8, u8, u8) -> Instr,
+            (|dst, a, b| Instr::Lt { dst, a, b }) as fn(u8, u8, u8) -> Instr,
+        ),
+        (
+            |dst, a, b| Instr::GtF { dst, a, b },
+            |dst, a, b| Instr::Gt { dst, a, b },
+        ),
+        (
+            |dst, a, b| Instr::LeF { dst, a, b },
+            |dst, a, b| Instr::Le { dst, a, b },
+        ),
+        (
+            |dst, a, b| Instr::GeF { dst, a, b },
+            |dst, a, b| Instr::Ge { dst, a, b },
+        ),
+    ] {
+        agree(typed, generic, Value::float(1.0), Value::float(2.0));
+        agree(typed, generic, Value::float(2.0), Value::float(2.0));
+        agree(typed, generic, Value::float(-0.0), Value::float(0.0));
+        agree(typed, generic, Value::float(f64::NAN), Value::float(2.0));
+        agree(typed, generic, Value::float(2.0), Value::float(f64::NAN));
+    }
+}
+
+#[test]
+fn float_equality_does_not_raise_on_nan() {
+    // `eq_value` compares floats with `==`. NaN is simply not equal to
+    // anything, including itself -- not an error, unlike ordering.
+    for (typed, generic) in [
+        (
+            (|dst, a, b| Instr::EqF { dst, a, b }) as fn(u8, u8, u8) -> Instr,
+            (|dst, a, b| Instr::Eq { dst, a, b }) as fn(u8, u8, u8) -> Instr,
+        ),
+        (
+            |dst, a, b| Instr::NeF { dst, a, b },
+            |dst, a, b| Instr::Ne { dst, a, b },
+        ),
+    ] {
+        agree(typed, generic, Value::float(1.0), Value::float(1.0));
+        agree(typed, generic, Value::float(1.0), Value::float(2.0));
+        agree(typed, generic, Value::float(f64::NAN), Value::float(f64::NAN));
+        agree(typed, generic, Value::float(-0.0), Value::float(0.0));
+    }
+}
+
+#[test]
+fn a_float_opcode_on_other_types_falls_back() {
+    agree(
+        |dst, a, b| Instr::AddF { dst, a, b },
+        |dst, a, b| Instr::Add { dst, a, b },
+        Value::int(1),
+        Value::int(2),
+    );
+    agree(
+        |dst, a, b| Instr::AddF { dst, a, b },
+        |dst, a, b| Instr::Add { dst, a, b },
+        Value::string("ab"),
+        Value::string("cd"),
+    );
+    // An int zero divisor through a float opcode still raises the caller's
+    // XEN003, because the fallback runs the generic arm's check too.
+    agree(
+        |dst, a, b| Instr::DivF { dst, a, b },
+        |dst, a, b| Instr::Div { dst, a, b },
+        Value::int(1),
+        Value::int(0),
+    );
+    agree(
+        |dst, a, b| Instr::LtF { dst, a, b },
+        |dst, a, b| Instr::Lt { dst, a, b },
+        Value::int(1),
+        Value::int(2),
+    );
+}

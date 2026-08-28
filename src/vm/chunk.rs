@@ -79,6 +79,31 @@ pub enum Instr {
     EqI { dst: Reg, a: Reg, b: Reg },
     NeI { dst: Reg, a: Reg, b: Reg },
 
+    // The float half. Not a mirror of the int half, because floats are not
+    // ints with a different tag:
+    //
+    // - Float arithmetic cannot overflow. IEEE saturates to infinity and the
+    //   generic opcode allows it, so there is no `checked_*` and no XEN017.
+    // - Float division by zero *does* raise. `Number::is_zero` answers true
+    //   for `0.0`, so `1.0 / 0.0` is XEN003 in this language and not `inf`.
+    // - Float ordering can fail. `compare` goes through `partial_cmp` and
+    //   turns `None` into "cannot compare NaN", so `LT_F` cannot be a plain
+    //   `<`. Equality is the exception: `eq_value` uses `==`, where NaN is
+    //   simply unequal and never an error.
+    //
+    // There is no `REM_F`: float remainder has its own rounding rule in
+    // `Value::modulo` and is not hot.
+    AddF { dst: Reg, a: Reg, b: Reg },
+    SubF { dst: Reg, a: Reg, b: Reg },
+    MulF { dst: Reg, a: Reg, b: Reg },
+    DivF { dst: Reg, a: Reg, b: Reg },
+    LtF { dst: Reg, a: Reg, b: Reg },
+    GtF { dst: Reg, a: Reg, b: Reg },
+    LeF { dst: Reg, a: Reg, b: Reg },
+    GeF { dst: Reg, a: Reg, b: Reg },
+    EqF { dst: Reg, a: Reg, b: Reg },
+    NeF { dst: Reg, a: Reg, b: Reg },
+
     /// `dst = -src`
     Neg { dst: Reg, src: Reg },
     /// `dst = !src`

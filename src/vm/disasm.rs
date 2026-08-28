@@ -110,6 +110,17 @@ fn describe(instr: &Instr) -> String {
         Instr::EqI { dst, a, b } => binary("EQ_I", dst, a, b),
         Instr::NeI { dst, a, b } => binary("NE_I", dst, a, b),
 
+        Instr::AddF { dst, a, b } => binary("ADD_F", dst, a, b),
+        Instr::SubF { dst, a, b } => binary("SUB_F", dst, a, b),
+        Instr::MulF { dst, a, b } => binary("MUL_F", dst, a, b),
+        Instr::DivF { dst, a, b } => binary("DIV_F", dst, a, b),
+        Instr::LtF { dst, a, b } => binary("LT_F", dst, a, b),
+        Instr::GtF { dst, a, b } => binary("GT_F", dst, a, b),
+        Instr::LeF { dst, a, b } => binary("LE_F", dst, a, b),
+        Instr::GeF { dst, a, b } => binary("GE_F", dst, a, b),
+        Instr::EqF { dst, a, b } => binary("EQ_F", dst, a, b),
+        Instr::NeF { dst, a, b } => binary("NE_F", dst, a, b),
+
         Instr::Neg { dst, src } => format!("{:<12} r{}, r{}", "NEG", dst, src),
         Instr::Not { dst, src } => format!("{:<12} r{}, r{}", "NOT", dst, src),
 
