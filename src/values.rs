@@ -190,16 +190,18 @@ impl Value {
     /// This is XEN001 like any other type mismatch. It used to fall through to
     /// the generic XEN200, which meant `1 + 2.0` and `"a" + 1` reported
     /// different codes for the same kind of mistake.
-    fn arith_err(msg: &str) -> Error {
-        RuntimeError::new(Self::dummy_pos(), Self::dummy_pos(), msg, None)
-            .with_code("XEN001")
-            .with_name("Type Mismatch")
-            .with_help("convert explicitly, e.g. `x as float`")
-            .base
+    fn arith_err(msg: &str) -> Box<Error> {
+        Box::new(
+            RuntimeError::new(Self::dummy_pos(), Self::dummy_pos(), msg, None)
+                .with_code("XEN001")
+                .with_name("Type Mismatch")
+                .with_help("convert explicitly, e.g. `x as float`")
+                .base,
+        )
     }
 
-    fn mixed_err(op: &str, a: &Number, b: &Number) -> Error {
-        RuntimeError::new(
+    fn mixed_err(op: &str, a: &Number, b: &Number) -> Box<Error> {
+        Box::new(RuntimeError::new(
             Self::dummy_pos(),
             Self::dummy_pos(),
             &format!(
@@ -216,23 +218,28 @@ impl Value {
             "convert explicitly, e.g. `x as {}`",
             if a.is_int() { "float" } else { "int" }
         ))
-        .base
+        .base)
     }
 
-    fn overflow_err(op: &str) -> Error {
-        RuntimeError::new(
-            Self::dummy_pos(),
-            Self::dummy_pos(),
-            &format!("integer overflow in {}", op),
-            None,
+    /// XEN017. `pub(crate)` because the VM's typed opcodes raise it directly:
+    /// they never call `add`, so they cannot get the error from it, and a
+    /// second copy of the message would be a second thing to keep in step.
+    pub(crate) fn overflow_err(op: &str) -> Box<Error> {
+        Box::new(
+            RuntimeError::new(
+                Self::dummy_pos(),
+                Self::dummy_pos(),
+                &format!("integer overflow in {}", op),
+                None,
+            )
+            .with_code("XEN017")
+            .with_name("Integer Overflow")
+            .base,
         )
-        .with_code("XEN017")
-        .with_name("Integer Overflow")
-        .base
     }
 
     /// Addition operation
-    pub fn add(&self, other: &Value) -> Result<Value, Error> {
+    pub fn add(&self, other: &Value) -> Result<Value, Box<Error>> {
         match (self, other) {
             (Value::Int(x), Value::Int(y)) => x
                 .checked_add(*y)
@@ -271,7 +278,7 @@ impl Value {
     }
 
     /// Subtraction operation
-    pub fn subtract(&self, other: &Value) -> Result<Value, Error> {
+    pub fn subtract(&self, other: &Value) -> Result<Value, Box<Error>> {
         match (self, other) {
             (Value::Int(x), Value::Int(y)) => x
                 .checked_sub(*y)
@@ -295,7 +302,7 @@ impl Value {
     }
 
     /// Multiplication operation
-    pub fn multiply(&self, other: &Value) -> Result<Value, Error> {
+    pub fn multiply(&self, other: &Value) -> Result<Value, Box<Error>> {
         match (self, other) {
             (Value::Int(x), Value::Int(y)) => x
                 .checked_mul(*y)
@@ -325,32 +332,36 @@ impl Value {
     }
 
     /// Division operation. Int / int truncates toward zero, as in Go and C.
-    pub fn divide(&self, other: &Value) -> Result<Value, Error> {
+    pub fn divide(&self, other: &Value) -> Result<Value, Box<Error>> {
         match (self, other) {
-            (Value::Int(_), Value::Int(0)) => Err(RuntimeError::new(
-                Self::dummy_pos(),
-                Self::dummy_pos(),
-                "division by zero",
-                None,
-            )
-            .with_code("XEN003")
-            .with_name("Division by Zero")
-            .base),
+            (Value::Int(_), Value::Int(0)) => Err(Box::new(
+                RuntimeError::new(
+                    Self::dummy_pos(),
+                    Self::dummy_pos(),
+                    "division by zero",
+                    None,
+                )
+                .with_code("XEN003")
+                .with_name("Division by Zero")
+                .base,
+            )),
             (Value::Int(x), Value::Int(y)) => x
                 .checked_div(*y)
                 .map(Value::int)
                 .ok_or_else(|| Self::overflow_err("division")),
             (Value::Float(x), Value::Float(y)) => {
                 if *y == 0.0 {
-                    return Err(RuntimeError::new(
-                        Self::dummy_pos(),
-                        Self::dummy_pos(),
-                        "division by zero",
-                        None,
-                    )
-                    .with_code("XEN003")
-                    .with_name("Division by Zero")
-                    .base);
+                    return Err(Box::new(
+                        RuntimeError::new(
+                            Self::dummy_pos(),
+                            Self::dummy_pos(),
+                            "division by zero",
+                            None,
+                        )
+                        .with_code("XEN003")
+                        .with_name("Division by Zero")
+                        .base,
+                    ));
                 }
                 Ok(Value::float(x / y))
             }
@@ -371,17 +382,19 @@ impl Value {
     }
 
     /// Remainder operation
-    pub fn modulo(&self, other: &Value) -> Result<Value, Error> {
+    pub fn modulo(&self, other: &Value) -> Result<Value, Box<Error>> {
         match (self, other) {
-            (Value::Int(_), Value::Int(0)) => Err(RuntimeError::new(
-                Self::dummy_pos(),
-                Self::dummy_pos(),
-                "remainder by zero",
-                None,
-            )
-            .with_code("XEN003")
-            .with_name("Division by Zero")
-            .base),
+            (Value::Int(_), Value::Int(0)) => Err(Box::new(
+                RuntimeError::new(
+                    Self::dummy_pos(),
+                    Self::dummy_pos(),
+                    "remainder by zero",
+                    None,
+                )
+                .with_code("XEN003")
+                .with_name("Division by Zero")
+                .base,
+            )),
             (Value::Int(x), Value::Int(y)) => x
                 .checked_rem(*y)
                 .map(Value::int)
@@ -400,7 +413,7 @@ impl Value {
     }
 
     /// Power operation
-    pub fn power(&self, other: &Value) -> Result<Value, Error> {
+    pub fn power(&self, other: &Value) -> Result<Value, Box<Error>> {
         match (self, other) {
             (Value::Int(x), Value::Int(y)) => {
                 if *y < 0 {
@@ -431,7 +444,7 @@ impl Value {
     // ---------------------------------------------------------------
 
     /// Equality comparison
-    pub fn equals(&self, other: &Value) -> Result<Value, Error> {
+    pub fn equals(&self, other: &Value) -> Result<Value, Box<Error>> {
         Ok(Value::Bool(self.eq_value(other)))
     }
 
@@ -494,11 +507,11 @@ impl Value {
     }
 
     /// Not equals comparison
-    pub fn not_equals(&self, other: &Value) -> Result<Value, Error> {
+    pub fn not_equals(&self, other: &Value) -> Result<Value, Box<Error>> {
         Ok(Value::Bool(!self.eq_value(other)))
     }
 
-    fn compare(&self, other: &Value, op: &str) -> Result<std::cmp::Ordering, Error> {
+    fn compare(&self, other: &Value, op: &str) -> Result<std::cmp::Ordering, Box<Error>> {
         match (self, other) {
             (Value::Int(x), Value::Int(y)) => Ok(x.cmp(y)),
             (Value::Float(x), Value::Float(y)) => x
@@ -524,32 +537,32 @@ impl Value {
     }
 
     /// Less than comparison
-    pub fn less_than(&self, other: &Value) -> Result<Value, Error> {
+    pub fn less_than(&self, other: &Value) -> Result<Value, Box<Error>> {
         Ok(Value::Bool(self.compare(other, "<")?.is_lt()))
     }
 
     /// Greater than comparison
-    pub fn greater_than(&self, other: &Value) -> Result<Value, Error> {
+    pub fn greater_than(&self, other: &Value) -> Result<Value, Box<Error>> {
         Ok(Value::Bool(self.compare(other, ">")?.is_gt()))
     }
 
     /// Less than or equal comparison
-    pub fn less_than_or_equal(&self, other: &Value) -> Result<Value, Error> {
+    pub fn less_than_or_equal(&self, other: &Value) -> Result<Value, Box<Error>> {
         Ok(Value::Bool(self.compare(other, "<=")?.is_le()))
     }
 
     /// Greater than or equal comparison
-    pub fn greater_than_or_equal(&self, other: &Value) -> Result<Value, Error> {
+    pub fn greater_than_or_equal(&self, other: &Value) -> Result<Value, Box<Error>> {
         Ok(Value::Bool(self.compare(other, ">=")?.is_ge()))
     }
 
     /// Logical NOT
-    pub fn logical_not(&self) -> Result<Value, Error> {
+    pub fn logical_not(&self) -> Result<Value, Box<Error>> {
         Ok(Value::Bool(!self.is_true()))
     }
 
     /// Arithmetic negation
-    pub fn negative(&self) -> Result<Value, Error> {
+    pub fn negative(&self) -> Result<Value, Box<Error>> {
         match self {
             Value::Int(n) => n
                 .checked_neg()
@@ -564,12 +577,12 @@ impl Value {
     }
 
     /// Logical AND
-    pub fn anded_by(&self, other: &Value) -> Result<Value, Error> {
+    pub fn anded_by(&self, other: &Value) -> Result<Value, Box<Error>> {
         Ok(Value::Bool(self.is_true() && other.is_true()))
     }
 
     /// Logical OR
-    pub fn ored_by(&self, other: &Value) -> Result<Value, Error> {
+    pub fn ored_by(&self, other: &Value) -> Result<Value, Box<Error>> {
         Ok(Value::Bool(self.is_true() || other.is_true()))
     }
 

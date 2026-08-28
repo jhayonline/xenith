@@ -344,7 +344,7 @@ fn binary(
     dst: u8,
     a: u8,
     b: u8,
-    op: fn(&Value, &Value) -> Result<Value, Error>,
+    op: fn(&Value, &Value) -> Result<Value, Box<Error>>,
     chunk: &Chunk,
     at: usize,
 ) -> Result<(), Error> {
@@ -367,14 +367,20 @@ fn binary(
 /// condition: the value-level operations in `src/values.rs` build their errors
 /// with a dummy position, and only those get overwritten. An error that
 /// already knows where it came from keeps its own span.
-fn with_position(mut error: Error, chunk: &Chunk, at: usize) -> Error {
+///
+/// Takes either shape. The value-level operations hand back a `Box<Error>`,
+/// because returning one inline made every arithmetic result 240 bytes; the
+/// VM's own error builders hand back an `Error`. Unboxes on the way out, which
+/// costs a 240-byte move on a path that is about to stop the program anyway.
+fn with_position(error: impl Into<Box<Error>>, chunk: &Chunk, at: usize) -> Error {
+    let mut error = error.into();
     if error.position_start.index == 0 && error.position_end.index == 0 {
         if let Some((start, end)) = chunk.position_at(at as u32) {
             error.position_start = start.clone();
             error.position_end = end.clone();
         }
     }
-    error
+    *error
 }
 
 /// A VM bug, not a program error.
