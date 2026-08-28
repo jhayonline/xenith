@@ -1002,3 +1002,64 @@ fn an_unproven_operand_does_not_fold() {
     );
 }
 
+
+#[test]
+fn an_assignment_writes_straight_to_its_variable() {
+    // Phase 3 left this logged as the counting loop's two remaining MOVEs.
+    // `total = total + i` was ADD then MOVE, and the ADD could always have
+    // written `total`: a three-address instruction reads both operands before
+    // it writes, so pointing the write at a register it also reads is the same
+    // computation.
+    //
+    // The trailing `MOVE` in this disassembly is `block`'s, not the
+    // assignment's: a block copies its last statement's value down so it
+    // outlives that statement's temporaries. What must be gone is a `MOVE`
+    // writing into `total`'s own register.
+    let text = dis("let total: int = 0\nlet i: int = 1\ntotal = total + i\n");
+    assert!(
+        text.contains("ADD_I        r0, r0, r1") && !text.contains("MOVE         r0,"),
+        "the addition should have written total directly:\n{text}"
+    );
+}
+
+#[test]
+fn an_assignment_from_a_folded_literal_writes_straight_to_its_variable() {
+    let text = dis("let i: int = 0\ni = i + 1\n");
+    assert!(
+        text.contains("ADD_IK       r0, r0, k1") && !text.contains("MOVE         r0,"),
+        "the increment should have written i directly:\n{text}"
+    );
+}
+
+#[test]
+fn an_assignment_from_a_name_keeps_its_move() {
+    // `operand` hands back an existing register without emitting anything, so
+    // there is no instruction to redirect -- the last one belongs to an
+    // earlier statement, and rewriting it would corrupt that statement.
+    let text = dis("let a: int = 1\nlet b: int = 2\na = b\n");
+    assert!(
+        text.contains("MOVE         r0, r1"),
+        "a copy between two names still needs a MOVE:\n{text}"
+    );
+}
+
+#[test]
+fn an_assignment_from_a_logical_operator_keeps_its_move() {
+    // `&&` writes its result register, jumps, and writes it again. Only the
+    // last of those writes would be redirected, and the other branch would go
+    // on writing a register about to be reused.
+    let text = dis("let a: bool = true\nlet b: bool = false\nlet c: bool = true\nc = a && b\n");
+    assert!(
+        text.contains("MOVE         r2,"),
+        "a logical operator's result still needs a MOVE:\n{text}"
+    );
+}
+
+#[test]
+fn a_unary_assignment_writes_straight_to_its_variable() {
+    let text = dis("let a: int = 1\nlet b: int = 2\nb = -a\n");
+    assert!(
+        text.contains("NEG          r1, r0") && !text.contains("MOVE         r1,"),
+        "the negation should have written b directly:\n{text}"
+    );
+}

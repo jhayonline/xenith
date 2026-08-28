@@ -178,6 +178,85 @@ pub enum Instr {
     Halt { src: Reg },
 }
 
+impl Instr {
+    /// The register this instruction writes, for the instructions whose only
+    /// effect is that write.
+    ///
+    /// `None` for everything else, and the list is deliberately short. `Call`
+    /// is excluded even though it has a `dst`: it also runs a whole function,
+    /// and an optimisation that redirects its result should have to be written
+    /// on purpose rather than inherited from a helper. Jumps, `Echo`, `Halt`,
+    /// `Ret`, `SetUpval` and `CloseUpvals` write no register at all.
+    ///
+    /// Every variant is listed rather than ending in `_ => None`, so that
+    /// adding an instruction in a later phase is a decision about this
+    /// function rather than a silent opt-out from it.
+    pub fn result_register_mut(&mut self) -> Option<&mut Reg> {
+        match self {
+            Instr::LoadConst { dst, .. }
+            | Instr::LoadBool { dst, .. }
+            | Instr::LoadNull { dst }
+            | Instr::Move { dst, .. }
+            | Instr::Add { dst, .. }
+            | Instr::Sub { dst, .. }
+            | Instr::Mul { dst, .. }
+            | Instr::Div { dst, .. }
+            | Instr::Rem { dst, .. }
+            | Instr::Pow { dst, .. }
+            | Instr::Eq { dst, .. }
+            | Instr::Ne { dst, .. }
+            | Instr::Lt { dst, .. }
+            | Instr::Gt { dst, .. }
+            | Instr::Le { dst, .. }
+            | Instr::Ge { dst, .. }
+            | Instr::AddI { dst, .. }
+            | Instr::SubI { dst, .. }
+            | Instr::MulI { dst, .. }
+            | Instr::DivI { dst, .. }
+            | Instr::RemI { dst, .. }
+            | Instr::LtI { dst, .. }
+            | Instr::GtI { dst, .. }
+            | Instr::LeI { dst, .. }
+            | Instr::GeI { dst, .. }
+            | Instr::EqI { dst, .. }
+            | Instr::NeI { dst, .. }
+            | Instr::AddF { dst, .. }
+            | Instr::SubF { dst, .. }
+            | Instr::MulF { dst, .. }
+            | Instr::DivF { dst, .. }
+            | Instr::LtF { dst, .. }
+            | Instr::GtF { dst, .. }
+            | Instr::LeF { dst, .. }
+            | Instr::GeF { dst, .. }
+            | Instr::EqF { dst, .. }
+            | Instr::NeF { dst, .. }
+            | Instr::AddIK { dst, .. }
+            | Instr::SubIK { dst, .. }
+            | Instr::MulIK { dst, .. }
+            | Instr::LtIK { dst, .. }
+            | Instr::GtIK { dst, .. }
+            | Instr::LeIK { dst, .. }
+            | Instr::GeIK { dst, .. }
+            | Instr::EqIK { dst, .. }
+            | Instr::NeIK { dst, .. }
+            | Instr::Neg { dst, .. }
+            | Instr::Not { dst, .. }
+            | Instr::GetUpval { dst, .. }
+            | Instr::Closure { dst, .. } => Some(dst),
+
+            Instr::Call { .. }
+            | Instr::SetUpval { .. }
+            | Instr::CloseUpvals { .. }
+            | Instr::Jump { .. }
+            | Instr::JumpIfFalse { .. }
+            | Instr::JumpIfTrue { .. }
+            | Instr::Echo { .. }
+            | Instr::Ret { .. }
+            | Instr::Halt { .. } => None,
+        }
+    }
+}
+
 /// How a closure finds one of its captures, at the moment it is created.
 ///
 /// Two cases, which is why this is a flag rather than an enum with payloads:

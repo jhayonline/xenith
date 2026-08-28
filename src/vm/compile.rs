@@ -19,6 +19,9 @@ use std::rc::Rc;
 
 use crate::nodes::Node;
 use crate::position::Position;
+// Module scope, for `writes_once`. The operator arms inside `expr` import it
+// locally as well; those are left alone rather than untangled here.
+use crate::tokens::TokenType;
 use crate::type_table::TypeTable;
 use crate::types::Type;
 use crate::values::Value;
@@ -78,6 +81,44 @@ fn peel(ty: &Type) -> &Type {
     match ty {
         Type::Alias(_, inner) => peel(inner),
         other => other,
+    }
+}
+
+/// Whether this node compiles to exactly one value-producing instruction.
+///
+/// The condition for redirecting that instruction's destination instead of
+/// emitting a `MOVE` after it. A three-address instruction reads both operands
+/// and then writes, so pointing the write at a register it also reads is the
+/// same computation -- but only when there is one write. `&&` and `||` write
+/// their result, jump, and write it again; a `when` used as an expression does
+/// the same; and a bare name emits nothing at all, so the "last instruction"
+/// would belong to an earlier statement and rewriting it would corrupt that
+/// statement.
+///
+/// A whitelist rather than an analysis, because the cases it admits are the
+/// ones whose shape can be read off the node in one line.
+fn writes_once(node: &Node) -> bool {
+    match node {
+        Node::BinaryOperator(n) => matches!(
+            n.operator_token.kind,
+            TokenType::Plus
+                | TokenType::Minus
+                | TokenType::Mul
+                | TokenType::Div
+                | TokenType::Mod
+                | TokenType::Pow
+                | TokenType::Ee
+                | TokenType::Ne
+                | TokenType::Lt
+                | TokenType::Gt
+                | TokenType::Lte
+                | TokenType::Gte
+        ),
+        Node::UnaryOp(n) => {
+            n.operator_token.kind == TokenType::Minus
+                || n.operator_token.matches(TokenType::Keyword, Some("!"))
+        }
+        _ => false,
     }
 }
 
@@ -209,6 +250,25 @@ impl<'a> Compiler<'a> {
             state.high_water = state.reg_top;
         }
         Ok(reg)
+    }
+
+    /// Points the last emitted instruction at a different destination.
+    ///
+    /// Answers whether it did. `false` when the last instruction writes no
+    /// register or writes a different one, in which case the caller emits the
+    /// `MOVE` it would have emitted anyway.
+    fn redirect_last(&mut self, from: Reg, to: Reg) -> bool {
+        let state = self.state();
+        let Some(last) = state.chunk.code.last_mut() else {
+            return false;
+        };
+        match last.result_register_mut() {
+            Some(dst) if *dst == from => {
+                *dst = to;
+                true
+            }
+            _ => false,
+        }
     }
 
     /// The value of an int literal, if this node is one.
@@ -1366,7 +1426,16 @@ impl<'a> Compiler<'a> {
         // The register is copied out of the borrow before `emit` takes
         // `&mut self`.
         if let Some(dst) = self.resolve(&name).map(|local| local.reg) {
-            self.emit(Instr::Move { dst, src: value }, &n.position_start, &n.position_end);
+            // The instruction that computed the value can write it where it
+            // belongs, instead of writing a temporary that is immediately
+            // copied down. This is the loose end phase 3 left: `total = total
+            // + i` was ADD then MOVE, and the ADD could always have written
+            // `total`.
+            let redirected =
+                value != dst && writes_once(&n.value_node) && self.redirect_last(value, dst);
+            if !redirected && value != dst {
+                self.emit(Instr::Move { dst, src: value }, &n.position_start, &n.position_end);
+            }
             self.free_to(mark);
             return Ok(dst);
         }
