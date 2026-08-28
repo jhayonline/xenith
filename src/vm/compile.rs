@@ -57,6 +57,30 @@ pub fn compile(ast: &Node, types: &TypeTable) -> Result<Chunk, Unsupported> {
     Ok(compiler.finish_function())
 }
 
+/// How narrow an operator's operands were proved to be.
+///
+/// `Neither` is not a failure and not rare -- it is what an unannotated
+/// binding, an imported name, or anything the checker declined to prove looks
+/// like, and it selects the generic opcode, which does exactly what the tree
+/// walker does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Narrow {
+    Int,
+    Float,
+    Neither,
+}
+
+/// An alias stands for what it aliases.
+///
+/// `type Count = int` must not cost a program the speed that `int` gets, and
+/// the checker records the alias rather than its target.
+fn peel(ty: &Type) -> &Type {
+    match ty {
+        Type::Alias(_, inner) => peel(inner),
+        other => other,
+    }
+}
+
 /// One enclosing loop, for `break` and `continue` to find.
 struct LoopContext {
     /// Where the body jumps back to at the end of a pass.
@@ -140,7 +164,6 @@ struct Compiler<'a> {
     /// Innermost last. Never empty: the top level is `functions[0]`.
     functions: Vec<FnState>,
     /// What the checker proved. Read in `narrow` and nowhere else.
-    #[allow(dead_code)]
     types: &'a TypeTable,
 }
 
@@ -186,6 +209,23 @@ impl<'a> Compiler<'a> {
             state.high_water = state.reg_top;
         }
         Ok(reg)
+    }
+
+    /// What the checker proved about both sides of an operator.
+    ///
+    /// The only place the `TypeTable` is read. Everything about the safety of
+    /// typed opcodes rests on this being conservative: `Neither` is always a
+    /// correct answer, so an absent, `Unknown` or mismatched pair simply does
+    /// not narrow.
+    fn narrow(&self, left: &Node, right: &Node) -> Narrow {
+        match (
+            peel(self.types.get(left.id())),
+            peel(self.types.get(right.id())),
+        ) {
+            (Type::Int, Type::Int) => Narrow::Int,
+            (Type::Float, Type::Float) => Narrow::Float,
+            _ => Narrow::Neither,
+        }
     }
 
     /// The innermost binding of a name, or `None`.
@@ -1018,19 +1058,62 @@ impl<'a> Compiler<'a> {
                 self.free_to(mark);
                 let dst = self.alloc()?;
 
-                let instr = match n.operator_token.kind {
-                    TokenType::Plus => Instr::Add { dst, a, b },
-                    TokenType::Minus => Instr::Sub { dst, a, b },
-                    TokenType::Mul => Instr::Mul { dst, a, b },
-                    TokenType::Div => Instr::Div { dst, a, b },
-                    TokenType::Mod => Instr::Rem { dst, a, b },
-                    TokenType::Pow => Instr::Pow { dst, a, b },
-                    TokenType::Ee => Instr::Eq { dst, a, b },
-                    TokenType::Ne => Instr::Ne { dst, a, b },
-                    TokenType::Lt => Instr::Lt { dst, a, b },
-                    TokenType::Gt => Instr::Gt { dst, a, b },
-                    TokenType::Lte => Instr::Le { dst, a, b },
-                    TokenType::Gte => Instr::Ge { dst, a, b },
+                // What the checker proved decides which opcode this is.
+                // `Neither` selects the generic one, which is the normal case
+                // for an unannotated program and not a failure.
+                let narrow = self.narrow(&n.left_node, &n.right_node);
+
+                // By reference: `TokenType` is not `Copy`, and a tuple
+                // scrutinee would move it out of the node.
+                let instr = match (&n.operator_token.kind, narrow) {
+                    (TokenType::Plus, Narrow::Int) => Instr::AddI { dst, a, b },
+                    (TokenType::Plus, Narrow::Float) => Instr::AddF { dst, a, b },
+                    (TokenType::Plus, Narrow::Neither) => Instr::Add { dst, a, b },
+
+                    (TokenType::Minus, Narrow::Int) => Instr::SubI { dst, a, b },
+                    (TokenType::Minus, Narrow::Float) => Instr::SubF { dst, a, b },
+                    (TokenType::Minus, Narrow::Neither) => Instr::Sub { dst, a, b },
+
+                    (TokenType::Mul, Narrow::Int) => Instr::MulI { dst, a, b },
+                    (TokenType::Mul, Narrow::Float) => Instr::MulF { dst, a, b },
+                    (TokenType::Mul, Narrow::Neither) => Instr::Mul { dst, a, b },
+
+                    (TokenType::Div, Narrow::Int) => Instr::DivI { dst, a, b },
+                    (TokenType::Div, Narrow::Float) => Instr::DivF { dst, a, b },
+                    (TokenType::Div, Narrow::Neither) => Instr::Div { dst, a, b },
+
+                    // No REM_F: float remainder has its own rounding rule in
+                    // `Value::modulo` and is not hot.
+                    (TokenType::Mod, Narrow::Int) => Instr::RemI { dst, a, b },
+                    (TokenType::Mod, _) => Instr::Rem { dst, a, b },
+
+                    // No POW_I or POW_F, deliberately. See `Value::power`.
+                    (TokenType::Pow, _) => Instr::Pow { dst, a, b },
+
+                    (TokenType::Ee, Narrow::Int) => Instr::EqI { dst, a, b },
+                    (TokenType::Ee, Narrow::Float) => Instr::EqF { dst, a, b },
+                    (TokenType::Ee, Narrow::Neither) => Instr::Eq { dst, a, b },
+
+                    (TokenType::Ne, Narrow::Int) => Instr::NeI { dst, a, b },
+                    (TokenType::Ne, Narrow::Float) => Instr::NeF { dst, a, b },
+                    (TokenType::Ne, Narrow::Neither) => Instr::Ne { dst, a, b },
+
+                    (TokenType::Lt, Narrow::Int) => Instr::LtI { dst, a, b },
+                    (TokenType::Lt, Narrow::Float) => Instr::LtF { dst, a, b },
+                    (TokenType::Lt, Narrow::Neither) => Instr::Lt { dst, a, b },
+
+                    (TokenType::Gt, Narrow::Int) => Instr::GtI { dst, a, b },
+                    (TokenType::Gt, Narrow::Float) => Instr::GtF { dst, a, b },
+                    (TokenType::Gt, Narrow::Neither) => Instr::Gt { dst, a, b },
+
+                    (TokenType::Lte, Narrow::Int) => Instr::LeI { dst, a, b },
+                    (TokenType::Lte, Narrow::Float) => Instr::LeF { dst, a, b },
+                    (TokenType::Lte, Narrow::Neither) => Instr::Le { dst, a, b },
+
+                    (TokenType::Gte, Narrow::Int) => Instr::GeI { dst, a, b },
+                    (TokenType::Gte, Narrow::Float) => Instr::GeF { dst, a, b },
+                    (TokenType::Gte, Narrow::Neither) => Instr::Ge { dst, a, b },
+
                     // `.` and `[` are field access and indexing: phase 6.
                     _ => return Err(Unsupported::new("this operator")),
                 };

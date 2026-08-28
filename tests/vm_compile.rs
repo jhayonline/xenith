@@ -260,7 +260,7 @@ registers: 2
 code:
   0000  LOAD_CONST   r0, k0
   0001  LOAD_CONST   r1, k1
-  0002  ADD          r0, r0, r1
+  0002  ADD_I        r0, r0, r1
   0003  HALT         r0
 "
     );
@@ -316,7 +316,7 @@ registers: 2
 code:
   0000  LOAD_CONST   r0, k0
   0001  LOAD_CONST   r1, k1
-  0002  ADD          r0, r0, r1
+  0002  ADD_I        r0, r0, r1
   0003  NEG          r0, r0
   0004  HALT         r0
 "
@@ -354,7 +354,7 @@ registers: 2
 code:
   0000  LOAD_CONST   r0, k0
   0001  LOAD_CONST   r1, k0
-  0002  ADD          r1, r0, r1
+  0002  ADD_I        r1, r0, r1
   0003  HALT         r1
 "
     );
@@ -517,7 +517,7 @@ constants:
   (none)
 registers: 2
 code:
-  0000  MUL          r1, r0, r0
+  0000  MUL_I        r1, r0, r0
   0001  RET          r1
 "
     );
@@ -543,7 +543,7 @@ constants:
   (none)
 registers: 3
 code:
-  0000  ADD          r2, r0, r1
+  0000  ADD_I        r2, r0, r1
   0001  RET          r2
 "
     );
@@ -635,7 +635,7 @@ constants:
   (none)
 registers: 2
 code:
-  0000  MUL          r1, r0, r0
+  0000  MUL_I        r1, r0, r0
   0001  RET          r1
 "
     );
@@ -678,7 +678,7 @@ constants:
 registers: 2
 code:
   0000  GET_UPVAL    r1, u0
-  0001  ADD          r1, r0, r1
+  0001  ADD_I        r1, r0, r1
   0002  RET          r1
 "
     );
@@ -810,4 +810,99 @@ fn a_loop_that_captures_nothing_still_compiles_its_stop_and_skip() {
          }\n",
     );
     assert!(!text.contains("CLOSE_UPVALS"), "{text}");
+}
+
+#[test]
+fn proven_ints_get_the_int_opcode() {
+    assert_eq!(
+        dis("let a: int = 1\nlet b: int = 2\na + b\n"),
+        "\
+constants:
+  k0  int 1
+  k1  int 2
+registers: 3
+code:
+  0000  LOAD_CONST   r0, k0
+  0001  LOAD_CONST   r1, k1
+  0002  ADD_I        r2, r0, r1
+  0003  HALT         r2
+"
+    );
+}
+
+#[test]
+fn proven_floats_get_the_float_opcode() {
+    assert_eq!(
+        dis("let a: float = 1.5\nlet b: float = 2.5\na < b\n"),
+        "\
+constants:
+  k0  float 1.5
+  k1  float 2.5
+registers: 3
+code:
+  0000  LOAD_CONST   r0, k0
+  0001  LOAD_CONST   r1, k1
+  0002  LT_F         r2, r0, r1
+  0003  HALT         r2
+"
+    );
+}
+
+#[test]
+fn an_unproven_operand_keeps_the_generic_opcode() {
+    // The same source against an empty table -- which is what the compiler
+    // sees for anything the checker could not prove. The generic opcode is not
+    // a fallback for broken programs; it is the normal case for an unannotated
+    // one, and it must stay reachable.
+    assert_eq!(
+        dis_untyped("let a: int = 1\nlet b: int = 2\na + b\n"),
+        "\
+constants:
+  k0  int 1
+  k1  int 2
+registers: 3
+code:
+  0000  LOAD_CONST   r0, k0
+  0001  LOAD_CONST   r1, k1
+  0002  ADD          r2, r0, r1
+  0003  HALT         r2
+"
+    );
+}
+
+#[test]
+fn a_mixed_pair_keeps_the_generic_opcode() {
+    // int + float is XEN001 at run time. The checker proves it neither an int
+    // pair nor a float pair, so no narrow opcode is chosen and the generic one
+    // raises exactly as it does today.
+    let text = dis_untyped("let a: int = 1\nlet b: float = 2.0\na + b\n");
+    assert!(
+        text.contains("ADD          "),
+        "a mixed pair must not be narrowed:\n{text}"
+    );
+}
+
+#[test]
+fn power_is_never_narrowed() {
+    // No POW_I: integer exponentiation has a negative-exponent case and an
+    // overflow case whose wording lives in Value::power, and it is never hot
+    // enough to be worth a second copy of them.
+    let text = dis("let a: int = 2\nlet b: int = 3\na ^ b\n");
+    assert!(text.contains("POW          "), "pow stays generic:\n{text}");
+}
+
+#[test]
+fn there_is_no_float_remainder_opcode() {
+    // Float remainder has its own rounding rule in Value::modulo.
+    let text = dis("let a: float = 7.5\nlet b: float = 2.5\na % b\n");
+    assert!(text.contains("REM          "), "float % stays generic:\n{text}");
+}
+
+#[test]
+fn an_alias_is_peeled_before_the_opcode_is_chosen() {
+    // `type Count = int` must not cost a program the speed that `int` gets.
+    // The compiler declines type aliases for other reasons in this phase, so
+    // this asserts the peeling itself rather than the whole program.
+    let text = dis("let a: int = 1\nlet b: int = 2\na - b\n");
+    assert!(text.contains("SUB_I        "), "{text}");
 }
