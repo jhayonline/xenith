@@ -237,3 +237,12 @@ fn native_program_runs_while_loop() {
         Some(42)
     );
 }
+
+#[test]
+fn native_while_loop_runs_multiple_assignments() {
+    let artifact = build_source("fn main() -> i32 { let mut value = 0 let mut total = 0 while value < 6 { total = total + 7 value = value + 1 } return total }");
+    assert_eq!(
+        Command::new(artifact.executable).status().unwrap().code(),
+        Some(42)
+    );
+}

@@ -140,12 +140,6 @@ fn check_function(
                         message: "while condition must be bool".into(),
                     });
                 }
-                if body.len() != 1 || !matches!(body.first(), Some(Stmt::Assign { .. })) {
-                    errors.push(Diagnostic {
-                        message: "while body currently requires one assignment".into(),
-                    });
-                    continue;
-                }
                 for statement in body {
                     if let Stmt::Assign { name, value } = statement {
                         if let Some((ty, mutable)) = names.get(name).cloned() {

@@ -99,30 +99,45 @@ fn emit(
         for s in &f.body {
             match s {
                 Stmt::While { condition, body } => {
-                    let Stmt::Assign { name, value } = body.first().expect("checked while body")
-                    else {
-                        unreachable!()
-                    };
-                    let initial = vals[name].0[0];
+                    let names: Vec<String> = body
+                        .iter()
+                        .filter_map(|statement| match statement {
+                            Stmt::Assign { name, .. } => Some(name.clone()),
+                            _ => None,
+                        })
+                        .collect();
                     let header = b.create_block();
                     let loop_body = b.create_block();
                     let exit = b.create_block();
-                    b.append_block_param(header, types::I32);
-                    b.ins().jump(header, &[initial]);
+                    for _ in &names {
+                        b.append_block_param(header, types::I32);
+                    }
+                    let initial: Vec<Value> = names.iter().map(|name| vals[name].0[0]).collect();
+                    b.ins().jump(header, &initial);
                     b.switch_to_block(header);
-                    let current = b.block_params(header)[0];
                     let mut loop_values = vals.clone();
-                    loop_values.insert(name.clone(), (vec![current], Type::I32));
+                    for (name, current) in names.iter().zip(b.block_params(header).iter()) {
+                        loop_values.insert(name.clone(), (vec![*current], Type::I32));
+                    }
                     let condition = lower(&mut b, condition, &loop_values, ids, m, l).0[0];
                     b.ins().brif(condition, loop_body, &[], exit, &[]);
                     b.switch_to_block(loop_body);
                     b.seal_block(loop_body);
-                    let next = lower(&mut b, value, &loop_values, ids, m, l).0[0];
-                    b.ins().jump(header, &[next]);
+                    for statement in body {
+                        if let Stmt::Assign { name, value } = statement {
+                            let next = lower(&mut b, value, &loop_values, ids, m, l).0[0];
+                            loop_values.insert(name.clone(), (vec![next], Type::I32));
+                        }
+                    }
+                    let next: Vec<Value> =
+                        names.iter().map(|name| loop_values[name].0[0]).collect();
+                    b.ins().jump(header, &next);
                     b.seal_block(header);
                     b.switch_to_block(exit);
                     b.seal_block(exit);
-                    vals.insert(name.clone(), (vec![current], Type::I32));
+                    for (name, current) in names.iter().zip(b.block_params(header).iter()) {
+                        vals.insert(name.clone(), (vec![*current], Type::I32));
+                    }
                 }
                 Stmt::If {
                     condition,
