@@ -222,12 +222,17 @@ impl Parser {
             Some("if") => {
                 self.take();
                 let left = self.expr()?;
-                let operator = self.take().ok_or_else(|| {
-                    vec![Diagnostic {
-                        message: "expected comparison".into(),
-                    }]
-                })?;
-                let right = self.expr()?;
+                let condition = if self.tokens.get(self.i).map(String::as_str) == Some("{") {
+                    left
+                } else {
+                    let operator = self.take().ok_or_else(|| {
+                        vec![Diagnostic {
+                            message: "expected comparison".into(),
+                        }]
+                    })?;
+                    let right = self.expr()?;
+                    Expr::Compare(Box::new(left), operator, Box::new(right))
+                };
                 self.need("{")?;
                 let mut then_body = vec![];
                 while self.tokens.get(self.i).map(String::as_str) != Some("}") {
@@ -242,7 +247,7 @@ impl Parser {
                 }
                 self.need("}")?;
                 Ok(Stmt::If {
-                    condition: Expr::Compare(Box::new(left), operator, Box::new(right)),
+                    condition,
                     then_body,
                     else_body,
                 })
