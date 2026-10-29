@@ -24,14 +24,27 @@ fn main() {
             native::project::create_project(&root, &name.to_string_lossy())
                 .unwrap_or_else(|error| fail(error));
         }
-        "check" | "build" | "run" => {
+        "check" => {
             let root = env::current_dir().unwrap_or_else(|e| fail(NativeError::io(e)));
             let project =
                 native::project::Project::discover(&root).unwrap_or_else(|error| fail(error));
-            fail(NativeError::not_implemented(format!(
-                "`{command:?}` for {}",
-                project.root.display()
-            )));
+            native::check_project(&project).unwrap_or_else(|error| fail(error));
+            println!("Checked {}", project.root.display());
+        }
+        "build" => {
+            let root = env::current_dir().unwrap_or_else(|e| fail(NativeError::io(e)));
+            let project = native::project::Project::discover(&root).unwrap_or_else(|e| fail(e));
+            let artifact = native::build(&project).unwrap_or_else(|error| fail(error));
+            println!(
+                "{} {}",
+                if artifact.reused { "Fresh" } else { "Built" },
+                artifact.executable.display()
+            );
+        }
+        "run" => {
+            let root = env::current_dir().unwrap_or_else(|e| fail(NativeError::io(e)));
+            let project = native::project::Project::discover(&root).unwrap_or_else(|e| fail(e));
+            std::process::exit(native::run(&project).unwrap_or_else(|error| fail(error)));
         }
         _ => fail(NativeError::usage(
             "expected `new`, `check`, `build`, or `run`",

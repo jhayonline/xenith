@@ -26,3 +26,29 @@ fn new_rejects_an_invalid_package_name() {
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("package name"));
 }
+
+fn fixture_project(source: &str) -> tempfile::TempDir {
+    let dir = tempfile::tempdir().unwrap();
+    xenith(dir.path()).args(["new", "app"]).status().unwrap();
+    std::fs::write(dir.path().join("app/src/main.xen"), source).unwrap();
+    dir
+}
+
+#[test]
+fn build_and_run_create_a_native_artifact_and_preserve_exit_code() {
+    let dir = fixture_project("fn main() -> i32 { return 7 }");
+    let project = dir.path().join("app");
+    assert!(xenith(&project).arg("build").status().unwrap().success());
+    assert!(project.join("target/host/debug/app").is_file());
+    assert_eq!(xenith(&project).arg("run").status().unwrap().code(), Some(7));
+}
+
+#[test]
+fn unchanged_build_is_fresh_and_missing_main_is_a_diagnostic() {
+    let dir = fixture_project("fn main() -> i32 { return 0 }");
+    let project = dir.path().join("app");
+    assert!(String::from_utf8_lossy(&xenith(&project).arg("build").output().unwrap().stdout).contains("Built"));
+    assert!(String::from_utf8_lossy(&xenith(&project).arg("build").output().unwrap().stdout).contains("Fresh"));
+    std::fs::remove_file(project.join("src/main.xen")).unwrap();
+    assert!(String::from_utf8_lossy(&xenith(&project).arg("build").output().unwrap().stderr).contains("src/main.xen"));
+}
