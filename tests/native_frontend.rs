@@ -228,3 +228,12 @@ fn native_program_branches_on_comparison() {
         Some(42)
     );
 }
+
+#[test]
+fn native_program_runs_while_loop() {
+    let artifact = build_source("fn main() -> i32 { let mut value = 0 while value < 42 { value = value + 1 } return value }");
+    assert_eq!(
+        Command::new(artifact.executable).status().unwrap().code(),
+        Some(42)
+    );
+}

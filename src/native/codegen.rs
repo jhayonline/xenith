@@ -98,8 +98,31 @@ fn emit(
         }
         for s in &f.body {
             match s {
-                Stmt::While { .. } => {
-                    unreachable!("the checker accepts while loops before code generation")
+                Stmt::While { condition, body } => {
+                    let Stmt::Assign { name, value } = body.first().expect("checked while body")
+                    else {
+                        unreachable!()
+                    };
+                    let initial = vals[name].0[0];
+                    let header = b.create_block();
+                    let loop_body = b.create_block();
+                    let exit = b.create_block();
+                    b.append_block_param(header, types::I32);
+                    b.ins().jump(header, &[initial]);
+                    b.switch_to_block(header);
+                    let current = b.block_params(header)[0];
+                    let mut loop_values = vals.clone();
+                    loop_values.insert(name.clone(), (vec![current], Type::I32));
+                    let condition = lower(&mut b, condition, &loop_values, ids, m, l).0[0];
+                    b.ins().brif(condition, loop_body, &[], exit, &[]);
+                    b.switch_to_block(loop_body);
+                    b.seal_block(loop_body);
+                    let next = lower(&mut b, value, &loop_values, ids, m, l).0[0];
+                    b.ins().jump(header, &[next]);
+                    b.seal_block(header);
+                    b.switch_to_block(exit);
+                    b.seal_block(exit);
+                    vals.insert(name.clone(), (vec![current], Type::I32));
                 }
                 Stmt::If {
                     condition,
