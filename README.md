@@ -1,5 +1,22 @@
 # Xenith
 
+Xenith is becoming a small, native-compiled systems language. Start a project
+with the built-in tool:
+
+```sh
+xenith new hello
+cd hello
+xenith check
+xenith build
+xenith run
+```
+
+Every executable project has `xenith.toml` and `src/main.xen`. The current
+native bootstrap supports `fn main() -> i32`, integer expressions, local
+bindings, explicit `let mut`, and `return`; it emits a host-native executable
+under `target/host/debug/`. The legacy interpreter and VM remain in this
+repository during migration but are not used by these project commands.
+
 A small, statically typed language with C style syntax. Roughly thirty keywords,
 no runtime surprises, and numbers that behave the way you expect.
 

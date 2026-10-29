@@ -1,5 +1,21 @@
 # Getting Started
 
+## Native projects
+
+Create and run a native Xenith executable with:
+
+```sh
+xenith new hello
+cd hello
+xenith check
+xenith build
+xenith run
+```
+
+The entry point is always `src/main.xen` and defines `fn main() -> i32`.
+The initial compiler subset is intentionally small while the native frontend
+grows; it does not invoke the repository's legacy interpreter or VM.
+
 Xenith is a small, statically typed language with C style syntax. It reads like
 Go, checks like Rust, and has about thirty keywords in total. You can learn the
 whole thing in an afternoon.

@@ -1,5 +1,18 @@
 # Architecture
 
+## Native bootstrap
+
+The new project commands use an independent pipeline:
+
+```
+src/main.xen -> native lexer/parser -> type checker -> Cranelift object -> host linker -> executable
+```
+
+`xenith check` stops after type checking. `xenith build` writes the native
+artifact under `target/host/debug/`, and `xenith run` executes it. The old
+interpreter architecture below remains temporarily for repository migration;
+native commands never fall back to it.
+
 Xenith is a tree walking interpreter written in Rust. Source text becomes tokens,
 tokens become a tree, and the tree is executed by walking it. There is no
 bytecode and no compilation step.

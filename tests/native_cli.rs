@@ -52,3 +52,11 @@ fn unchanged_build_is_fresh_and_missing_main_is_a_diagnostic() {
     std::fs::remove_file(project.join("src/main.xen")).unwrap();
     assert!(String::from_utf8_lossy(&xenith(&project).arg("build").output().unwrap().stderr).contains("src/main.xen"));
 }
+
+#[test]
+fn documented_native_workflow_is_present() {
+    let readme = std::fs::read_to_string("README.md").unwrap();
+    for command in ["xenith new hello", "xenith check", "xenith build", "xenith run"] {
+        assert!(readme.contains(command), "README is missing `{command}`");
+    }
+}
