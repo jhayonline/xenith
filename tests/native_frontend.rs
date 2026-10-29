@@ -18,6 +18,17 @@ fn check_source(
     check(&program)
 }
 
+fn build_source(source: &str) -> std::path::PathBuf {
+    let program = parse(Path::new("src/main.xen"), source).unwrap();
+    let typed = check(&program).unwrap();
+    let directory = tempfile::tempdir().unwrap().keep();
+    let object = directory.join("main.o");
+    let executable = directory.join("main");
+    xenith::native::codegen::emit_object(&typed, &object).unwrap();
+    xenith::native::codegen::link_host(&object, &executable).unwrap();
+    executable
+}
+
 #[test]
 fn accepts_typed_main_with_integer_expression() {
     let source = "fn main() -> i32 { let value: i32 = 40 + 2 return value }";
@@ -81,4 +92,12 @@ fn generated_native_program_returns_main_exit_code() {
     xenith::native::codegen::link_host(&object, &executable).unwrap();
     let status = Command::new(executable).status().unwrap();
     assert_eq!(status.code(), Some(42));
+}
+
+#[test]
+fn native_program_calls_typed_function() {
+    let artifact = build_source(
+        "fn twice(value: i32) -> i32 { return value * 2 } fn main() -> i32 { return twice(21) }",
+    );
+    assert_eq!(Command::new(artifact).status().unwrap().code(), Some(42));
 }
