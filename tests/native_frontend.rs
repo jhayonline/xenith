@@ -1,4 +1,5 @@
 use std::path::Path;
+use std::process::Command;
 use xenith::native::{check::check, syntax::parse};
 
 fn assert_error(source: &str, fragment: &str) {
@@ -31,4 +32,18 @@ fn rejects_missing_or_invalid_main() {
 fn rejects_reassignment_without_mut_and_mixed_numbers() {
     assert_error("fn main() -> i32 { let x = 1 x = 2 return x }", "immutable");
     assert_error("fn main() -> i32 { return 1 + 2i64 }", "same type");
+}
+
+#[test]
+fn generated_native_program_returns_main_exit_code() {
+    let source = "fn main() -> i32 { return 40 + 2 }";
+    let program = parse(Path::new("src/main.xen"), source).unwrap();
+    let typed = check(&program).unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let object = directory.path().join("main.o");
+    let executable = directory.path().join("main");
+    xenith::native::codegen::emit_object(&typed, &object).unwrap();
+    xenith::native::codegen::link_host(&object, &executable).unwrap();
+    let status = Command::new(executable).status().unwrap();
+    assert_eq!(status.code(), Some(42));
 }
