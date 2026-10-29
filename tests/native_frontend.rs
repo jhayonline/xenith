@@ -65,6 +65,14 @@ fn accepts_forward_calls_and_rejects_bad_calls() {
 }
 
 #[test]
+fn rejects_duplicate_parameter_names() {
+    assert_error(
+        "fn pick(x: i32, x: i32) -> i32 { return x } fn main() -> i32 { return pick(1, 2) }",
+        "duplicate parameter",
+    );
+}
+
+#[test]
 fn rejects_missing_or_invalid_main() {
     assert_error("fn nope() -> i32 { return 0 }", "main");
     assert_error("fn main() -> i64 { return 0 }", "-> i32");

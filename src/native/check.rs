@@ -76,11 +76,17 @@ fn check_function(
     signatures: &HashMap<String, FunctionSignature>,
     errors: &mut Vec<Diagnostic>,
 ) {
-    let mut names: HashMap<String, (Type, bool)> = function
-        .params
-        .iter()
-        .map(|parameter| (parameter.name.clone(), (parameter.ty.clone(), false)))
-        .collect();
+    let mut names = HashMap::new();
+    for parameter in &function.params {
+        if names
+            .insert(parameter.name.clone(), (parameter.ty.clone(), false))
+            .is_some()
+        {
+            errors.push(Diagnostic {
+                message: format!("duplicate parameter `{}`", parameter.name),
+            });
+        }
+    }
     let mut returned = false;
     for statement in &function.body {
         match statement {
