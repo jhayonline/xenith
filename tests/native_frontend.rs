@@ -78,6 +78,11 @@ fn checks_if_conditions_and_comparisons() {
 }
 
 #[test]
+fn checks_mutable_while_counter() {
+    assert!(check_source("fn main() -> i32 { let mut value = 0 while value < 42 { value = value + 1 } return value }").is_ok());
+}
+
+#[test]
 fn accepts_struct_fields_and_rejects_invalid_construction() {
     assert!(check_source("struct Point { x: i32, y: i32 } fn main() -> i32 { let point = Point { x: 40, y: 2 } return point.x + point.y }").is_ok());
     assert_error(

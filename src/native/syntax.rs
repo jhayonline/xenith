@@ -36,6 +36,10 @@ pub struct Parameter {
 }
 #[derive(Debug, Clone)]
 pub enum Stmt {
+    While {
+        condition: Expr,
+        body: Vec<Stmt>,
+    },
     If {
         condition: Expr,
         then_body: Vec<Stmt>,
@@ -219,6 +223,26 @@ impl Parser {
     }
     fn stmt(&mut self) -> Result<Stmt, Vec<Diagnostic>> {
         match self.tokens.get(self.i).map(String::as_str) {
+            Some("while") => {
+                self.take();
+                let left = self.expr()?;
+                let operator = self.take().ok_or_else(|| {
+                    vec![Diagnostic {
+                        message: "expected comparison".into(),
+                    }]
+                })?;
+                let right = self.expr()?;
+                self.need("{")?;
+                let mut body = vec![];
+                while self.tokens.get(self.i).map(String::as_str) != Some("}") {
+                    body.push(self.stmt()?);
+                }
+                self.need("}")?;
+                Ok(Stmt::While {
+                    condition: Expr::Compare(Box::new(left), operator, Box::new(right)),
+                    body,
+                })
+            }
             Some("if") => {
                 self.take();
                 let left = self.expr()?;

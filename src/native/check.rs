@@ -134,6 +134,29 @@ fn check_function(
     let mut returned = false;
     for statement in &function.body {
         match statement {
+            Stmt::While { condition, body } => {
+                if expr(condition, &names, signatures, layouts, errors) != Some(Type::Bool) {
+                    errors.push(Diagnostic {
+                        message: "while condition must be bool".into(),
+                    });
+                }
+                for statement in body {
+                    if let Stmt::Assign { name, value } = statement {
+                        if let Some((ty, mutable)) = names.get(name).cloned() {
+                            if !mutable {
+                                errors.push(Diagnostic {
+                                    message: "immutable binding".into(),
+                                });
+                            }
+                            if expr(value, &names, signatures, layouts, errors) != Some(ty) {
+                                errors.push(Diagnostic {
+                                    message: "type mismatch".into(),
+                                });
+                            }
+                        }
+                    }
+                }
+            }
             Stmt::If {
                 condition,
                 then_body,

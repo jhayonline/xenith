@@ -98,6 +98,9 @@ fn emit(
         }
         for s in &f.body {
             match s {
+                Stmt::While { .. } => {
+                    unreachable!("the checker accepts while loops before code generation")
+                }
                 Stmt::If {
                     condition,
                     then_body,
