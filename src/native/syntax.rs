@@ -4,6 +4,7 @@ use std::path::Path;
 pub enum Type {
     I32,
     I64,
+    Bool,
     Named(String),
 }
 #[derive(Debug, Clone)]
@@ -35,6 +36,11 @@ pub struct Parameter {
 }
 #[derive(Debug, Clone)]
 pub enum Stmt {
+    If {
+        condition: Expr,
+        then_body: Vec<Stmt>,
+        else_body: Vec<Stmt>,
+    },
     Let {
         name: String,
         mutable: bool,
@@ -63,6 +69,7 @@ pub enum Expr {
         base: Box<Expr>,
         name: String,
     },
+    Compare(Box<Expr>, String, Box<Expr>),
     Binary(Box<Expr>, char, Box<Expr>),
 }
 #[derive(Debug, Clone)]
@@ -77,7 +84,10 @@ fn lex(source: &str) -> Vec<String> {
             if !word.is_empty() {
                 out.push(std::mem::take(&mut word));
             }
-        } else if "{}(),:;=+-*/.".contains(c) {
+        } else if c == '>' && word == "-" {
+            word.push(c);
+            out.push(std::mem::take(&mut word));
+        } else if "{}(),:;=+-*/.<>!".contains(c) {
             if !word.is_empty() {
                 out.push(std::mem::take(&mut word));
             }
@@ -86,9 +96,6 @@ fn lex(source: &str) -> Vec<String> {
             } else {
                 out.push(c.to_string());
             }
-        } else if c == '>' && word == "-" {
-            word.push(c);
-            out.push(std::mem::take(&mut word));
         } else {
             word.push(c);
         }
@@ -212,6 +219,34 @@ impl Parser {
     }
     fn stmt(&mut self) -> Result<Stmt, Vec<Diagnostic>> {
         match self.tokens.get(self.i).map(String::as_str) {
+            Some("if") => {
+                self.take();
+                let left = self.expr()?;
+                let operator = self.take().ok_or_else(|| {
+                    vec![Diagnostic {
+                        message: "expected comparison".into(),
+                    }]
+                })?;
+                let right = self.expr()?;
+                self.need("{")?;
+                let mut then_body = vec![];
+                while self.tokens.get(self.i).map(String::as_str) != Some("}") {
+                    then_body.push(self.stmt()?);
+                }
+                self.need("}")?;
+                self.need("else")?;
+                self.need("{")?;
+                let mut else_body = vec![];
+                while self.tokens.get(self.i).map(String::as_str) != Some("}") {
+                    else_body.push(self.stmt()?);
+                }
+                self.need("}")?;
+                Ok(Stmt::If {
+                    condition: Expr::Compare(Box::new(left), operator, Box::new(right)),
+                    then_body,
+                    else_body,
+                })
+            }
             Some("let") => {
                 self.take();
                 let mutable = if self.tokens.get(self.i).map(String::as_str) == Some("mut") {

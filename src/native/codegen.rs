@@ -52,6 +52,7 @@ fn flat(ty: &Type, layouts: &HashMap<String, StructLayout>) -> Vec<cranelift_cod
     match ty {
         Type::I32 => vec![types::I32],
         Type::I64 => vec![types::I64],
+        Type::Bool => vec![types::I8],
         Type::Named(n) => layouts[n]
             .fields
             .iter()
@@ -97,6 +98,9 @@ fn emit(
         }
         for s in &f.body {
             match s {
+                Stmt::If { .. } => {
+                    unreachable!("the checker rejects if statements before code generation")
+                }
                 Stmt::Let { name, value, .. } | Stmt::Assign { name, value } => {
                     let v = lower(&mut b, value, &vals, ids, m, l);
                     vals.insert(name.clone(), v);
@@ -157,6 +161,7 @@ fn lower(
             let call = b.ins().call(callee, &a);
             (b.inst_results(call).to_vec(), ids[name].1.clone())
         }
+        Expr::Compare(..) => unreachable!("the checker rejects comparisons before code generation"),
         Expr::Binary(a, o, c) => {
             let x = lower(b, a, v, ids, m, l).0[0];
             let y = lower(b, c, v, ids, m, l).0[0];

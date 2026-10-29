@@ -134,6 +134,9 @@ fn check_function(
     let mut returned = false;
     for statement in &function.body {
         match statement {
+            Stmt::If { .. } => errors.push(Diagnostic {
+                message: "if statements are not yet supported".into(),
+            }),
             Stmt::Let {
                 name,
                 mutable,
@@ -286,6 +289,7 @@ fn expr(
                 None
             }
         },
+        Expr::Compare(_, _, _) => Some(Type::Bool),
         Expr::Binary(left, _, right) => {
             let left_type = expr(left, names, signatures, layouts, errors);
             let right_type = expr(right, names, signatures, layouts, errors);

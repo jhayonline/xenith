@@ -55,6 +55,16 @@ fn parses_struct_literal_and_field_access() {
 }
 
 #[test]
+fn parses_if_statement() {
+    let program = parse(
+        Path::new("main.xen"),
+        "fn choose(value: i32) -> i32 { if value < 0 { return 1 } else { return 2 } } fn main() -> i32 { return choose(0) }",
+    )
+    .unwrap();
+    assert_eq!(program.functions[0].body.len(), 1);
+}
+
+#[test]
 fn accepts_struct_fields_and_rejects_invalid_construction() {
     assert!(check_source("struct Point { x: i32, y: i32 } fn main() -> i32 { let point = Point { x: 40, y: 2 } return point.x + point.y }").is_ok());
     assert_error(
