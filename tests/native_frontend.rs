@@ -86,6 +86,10 @@ fn rejects_duplicate_parameter_names() {
         "fn pick(x: i32, x: i32) -> i32 { return x } fn main() -> i32 { return pick(1, 2) }",
         "duplicate parameter",
     );
+    assert_error(
+        "fn pick(x: i32, x: i64) -> i32 { return 0 } fn main() -> i32 { return pick(1, 2i64) }",
+        "duplicate parameter",
+    );
 }
 
 #[test]
