@@ -186,6 +186,10 @@ fn lower(
 ) -> (Vec<Value>, Type) {
     match x {
         Expr::Int(n, t) => (vec![b.ins().iconst(flat(t, l)[0], *n)], t.clone()),
+        Expr::Bool(value) => (
+            vec![b.ins().iconst(types::I8, i64::from(*value))],
+            Type::Bool,
+        ),
         Expr::Name(n) => v[n].clone(),
         Expr::StructLiteral { name, fields } => {
             let mut out = vec![];

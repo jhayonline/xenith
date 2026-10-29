@@ -60,6 +60,7 @@ pub enum Stmt {
 #[derive(Debug, Clone)]
 pub enum Expr {
     Int(i64, Type),
+    Bool(bool),
     Name(String),
     Call {
         name: String,
@@ -150,6 +151,7 @@ impl Parser {
         match self.take().as_deref() {
             Some("i32") => Ok(Type::I32),
             Some("i64") => Ok(Type::I64),
+            Some("bool") => Ok(Type::Bool),
             Some(name) => Ok(Type::Named(name.to_owned())),
             None => Err(vec![Diagnostic {
                 message: "expected type".into(),
@@ -364,6 +366,12 @@ impl Parser {
                 message: "expected expression".into(),
             }]
         })?;
+        if s == "true" {
+            return Ok(Expr::Bool(true));
+        }
+        if s == "false" {
+            return Ok(Expr::Bool(false));
+        }
         if let Some(n) = s.strip_suffix("i64").or_else(|| s.strip_suffix("i32")) {
             if let Ok(value) = n.parse() {
                 return Ok(Expr::Int(

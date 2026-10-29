@@ -248,6 +248,7 @@ fn expr(
 ) -> Option<Type> {
     match expression {
         Expr::Int(_, ty) => Some(ty.clone()),
+        Expr::Bool(_) => Some(Type::Bool),
         Expr::Name(name) => names
             .get(name)
             .map(|binding| binding.0.clone())
