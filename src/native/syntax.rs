@@ -12,9 +12,14 @@ pub struct Program {
 #[derive(Debug, Clone)]
 pub struct Function {
     pub name: String,
-    pub params: usize,
+    pub params: Vec<Parameter>,
     pub result: Type,
     pub body: Vec<Stmt>,
+}
+#[derive(Debug, Clone)]
+pub struct Parameter {
+    pub name: String,
+    pub ty: Type,
 }
 #[derive(Debug, Clone)]
 pub enum Stmt {
@@ -34,6 +39,7 @@ pub enum Stmt {
 pub enum Expr {
     Int(i64, Type),
     Name(String),
+    Call { name: String, arguments: Vec<Expr> },
     Binary(Box<Expr>, char, Box<Expr>),
 }
 #[derive(Debug, Clone)]
@@ -112,16 +118,25 @@ impl Parser {
                 }]
             })?;
             self.need("(")?;
-            let mut params = 0;
+            let mut params = vec![];
             while self.tokens.get(self.i).map(String::as_str) != Some(")") {
-                params += 1;
-                self.take();
-                if self.tokens.get(self.i).map(String::as_str) == Some(":") {
-                    self.take();
-                    self.ty()?;
-                }
+                let parameter_name = self.take().ok_or_else(|| {
+                    vec![Diagnostic {
+                        message: "expected parameter name".into(),
+                    }]
+                })?;
+                self.need(":")?;
+                let parameter_type = self.ty()?;
+                params.push(Parameter {
+                    name: parameter_name,
+                    ty: parameter_type,
+                });
                 if self.tokens.get(self.i).map(String::as_str) == Some(",") {
                     self.take();
+                } else if self.tokens.get(self.i).map(String::as_str) != Some(")") {
+                    return Err(vec![Diagnostic {
+                        message: "expected `,` or `)` after parameter".into(),
+                    }]);
                 }
             }
             self.need(")")?;
@@ -214,6 +229,21 @@ impl Parser {
         }
         if let Ok(n) = s.parse() {
             Ok(Expr::Int(n, Type::I32))
+        } else if self.tokens.get(self.i).map(String::as_str) == Some("(") {
+            self.take();
+            let mut arguments = vec![];
+            while self.tokens.get(self.i).map(String::as_str) != Some(")") {
+                arguments.push(self.expr()?);
+                if self.tokens.get(self.i).map(String::as_str) == Some(",") {
+                    self.take();
+                } else if self.tokens.get(self.i).map(String::as_str) != Some(")") {
+                    return Err(vec![Diagnostic {
+                        message: "expected `,` or `)` after argument".into(),
+                    }]);
+                }
+            }
+            self.need(")")?;
+            Ok(Expr::Call { name: s, arguments })
         } else {
             Ok(Expr::Name(s))
         }

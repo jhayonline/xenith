@@ -85,6 +85,7 @@ fn lower(
     match x {
         Expr::Int(n, _) => b.ins().iconst(types::I32, *n),
         Expr::Name(n) => *names.get(n).unwrap(),
+        Expr::Call { .. } => unreachable!("the checker rejects calls before code generation"),
         Expr::Binary(a, op, c) => {
             let x = lower(b, a, names);
             let y = lower(b, c, names);

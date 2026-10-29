@@ -16,7 +16,7 @@ pub fn check(program: &Program) -> Result<TypedProgram, Vec<Diagnostic>> {
         return Err(e);
     }
     let f = mains[0];
-    if f.params != 0 {
+    if !f.params.is_empty() {
         e.push(Diagnostic {
             message: "main takes no parameters".into(),
         })
@@ -99,6 +99,12 @@ fn expr(x: &Expr, n: &HashMap<String, (Type, bool)>, e: &mut Vec<Diagnostic>) ->
             });
             None
         }),
+        Expr::Call { .. } => {
+            e.push(Diagnostic {
+                message: "function calls are not yet supported".into(),
+            });
+            None
+        }
         Expr::Binary(a, _, b) => {
             let x = expr(a, n, e);
             let y = expr(b, n, e);
