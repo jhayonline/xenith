@@ -1,5 +1,5 @@
 use super::{
-    check::TypedProgram,
+    check::{StructLayout, TypedProgram},
     error::NativeError,
     syntax::{Expr, Function, Stmt, Type},
 };
@@ -13,153 +13,177 @@ use cranelift_object::{ObjectBuilder, ObjectModule};
 use std::{collections::HashMap, fs, path::Path, process::Command};
 
 pub fn emit_object(program: &TypedProgram, output: &Path) -> Result<(), NativeError> {
-    let flags = settings::Flags::new(settings::builder());
     let isa = cranelift_native::builder()
-        .map_err(|error| NativeError::not_implemented(error.to_string()))?
-        .finish(flags)
-        .map_err(|error| NativeError::not_implemented(error.to_string()))?;
-    let builder = ObjectBuilder::new(isa, "xenith", default_libcall_names())
-        .map_err(|error| NativeError::not_implemented(error.to_string()))?;
-    let mut module = ObjectModule::new(builder);
-    let mut functions = HashMap::new();
-
-    for function in &program.0.functions {
-        let linkage = if function.name == "main" {
-            Linkage::Export
-        } else {
-            Linkage::Local
-        };
+        .map_err(|e| NativeError::not_implemented(e.to_string()))?
+        .finish(settings::Flags::new(settings::builder()))
+        .map_err(|e| NativeError::not_implemented(e.to_string()))?;
+    let mut module = ObjectModule::new(
+        ObjectBuilder::new(isa, "xenith", default_libcall_names())
+            .map_err(|e| NativeError::not_implemented(e.to_string()))?,
+    );
+    let mut ids = HashMap::new();
+    for f in &program.0.functions {
         let id = module
-            .declare_function(&function.name, linkage, &signature(&module, function))
-            .map_err(|error| NativeError::not_implemented(error.to_string()))?;
-        functions.insert(function.name.clone(), id);
+            .declare_function(
+                &f.name,
+                if f.name == "main" {
+                    Linkage::Export
+                } else {
+                    Linkage::Local
+                },
+                &signature(&module, f, &program.2),
+            )
+            .map_err(|e| NativeError::not_implemented(e.to_string()))?;
+        ids.insert(f.name.clone(), (id, f.result.clone()));
     }
-
-    for function in &program.0.functions {
-        emit_function(&mut module, function, &functions)?;
+    for f in &program.0.functions {
+        emit(&mut module, f, &ids, &program.2)?;
     }
-
     fs::write(
         output,
         module
             .finish()
             .emit()
-            .map_err(|error| NativeError::not_implemented(error.to_string()))?,
+            .map_err(|e| NativeError::not_implemented(e.to_string()))?,
     )
     .map_err(NativeError::io)
 }
-
-fn signature(module: &ObjectModule, function: &Function) -> Signature {
-    let mut signature = module.make_signature();
-    signature.params.extend(
-        function
-            .params
+fn flat(ty: &Type, layouts: &HashMap<String, StructLayout>) -> Vec<cranelift_codegen::ir::Type> {
+    match ty {
+        Type::I32 => vec![types::I32],
+        Type::I64 => vec![types::I64],
+        Type::Named(n) => layouts[n]
+            .fields
             .iter()
-            .map(|parameter| AbiParam::new(native_type(&parameter.ty))),
-    );
-    signature
-        .returns
-        .push(AbiParam::new(native_type(&function.result)));
-    signature
+            .flat_map(|(_, t)| flat(t, layouts))
+            .collect(),
+    }
 }
-
-fn emit_function(
-    module: &mut ObjectModule,
-    function: &Function,
-    functions: &HashMap<String, FuncId>,
+fn signature(m: &ObjectModule, f: &Function, l: &HashMap<String, StructLayout>) -> Signature {
+    let mut s = m.make_signature();
+    for p in &f.params {
+        s.params
+            .extend(flat(&p.ty, l).into_iter().map(AbiParam::new));
+    }
+    s.returns
+        .extend(flat(&f.result, l).into_iter().map(AbiParam::new));
+    s
+}
+fn emit(
+    m: &mut ObjectModule,
+    f: &Function,
+    ids: &HashMap<String, (FuncId, Type)>,
+    l: &HashMap<String, StructLayout>,
 ) -> Result<(), NativeError> {
-    let id = functions[&function.name];
-    let mut context = module.make_context();
-    context.func.signature = signature(module, function);
-    let mut function_builder_context = FunctionBuilderContext::new();
+    let mut c = m.make_context();
+    c.func.signature = signature(m, f, l);
+    let mut bc = FunctionBuilderContext::new();
     {
-        let mut builder = FunctionBuilder::new(&mut context.func, &mut function_builder_context);
-        let entry = builder.create_block();
-        builder.append_block_params_for_function_params(entry);
-        builder.switch_to_block(entry);
-        builder.seal_block(entry);
-
-        let mut values = HashMap::new();
-        let incoming = builder.block_params(entry).to_vec();
-        for (parameter, value) in function.params.iter().zip(incoming) {
-            values.insert(parameter.name.clone(), value);
+        let mut b = FunctionBuilder::new(&mut c.func, &mut bc);
+        let block = b.create_block();
+        b.append_block_params_for_function_params(block);
+        b.switch_to_block(block);
+        b.seal_block(block);
+        let incoming = b.block_params(block).to_vec();
+        let mut at = 0;
+        let mut vals = HashMap::new();
+        for p in &f.params {
+            let n = flat(&p.ty, l).len();
+            vals.insert(
+                p.name.clone(),
+                (incoming[at..at + n].to_vec(), p.ty.clone()),
+            );
+            at += n;
         }
-        for statement in &function.body {
-            match statement {
+        for s in &f.body {
+            match s {
                 Stmt::Let { name, value, .. } | Stmt::Assign { name, value } => {
-                    let value = lower(&mut builder, value, &values, functions, module);
-                    values.insert(name.clone(), value);
+                    let v = lower(&mut b, value, &vals, ids, m, l);
+                    vals.insert(name.clone(), v);
                 }
-                Stmt::Return(value) => {
-                    let value = lower(&mut builder, value, &values, functions, module);
-                    builder.ins().return_(&[value]);
+                Stmt::Return(v) => {
+                    let (v, _) = lower(&mut b, v, &vals, ids, m, l);
+                    b.ins().return_(&v);
                 }
             }
         }
-        builder.finalize();
+        b.finalize();
     }
-    module
-        .define_function(id, &mut context)
-        .map_err(|error| NativeError::not_implemented(error.to_string()))?;
-    module.clear_context(&mut context);
+    m.define_function(ids[&f.name].0, &mut c)
+        .map_err(|e| NativeError::not_implemented(e.to_string()))?;
+    m.clear_context(&mut c);
     Ok(())
 }
-
 fn lower(
-    builder: &mut FunctionBuilder,
-    expression: &Expr,
-    values: &HashMap<String, Value>,
-    functions: &HashMap<String, FuncId>,
-    module: &mut ObjectModule,
-) -> Value {
-    match expression {
-        Expr::Int(number, ty) => builder.ins().iconst(native_type(ty), *number),
-        Expr::Name(name) => values[name],
-        Expr::Call { name, arguments } => {
-            let arguments = arguments
-                .iter()
-                .map(|argument| lower(builder, argument, values, functions, module))
-                .collect::<Vec<_>>();
-            let callee = module.declare_func_in_func(functions[name], builder.func);
-            let call = builder.ins().call(callee, &arguments);
-            builder.inst_results(call)[0]
-        }
-        Expr::StructLiteral { .. } | Expr::Field { .. } => {
-            unreachable!("the checker rejects structs before code generation")
-        }
-        Expr::Binary(left, operator, right) => {
-            let left = lower(builder, left, values, functions, module);
-            let right = lower(builder, right, values, functions, module);
-            match operator {
-                '+' => builder.ins().iadd(left, right),
-                '-' => builder.ins().isub(left, right),
-                '*' => builder.ins().imul(left, right),
-                _ => builder.ins().sdiv(left, right),
+    b: &mut FunctionBuilder,
+    x: &Expr,
+    v: &HashMap<String, (Vec<Value>, Type)>,
+    ids: &HashMap<String, (FuncId, Type)>,
+    m: &mut ObjectModule,
+    l: &HashMap<String, StructLayout>,
+) -> (Vec<Value>, Type) {
+    match x {
+        Expr::Int(n, t) => (vec![b.ins().iconst(flat(t, l)[0], *n)], t.clone()),
+        Expr::Name(n) => v[n].clone(),
+        Expr::StructLiteral { name, fields } => {
+            let mut out = vec![];
+            for (field, _) in &l[name].fields {
+                out.extend(
+                    lower(
+                        b,
+                        &fields.iter().find(|(n, _)| n == field).unwrap().1,
+                        v,
+                        ids,
+                        m,
+                        l,
+                    )
+                    .0,
+                );
             }
+            (out, Type::Named(name.clone()))
+        }
+        Expr::Field { base, name } => {
+            let (a, t) = lower(b, base, v, ids, m, l);
+            let Type::Named(s) = t else { unreachable!() };
+            let i = l[&s].fields.iter().position(|(n, _)| n == name).unwrap();
+            (vec![a[i]], l[&s].fields[i].1.clone())
+        }
+        Expr::Call { name, arguments } => {
+            let mut a = vec![];
+            for x in arguments {
+                a.extend(lower(b, x, v, ids, m, l).0)
+            }
+            let callee = m.declare_func_in_func(ids[name].0, b.func);
+            let call = b.ins().call(callee, &a);
+            (b.inst_results(call).to_vec(), ids[name].1.clone())
+        }
+        Expr::Binary(a, o, c) => {
+            let x = lower(b, a, v, ids, m, l).0[0];
+            let y = lower(b, c, v, ids, m, l).0[0];
+            (
+                vec![match o {
+                    '+' => b.ins().iadd(x, y),
+                    '-' => b.ins().isub(x, y),
+                    '*' => b.ins().imul(x, y),
+                    _ => b.ins().sdiv(x, y),
+                }],
+                Type::I32,
+            )
         }
     }
 }
-
-fn native_type(ty: &Type) -> cranelift_codegen::ir::Type {
-    match ty {
-        Type::I32 => types::I32,
-        Type::I64 => types::I64,
-        Type::Named(_) => unreachable!("the checker rejects named types before code generation"),
-    }
-}
-
 pub fn link_host(object: &Path, executable: &Path) -> Result<(), NativeError> {
-    let output = Command::new("cc")
+    let out = Command::new("cc")
         .arg(object)
         .arg("-o")
         .arg(executable)
         .output()
         .map_err(NativeError::io)?;
-    if output.status.success() {
+    if out.status.success() {
         Ok(())
     } else {
         Err(NativeError::not_implemented(
-            String::from_utf8_lossy(&output.stderr).to_string(),
+            String::from_utf8_lossy(&out.stderr).to_string(),
         ))
     }
 }

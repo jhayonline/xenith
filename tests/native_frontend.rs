@@ -177,3 +177,12 @@ fn native_program_calls_forward_function() {
         Some(42)
     );
 }
+
+#[test]
+fn native_program_passes_returns_and_reads_structs() {
+    let artifact = build_source("struct Pair { first: i32, second: i32 } fn swap(pair: Pair) -> Pair { return Pair { first: pair.second, second: pair.first } } fn main() -> i32 { let pair = swap(Pair { first: 2, second: 40 }) return pair.second + pair.first }");
+    assert_eq!(
+        Command::new(artifact.executable).status().unwrap().code(),
+        Some(42)
+    );
+}
