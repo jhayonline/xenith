@@ -25,6 +25,7 @@ pub mod fxhash;
 pub mod interpreter;
 pub mod lexer;
 pub mod modules;
+pub mod native;
 pub mod nodes;
 pub mod parse_result;
 pub mod parser;
@@ -92,7 +93,6 @@ pub fn run_with_graph(
     source: &str,
     graph: Option<&crate::program::ModuleGraph>,
 ) -> Result<Value, Error> {
-
     // Lexical analysis
     let mut lexer = Lexer::new(filename.to_string(), source.to_string());
     let tokens = match lexer.make_tokens() {
