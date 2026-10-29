@@ -6,13 +6,22 @@ pub struct FunctionSignature {
     pub parameters: Vec<Type>,
     pub result: Type,
 }
+#[derive(Debug, Clone)]
+pub struct StructLayout {
+    pub fields: Vec<(String, Type)>,
+}
 
 #[derive(Debug, Clone)]
-pub struct TypedProgram(pub Program, pub HashMap<String, FunctionSignature>);
+pub struct TypedProgram(
+    pub Program,
+    pub HashMap<String, FunctionSignature>,
+    pub HashMap<String, StructLayout>,
+);
 
 pub fn check(program: &Program) -> Result<TypedProgram, Vec<Diagnostic>> {
     let mut errors = vec![];
     let signatures = signatures(program, &mut errors);
+    let layouts = layouts(program, &mut errors);
     let mains: Vec<_> = program
         .functions
         .iter()
@@ -36,13 +45,47 @@ pub fn check(program: &Program) -> Result<TypedProgram, Vec<Diagnostic>> {
         }
     }
     for function in &program.functions {
-        check_function(function, &signatures, &mut errors);
+        check_function(function, &signatures, &layouts, &mut errors);
     }
     if errors.is_empty() {
-        Ok(TypedProgram(program.clone(), signatures))
+        Ok(TypedProgram(program.clone(), signatures, layouts))
     } else {
         Err(errors)
     }
+}
+fn layouts(program: &Program, errors: &mut Vec<Diagnostic>) -> HashMap<String, StructLayout> {
+    let mut layouts = HashMap::new();
+    for structure in &program.structs {
+        let mut fields = vec![];
+        let mut names = HashMap::new();
+        for field in &structure.fields {
+            if names.insert(field.name.clone(), ()).is_some() {
+                errors.push(Diagnostic {
+                    message: format!("duplicate field `{}`", field.name),
+                });
+            }
+            if field.ty != Type::I32 {
+                errors.push(Diagnostic {
+                    message: "struct fields must be i32".into(),
+                });
+            }
+            fields.push((field.name.clone(), field.ty.clone()));
+        }
+        if !(1..=2).contains(&fields.len()) {
+            errors.push(Diagnostic {
+                message: "structs need one or two i32 fields".into(),
+            });
+        }
+        if layouts
+            .insert(structure.name.clone(), StructLayout { fields })
+            .is_some()
+        {
+            errors.push(Diagnostic {
+                message: format!("duplicate struct `{}`", structure.name),
+            });
+        }
+    }
+    layouts
 }
 
 fn signatures(
@@ -74,6 +117,7 @@ fn signatures(
 fn check_function(
     function: &Function,
     signatures: &HashMap<String, FunctionSignature>,
+    layouts: &HashMap<String, StructLayout>,
     errors: &mut Vec<Diagnostic>,
 ) {
     let mut names = HashMap::new();
@@ -96,7 +140,7 @@ fn check_function(
                 ty,
                 value,
             } => {
-                let value_type = expr(value, &names, signatures, errors);
+                let value_type = expr(value, &names, signatures, layouts, errors);
                 if let (Some(annotation), Some(inferred)) = (ty, value_type.clone()) {
                     if *annotation != inferred {
                         errors.push(Diagnostic {
@@ -116,7 +160,7 @@ fn check_function(
                             message: "immutable binding".into(),
                         });
                     }
-                    if let Some(value_type) = expr(value, &names, signatures, errors) {
+                    if let Some(value_type) = expr(value, &names, signatures, layouts, errors) {
                         if value_type != binding_type {
                             errors.push(Diagnostic {
                                 message: "type mismatch".into(),
@@ -131,7 +175,8 @@ fn check_function(
             }
             Stmt::Return(value) => {
                 returned = true;
-                if expr(value, &names, signatures, errors) != Some(function.result.clone()) {
+                if expr(value, &names, signatures, layouts, errors) != Some(function.result.clone())
+                {
                     errors.push(Diagnostic {
                         message: format!("return must be {:?}", function.result).to_lowercase(),
                     });
@@ -150,6 +195,7 @@ fn expr(
     expression: &Expr,
     names: &HashMap<String, (Type, bool)>,
     signatures: &HashMap<String, FunctionSignature>,
+    layouts: &HashMap<String, StructLayout>,
     errors: &mut Vec<Diagnostic>,
 ) -> Option<Type> {
     match expression {
@@ -179,7 +225,9 @@ fn expr(
                 });
             }
             for (argument, parameter_type) in arguments.iter().zip(&signature.parameters) {
-                if expr(argument, names, signatures, errors) != Some(parameter_type.clone()) {
+                if expr(argument, names, signatures, layouts, errors)
+                    != Some(parameter_type.clone())
+                {
                     errors.push(Diagnostic {
                         message: format!("argument type does not match `{name}`"),
                     });
@@ -187,15 +235,60 @@ fn expr(
             }
             Some(signature.result.clone())
         }
-        Expr::StructLiteral { .. } | Expr::Field { .. } => {
-            errors.push(Diagnostic {
-                message: "structs are not yet supported".into(),
-            });
-            None
+        Expr::StructLiteral { name, fields } => {
+            let Some(layout) = layouts.get(name) else {
+                errors.push(Diagnostic {
+                    message: "unknown struct".into(),
+                });
+                return None;
+            };
+            for (field, ty) in &layout.fields {
+                match fields.iter().find(|(given, _)| given == field) {
+                    Some((_, value))
+                        if expr(value, names, signatures, layouts, errors) == Some(ty.clone()) => {}
+                    Some(_) => errors.push(Diagnostic {
+                        message: "field type mismatch".into(),
+                    }),
+                    None => errors.push(Diagnostic {
+                        message: format!("missing field `{field}`"),
+                    }),
+                }
+            }
+            for (field, _) in fields {
+                if !layout.fields.iter().any(|(known, _)| known == field) {
+                    errors.push(Diagnostic {
+                        message: format!("unknown field `{field}`"),
+                    });
+                }
+            }
+            Some(Type::Named(name.clone()))
         }
+        Expr::Field { base, name } => match expr(base, names, signatures, layouts, errors) {
+            Some(Type::Named(structure)) => layouts
+                .get(&structure)
+                .and_then(|layout| {
+                    layout
+                        .fields
+                        .iter()
+                        .find(|(field, _)| field == name)
+                        .map(|(_, ty)| ty.clone())
+                })
+                .or_else(|| {
+                    errors.push(Diagnostic {
+                        message: format!("unknown field `{name}`"),
+                    });
+                    None
+                }),
+            _ => {
+                errors.push(Diagnostic {
+                    message: "field access requires a struct".into(),
+                });
+                None
+            }
+        },
         Expr::Binary(left, _, right) => {
-            let left_type = expr(left, names, signatures, errors);
-            let right_type = expr(right, names, signatures, errors);
+            let left_type = expr(left, names, signatures, layouts, errors);
+            let right_type = expr(right, names, signatures, layouts, errors);
             if left_type != right_type {
                 errors.push(Diagnostic {
                     message: "numeric operands must have same type".into(),

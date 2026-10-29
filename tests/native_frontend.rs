@@ -55,6 +55,19 @@ fn parses_struct_literal_and_field_access() {
 }
 
 #[test]
+fn accepts_struct_fields_and_rejects_invalid_construction() {
+    assert!(check_source("struct Point { x: i32, y: i32 } fn main() -> i32 { let point = Point { x: 40, y: 2 } return point.x + point.y }").is_ok());
+    assert_error(
+        "struct Point { x: i32, y: i32 } fn main() -> i32 { return Point { x: 1 }.x }",
+        "missing field",
+    );
+    assert_error(
+        "struct Point { x: i32 } fn main() -> i32 { return Point { x: 1 }.y }",
+        "unknown field",
+    );
+}
+
+#[test]
 fn parses_typed_function_and_call() {
     let program = parse(
         Path::new("main.xen"),

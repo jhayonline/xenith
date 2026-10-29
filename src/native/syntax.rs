@@ -253,7 +253,20 @@ impl Parser {
         }
     }
     fn expr(&mut self) -> Result<Expr, Vec<Diagnostic>> {
-        let mut left = self.atom()?;
+        let atom = self.atom()?;
+        let mut left = self.postfix(atom)?;
+        while matches!(
+            self.tokens.get(self.i).map(String::as_str),
+            Some("+") | Some("-") | Some("*") | Some("/")
+        ) {
+            let op = self.take().unwrap().chars().next().unwrap();
+            let atom = self.atom()?;
+            let right = self.postfix(atom)?;
+            left = Expr::Binary(Box::new(left), op, Box::new(right));
+        }
+        Ok(left)
+    }
+    fn postfix(&mut self, mut left: Expr) -> Result<Expr, Vec<Diagnostic>> {
         while self.tokens.get(self.i).map(String::as_str) == Some(".") {
             self.take();
             let name = self.take().ok_or_else(|| {
@@ -265,14 +278,6 @@ impl Parser {
                 base: Box::new(left),
                 name,
             };
-        }
-        while matches!(
-            self.tokens.get(self.i).map(String::as_str),
-            Some("+") | Some("-") | Some("*") | Some("/")
-        ) {
-            let op = self.take().unwrap().chars().next().unwrap();
-            let right = self.atom()?;
-            left = Expr::Binary(Box::new(left), op, Box::new(right));
         }
         Ok(left)
     }
