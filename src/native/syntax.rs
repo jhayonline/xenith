@@ -218,14 +218,16 @@ impl Parser {
             }]
         })?;
         if let Some(n) = s.strip_suffix("i64").or_else(|| s.strip_suffix("i32")) {
-            return Ok(Expr::Int(
-                n.parse().unwrap(),
-                if s.ends_with("i64") {
-                    Type::I64
-                } else {
-                    Type::I32
-                },
-            ));
+            if let Ok(value) = n.parse() {
+                return Ok(Expr::Int(
+                    value,
+                    if s.ends_with("i64") {
+                        Type::I64
+                    } else {
+                        Type::I32
+                    },
+                ));
+            }
         }
         if let Ok(n) = s.parse() {
             Ok(Expr::Int(n, Type::I32))

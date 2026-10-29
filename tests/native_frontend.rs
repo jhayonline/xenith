@@ -18,15 +18,23 @@ fn check_source(
     check(&program)
 }
 
-fn build_source(source: &str) -> std::path::PathBuf {
+struct BuiltSource {
+    _directory: tempfile::TempDir,
+    executable: std::path::PathBuf,
+}
+
+fn build_source(source: &str) -> BuiltSource {
     let program = parse(Path::new("src/main.xen"), source).unwrap();
     let typed = check(&program).unwrap();
-    let directory = tempfile::tempdir().unwrap().keep();
-    let object = directory.join("main.o");
-    let executable = directory.join("main");
+    let directory = tempfile::tempdir().unwrap();
+    let object = directory.path().join("main.o");
+    let executable = directory.path().join("main");
     xenith::native::codegen::emit_object(&typed, &object).unwrap();
     xenith::native::codegen::link_host(&object, &executable).unwrap();
-    executable
+    BuiltSource {
+        _directory: directory,
+        executable,
+    }
 }
 
 #[test]
@@ -62,6 +70,14 @@ fn accepts_forward_calls_and_rejects_bad_calls() {
         "fn add(a: i32) -> i32 { return a } fn main() -> i32 { return add(1i64) }",
         "argument type",
     );
+}
+
+#[test]
+fn accepts_recursive_calls() {
+    assert!(check_source(
+        "fn recurse(value: i32) -> i32 { return recurse(value) } fn main() -> i32 { return 0 }",
+    )
+    .is_ok());
 }
 
 #[test]
@@ -107,5 +123,30 @@ fn native_program_calls_typed_function() {
     let artifact = build_source(
         "fn twice(value: i32) -> i32 { return value * 2 } fn main() -> i32 { return twice(21) }",
     );
-    assert_eq!(Command::new(artifact).status().unwrap().code(), Some(42));
+    assert_eq!(
+        Command::new(artifact.executable).status().unwrap().code(),
+        Some(42)
+    );
+}
+
+#[test]
+fn native_calls_names_ending_in_numeric_type_suffixes() {
+    let artifact = build_source(
+        "fn answer_i32() -> i32 { return 42 } fn main() -> i32 { let answer_i32 = 0 return answer_i32() }",
+    );
+    assert_eq!(
+        Command::new(artifact.executable).status().unwrap().code(),
+        Some(42)
+    );
+}
+
+#[test]
+fn native_program_calls_forward_function() {
+    let artifact = build_source(
+        "fn main() -> i32 { return twice(21) } fn twice(value: i32) -> i32 { return value * 2 }",
+    );
+    assert_eq!(
+        Command::new(artifact.executable).status().unwrap().code(),
+        Some(42)
+    );
 }
