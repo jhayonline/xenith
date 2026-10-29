@@ -107,7 +107,20 @@ fn lex(source: &str) -> Vec<String> {
     if !word.is_empty() {
         out.push(word)
     }
-    out
+    let mut merged = Vec::new();
+    let mut index = 0;
+    while index < out.len() {
+        if matches!(out[index].as_str(), "<" | ">" | "!" | "=")
+            && out.get(index + 1).map(String::as_str) == Some("=")
+        {
+            merged.push(format!("{}=", out[index]));
+            index += 2;
+        } else {
+            merged.push(out[index].clone());
+            index += 1;
+        }
+    }
+    merged
 }
 pub fn parse(_file: &Path, source: &str) -> Result<Program, Vec<Diagnostic>> {
     let tokens = lex(source);

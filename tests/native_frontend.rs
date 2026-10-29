@@ -78,6 +78,16 @@ fn checks_if_conditions_and_comparisons() {
 }
 
 #[test]
+fn accepts_extended_comparison_operators() {
+    assert!(
+        check_source("fn main() -> i32 { if 42 >= 42 { return 42 } else { return 0 } }").is_ok()
+    );
+    assert!(
+        check_source("fn main() -> i32 { if 42 != 0 { return 42 } else { return 0 } }").is_ok()
+    );
+}
+
+#[test]
 fn checks_mutable_while_counter() {
     assert!(check_source("fn main() -> i32 { let mut value = 0 while value < 42 { value = value + 1 } return value }").is_ok());
 }

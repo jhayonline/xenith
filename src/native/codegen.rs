@@ -225,6 +225,8 @@ fn lower(
             let cc = match operator.as_str() {
                 "<" => IntCC::SignedLessThan,
                 ">" => IntCC::SignedGreaterThan,
+                "<=" => IntCC::SignedLessThanOrEqual,
+                ">=" => IntCC::SignedGreaterThanOrEqual,
                 "==" => IntCC::Equal,
                 "!=" => IntCC::NotEqual,
                 _ => IntCC::SignedLessThan,
