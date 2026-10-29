@@ -209,3 +209,17 @@ fn native_program_passes_returns_and_reads_structs() {
         Some(42)
     );
 }
+
+#[test]
+fn native_program_branches_on_comparison() {
+    let true_path = build_source("fn main() -> i32 { if 1 < 2 { return 42 } else { return 7 } }");
+    let false_path = build_source("fn main() -> i32 { if 2 < 1 { return 7 } else { return 42 } }");
+    assert_eq!(
+        Command::new(true_path.executable).status().unwrap().code(),
+        Some(42)
+    );
+    assert_eq!(
+        Command::new(false_path.executable).status().unwrap().code(),
+        Some(42)
+    );
+}

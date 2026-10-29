@@ -4,7 +4,7 @@ use super::{
     syntax::{Expr, Function, Stmt, Type},
 };
 use cranelift_codegen::{
-    ir::{types, AbiParam, InstBuilder, Signature, Value},
+    ir::{condcodes::IntCC, types, AbiParam, InstBuilder, Signature, Value},
     settings,
 };
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
@@ -98,8 +98,25 @@ fn emit(
         }
         for s in &f.body {
             match s {
-                Stmt::If { .. } => {
-                    unreachable!("the checker rejects if statements before code generation")
+                Stmt::If {
+                    condition,
+                    then_body,
+                    else_body,
+                } => {
+                    let condition = lower(&mut b, condition, &vals, ids, m, l).0[0];
+                    let yes = b.create_block();
+                    let no = b.create_block();
+                    b.ins().brif(condition, yes, &[], no, &[]);
+                    for (block, branch) in [(yes, then_body), (no, else_body)] {
+                        b.switch_to_block(block);
+                        b.seal_block(block);
+                        for statement in branch {
+                            if let Stmt::Return(value) = statement {
+                                let (value, _) = lower(&mut b, value, &vals, ids, m, l);
+                                b.ins().return_(&value);
+                            }
+                        }
+                    }
                 }
                 Stmt::Let { name, value, .. } | Stmt::Assign { name, value } => {
                     let v = lower(&mut b, value, &vals, ids, m, l);
@@ -161,7 +178,18 @@ fn lower(
             let call = b.ins().call(callee, &a);
             (b.inst_results(call).to_vec(), ids[name].1.clone())
         }
-        Expr::Compare(..) => unreachable!("the checker rejects comparisons before code generation"),
+        Expr::Compare(a, operator, c) => {
+            let x = lower(b, a, v, ids, m, l).0[0];
+            let y = lower(b, c, v, ids, m, l).0[0];
+            let cc = match operator.as_str() {
+                "<" => IntCC::SignedLessThan,
+                ">" => IntCC::SignedGreaterThan,
+                "==" => IntCC::Equal,
+                "!=" => IntCC::NotEqual,
+                _ => IntCC::SignedLessThan,
+            };
+            (vec![b.ins().icmp(cc, x, y)], Type::Bool)
+        }
         Expr::Binary(a, o, c) => {
             let x = lower(b, a, v, ids, m, l).0[0];
             let y = lower(b, c, v, ids, m, l).0[0];
