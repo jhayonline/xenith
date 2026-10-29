@@ -187,6 +187,12 @@ fn expr(
             }
             Some(signature.result.clone())
         }
+        Expr::StructLiteral { .. } | Expr::Field { .. } => {
+            errors.push(Diagnostic {
+                message: "structs are not yet supported".into(),
+            });
+            None
+        }
         Expr::Binary(left, _, right) => {
             let left_type = expr(left, names, signatures, errors);
             let right_type = expr(right, names, signatures, errors);

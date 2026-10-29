@@ -45,6 +45,16 @@ fn accepts_typed_main_with_integer_expression() {
 }
 
 #[test]
+fn parses_struct_literal_and_field_access() {
+    let program = parse(
+        Path::new("main.xen"),
+        "struct Point { x: i32, y: i32 } fn main() -> i32 { let point = Point { x: 20, y: 22 } return point.x }",
+    )
+    .unwrap();
+    assert_eq!(program.structs[0].fields[1].name, "y");
+}
+
+#[test]
 fn parses_typed_function_and_call() {
     let program = parse(
         Path::new("main.xen"),

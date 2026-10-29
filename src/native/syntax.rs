@@ -4,10 +4,22 @@ use std::path::Path;
 pub enum Type {
     I32,
     I64,
+    Named(String),
 }
 #[derive(Debug, Clone)]
 pub struct Program {
+    pub structs: Vec<Struct>,
     pub functions: Vec<Function>,
+}
+#[derive(Debug, Clone)]
+pub struct Struct {
+    pub name: String,
+    pub fields: Vec<Field>,
+}
+#[derive(Debug, Clone)]
+pub struct Field {
+    pub name: String,
+    pub ty: Type,
 }
 #[derive(Debug, Clone)]
 pub struct Function {
@@ -39,7 +51,18 @@ pub enum Stmt {
 pub enum Expr {
     Int(i64, Type),
     Name(String),
-    Call { name: String, arguments: Vec<Expr> },
+    Call {
+        name: String,
+        arguments: Vec<Expr>,
+    },
+    StructLiteral {
+        name: String,
+        fields: Vec<(String, Expr)>,
+    },
+    Field {
+        base: Box<Expr>,
+        name: String,
+    },
     Binary(Box<Expr>, char, Box<Expr>),
 }
 #[derive(Debug, Clone)]
@@ -54,7 +77,7 @@ fn lex(source: &str) -> Vec<String> {
             if !word.is_empty() {
                 out.push(std::mem::take(&mut word));
             }
-        } else if "{}(),:;=+-*/".contains(c) {
+        } else if "{}(),:;=+-*/.".contains(c) {
             if !word.is_empty() {
                 out.push(std::mem::take(&mut word));
             }
@@ -103,14 +126,44 @@ impl Parser {
         match self.take().as_deref() {
             Some("i32") => Ok(Type::I32),
             Some("i64") => Ok(Type::I64),
-            _ => Err(vec![Diagnostic {
-                message: "expected integer type".into(),
+            Some(name) => Ok(Type::Named(name.to_owned())),
+            None => Err(vec![Diagnostic {
+                message: "expected type".into(),
             }]),
         }
     }
     fn program(&mut self) -> Result<Program, Vec<Diagnostic>> {
         let mut functions = vec![];
+        let mut structs = vec![];
         while self.i < self.tokens.len() {
+            if self.tokens.get(self.i).map(String::as_str) == Some("struct") {
+                self.take();
+                let name = self.take().ok_or_else(|| {
+                    vec![Diagnostic {
+                        message: "expected struct name".into(),
+                    }]
+                })?;
+                self.need("{")?;
+                let mut fields = vec![];
+                while self.tokens.get(self.i).map(String::as_str) != Some("}") {
+                    let field = self.take().ok_or_else(|| {
+                        vec![Diagnostic {
+                            message: "expected field".into(),
+                        }]
+                    })?;
+                    self.need(":")?;
+                    fields.push(Field {
+                        name: field,
+                        ty: self.ty()?,
+                    });
+                    if self.tokens.get(self.i).map(String::as_str) == Some(",") {
+                        self.take();
+                    }
+                }
+                self.need("}")?;
+                structs.push(Struct { name, fields });
+                continue;
+            }
             self.need("fn")?;
             let name = self.take().ok_or_else(|| {
                 vec![Diagnostic {
@@ -155,7 +208,7 @@ impl Parser {
                 body,
             });
         }
-        Ok(Program { functions })
+        Ok(Program { structs, functions })
     }
     fn stmt(&mut self) -> Result<Stmt, Vec<Diagnostic>> {
         match self.tokens.get(self.i).map(String::as_str) {
@@ -201,6 +254,18 @@ impl Parser {
     }
     fn expr(&mut self) -> Result<Expr, Vec<Diagnostic>> {
         let mut left = self.atom()?;
+        while self.tokens.get(self.i).map(String::as_str) == Some(".") {
+            self.take();
+            let name = self.take().ok_or_else(|| {
+                vec![Diagnostic {
+                    message: "expected field name".into(),
+                }]
+            })?;
+            left = Expr::Field {
+                base: Box::new(left),
+                name,
+            };
+        }
         while matches!(
             self.tokens.get(self.i).map(String::as_str),
             Some("+") | Some("-") | Some("*") | Some("/")
@@ -231,6 +296,24 @@ impl Parser {
         }
         if let Ok(n) = s.parse() {
             Ok(Expr::Int(n, Type::I32))
+        } else if self.tokens.get(self.i).map(String::as_str) == Some("{") {
+            self.take();
+            let mut fields = vec![];
+            while self.tokens.get(self.i).map(String::as_str) != Some("}") {
+                let field = self.take().ok_or_else(|| {
+                    vec![Diagnostic {
+                        message: "expected field name".into(),
+                    }]
+                })?;
+                self.need(":")?;
+                let value = self.expr()?;
+                fields.push((field, value));
+                if self.tokens.get(self.i).map(String::as_str) == Some(",") {
+                    self.take();
+                }
+            }
+            self.need("}")?;
+            Ok(Expr::StructLiteral { name: s, fields })
         } else if self.tokens.get(self.i).map(String::as_str) == Some("(") {
             self.take();
             let mut arguments = vec![];

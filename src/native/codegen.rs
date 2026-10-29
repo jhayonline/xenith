@@ -124,6 +124,9 @@ fn lower(
             let call = builder.ins().call(callee, &arguments);
             builder.inst_results(call)[0]
         }
+        Expr::StructLiteral { .. } | Expr::Field { .. } => {
+            unreachable!("the checker rejects structs before code generation")
+        }
         Expr::Binary(left, operator, right) => {
             let left = lower(builder, left, values, functions, module);
             let right = lower(builder, right, values, functions, module);
@@ -141,6 +144,7 @@ fn native_type(ty: &Type) -> cranelift_codegen::ir::Type {
     match ty {
         Type::I32 => types::I32,
         Type::I64 => types::I64,
+        Type::Named(_) => unreachable!("the checker rejects named types before code generation"),
     }
 }
 
