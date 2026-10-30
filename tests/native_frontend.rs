@@ -510,6 +510,15 @@ fn native_program_negates_integer_binding() {
 }
 
 #[test]
+fn native_program_negates_parenthesized_integer_expression() {
+    let artifact = build_source("fn main() -> i32 { let value = 42 return -(value) + 84 }");
+    assert_eq!(
+        Command::new(artifact.executable).status().unwrap().code(),
+        Some(42)
+    );
+}
+
+#[test]
 fn native_program_traps_on_runtime_integer_overflow() {
     let artifact = build_source(
         "fn main() -> i32 { let maximum = 2147483647 let one = 1 return maximum + one }",

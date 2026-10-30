@@ -552,6 +552,9 @@ impl Parser {
         if s == "!" {
             return Ok(Expr::Not(Box::new(self.atom()?)));
         }
+        if s == "-" {
+            return Ok(Expr::Neg(Box::new(self.atom()?)));
+        }
         if let Some(name) = s.strip_prefix('-') {
             if is_identifier(name) {
                 return Ok(Expr::Neg(Box::new(Expr::Name(name.into()))));
