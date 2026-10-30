@@ -57,6 +57,25 @@ fn parser_diagnostic_points_to_the_unexpected_token() {
 }
 
 #[test]
+fn parser_recovers_to_report_multiple_bad_statements() {
+    let errors = parse(
+        Path::new("main.xen"),
+        "fn main() -> i32 { let = 1 return ) }",
+    )
+    .expect_err("source should not parse");
+
+    assert_eq!(errors.len(), 2);
+}
+
+#[test]
+fn parser_recovery_terminates_at_end_of_unterminated_block() {
+    let errors = parse(Path::new("main.xen"), "fn main() -> i32 { let = 1")
+        .expect_err("source should not parse");
+
+    assert_eq!(errors.len(), 2);
+}
+
+#[test]
 fn native_program_respects_arithmetic_precedence() {
     let artifact = build_source("fn main() -> i32 { return 2 + 20 * 2 }");
     assert_eq!(

@@ -245,6 +245,7 @@ impl Parser {
     fn program(&mut self) -> Result<Program, Vec<Diagnostic>> {
         let mut functions = vec![];
         let mut structs = vec![];
+        let mut errors = vec![];
         while self.i < self.tokens.len() {
             if self.tokens.get(self.i).map(String::as_str) == Some("struct") {
                 self.take();
@@ -256,7 +257,7 @@ impl Parser {
                 })?;
                 self.need("{")?;
                 let mut fields = vec![];
-                while self.tokens.get(self.i).map(String::as_str) != Some("}") {
+                while self.peek() != Some("}") && self.peek().is_some() {
                     let field = self.take().ok_or_else(|| {
                         vec![Diagnostic {
                             message: "expected field".into(),
@@ -312,10 +313,18 @@ impl Parser {
             let result = self.ty()?;
             self.need("{")?;
             let mut body = vec![];
-            while self.tokens.get(self.i).map(String::as_str) != Some("}") {
-                body.push(self.stmt()?);
+            while self.peek() != Some("}") && self.peek().is_some() {
+                match self.stmt() {
+                    Ok(statement) => body.push(statement),
+                    Err(mut statement_errors) => {
+                        errors.append(&mut statement_errors);
+                        self.synchronize_statement();
+                    }
+                }
             }
-            self.need("}")?;
+            if let Err(mut closing_errors) = self.need("}") {
+                errors.append(&mut closing_errors);
+            }
             functions.push(Function {
                 name,
                 params,
@@ -323,7 +332,18 @@ impl Parser {
                 body,
             });
         }
-        Ok(Program { structs, functions })
+        if errors.is_empty() {
+            Ok(Program { structs, functions })
+        } else {
+            Err(errors)
+        }
+    }
+    fn synchronize_statement(&mut self) {
+        while !matches!(self.peek(), Some("let" | "return" | "if" | "while" | "}"))
+            && self.peek().is_some()
+        {
+            self.take();
+        }
     }
     fn stmt(&mut self) -> Result<Stmt, Vec<Diagnostic>> {
         match self.tokens.get(self.i).map(String::as_str) {
@@ -332,7 +352,7 @@ impl Parser {
                 let condition = self.condition()?;
                 self.need("{")?;
                 let mut body = vec![];
-                while self.tokens.get(self.i).map(String::as_str) != Some("}") {
+                while self.peek() != Some("}") && self.peek().is_some() {
                     body.push(self.stmt()?);
                 }
                 self.need("}")?;
@@ -343,14 +363,14 @@ impl Parser {
                 let condition = self.condition()?;
                 self.need("{")?;
                 let mut then_body = vec![];
-                while self.tokens.get(self.i).map(String::as_str) != Some("}") {
+                while self.peek() != Some("}") && self.peek().is_some() {
                     then_body.push(self.stmt()?);
                 }
                 self.need("}")?;
                 self.need("else")?;
                 self.need("{")?;
                 let mut else_body = vec![];
-                while self.tokens.get(self.i).map(String::as_str) != Some("}") {
+                while self.peek() != Some("}") && self.peek().is_some() {
                     else_body.push(self.stmt()?);
                 }
                 self.need("}")?;
