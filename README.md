@@ -17,6 +17,17 @@ bindings, explicit `let mut`, and `return`; it emits a host-native executable
 under `target/host/debug/`. The legacy interpreter and VM remain in this
 repository during migration but are not used by these project commands.
 
+Native projects may split exported declarations into files under `src/`:
+
+```xenith
+# src/helper.xen
+export fn answer() -> i32 { return 42 }
+
+# src/main.xen
+grab { answer } from "helper"
+fn main() -> i32 { return answer() }
+```
+
 A small, statically typed language with C style syntax. Roughly thirty keywords,
 no runtime surprises, and numbers that behave the way you expect.
 

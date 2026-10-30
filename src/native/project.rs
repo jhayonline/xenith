@@ -1,5 +1,9 @@
-use super::NativeError;
+use super::{
+    syntax::{self, Diagnostic, Program},
+    NativeError,
+};
 use std::{
+    collections::HashSet,
     fs,
     path::{Path, PathBuf},
 };
@@ -9,6 +13,92 @@ pub struct Project {
     pub manifest_path: PathBuf,
     pub main_path: PathBuf,
     pub target_dir: PathBuf,
+}
+
+pub fn load_program(main_path: &Path) -> Result<(Program, Vec<PathBuf>), NativeError> {
+    if !main_path.is_file() {
+        return Err(NativeError::NotImplemented("missing src/main.xen".into()));
+    }
+    let mut visiting = HashSet::new();
+    let mut loaded = HashSet::new();
+    let mut paths = Vec::new();
+    let program = load_module(main_path, true, &mut visiting, &mut loaded, &mut paths)?;
+    Ok((program, paths))
+}
+
+fn load_module(
+    path: &Path,
+    root: bool,
+    visiting: &mut HashSet<PathBuf>,
+    loaded: &mut HashSet<PathBuf>,
+    paths: &mut Vec<PathBuf>,
+) -> Result<Program, NativeError> {
+    let path = path.canonicalize().map_err(NativeError::io)?;
+    if !visiting.insert(path.clone()) {
+        return Err(NativeError::diagnostics(
+            path,
+            String::new(),
+            vec![Diagnostic {
+                message: "circular native module import".into(),
+                span: None,
+            }],
+        ));
+    }
+    let source = fs::read_to_string(&path).map_err(NativeError::io)?;
+    let parsed = syntax::parse(&path, &source)
+        .map_err(|e| NativeError::diagnostics(path.clone(), source.clone(), e))?;
+    let mut structs = Vec::new();
+    let mut functions = Vec::new();
+    for import in &parsed.imports {
+        let imported_path = path
+            .parent()
+            .unwrap()
+            .join(&import.path)
+            .with_extension("xen");
+        let dependency = load_module(&imported_path, false, visiting, loaded, paths)?;
+        for name in &import.names {
+            let function = dependency
+                .functions
+                .iter()
+                .find(|f| f.name == *name && f.exported)
+                .cloned();
+            let structure = dependency
+                .structs
+                .iter()
+                .find(|s| s.name == *name && s.exported)
+                .cloned();
+            match (function, structure) {
+                (Some(f), None) => functions.push(f),
+                (None, Some(s)) => structs.push(s),
+                _ => {
+                    return Err(NativeError::diagnostics(
+                        path.clone(),
+                        source.clone(),
+                        vec![Diagnostic {
+                            message: format!("module `{}` does not export `{name}`", import.path),
+                            span: None,
+                        }],
+                    ))
+                }
+            }
+        }
+    }
+    if root {
+        structs.extend(parsed.structs);
+        functions.extend(parsed.functions);
+    } else {
+        structs.extend(parsed.structs.into_iter().filter(|item| item.exported));
+        functions.extend(parsed.functions.into_iter().filter(|item| item.exported));
+    }
+    visiting.remove(&path);
+    if loaded.insert(path.clone()) {
+        paths.push(path);
+    }
+    Ok(Program {
+        imports: vec![],
+        structs,
+        functions,
+    })
 }
 impl Project {
     pub fn discover(start: &Path) -> Result<Self, NativeError> {

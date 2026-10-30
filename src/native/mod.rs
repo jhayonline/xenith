@@ -11,10 +11,8 @@ pub struct BuildArtifact {
     pub reused: bool,
 }
 pub fn check_project(p: &project::Project) -> Result<check::TypedProgram, NativeError> {
-    let s = fs::read_to_string(&p.main_path)
-        .map_err(|_| NativeError::NotImplemented("missing src/main.xen".into()))?;
-    let a = syntax::parse(&p.main_path, &s)
-        .map_err(|e| NativeError::diagnostics(p.main_path.clone(), s.clone(), e))?;
+    let (a, _) = project::load_program(&p.main_path)?;
+    let s = fs::read_to_string(&p.main_path).map_err(NativeError::io)?;
     check::check(&a).map_err(|mut e| {
         attach_name_spans(&s, &mut e);
         NativeError::diagnostics(p.main_path.clone(), s, e)
@@ -192,13 +190,18 @@ fn operator_spans(source: &str, is_operator: impl Fn(char) -> bool) -> Vec<synta
     spans
 }
 pub fn build(p: &project::Project) -> Result<BuildArtifact, NativeError> {
-    let t = check_project(p)?;
+    let (program, sources) = project::load_program(&p.main_path)?;
+    let s = fs::read_to_string(&p.main_path).map_err(NativeError::io)?;
+    let t = check::check(&program).map_err(|mut e| {
+        attach_name_spans(&s, &mut e);
+        NativeError::diagnostics(p.main_path.clone(), s, e)
+    })?;
     let d = p.target_dir.join("host/debug");
     fs::create_dir_all(&d).map_err(NativeError::io)?;
     let n = p.root.file_name().unwrap().to_string_lossy();
     let x = d.join(n.as_ref());
     let stamp = d.join(".xenith-fingerprint");
-    let f = cache::fingerprint(&p.manifest_path, &p.main_path)?;
+    let f = cache::fingerprint(&p.manifest_path, &sources)?;
     if x.is_file() && fs::read_to_string(&stamp).ok().as_deref() == Some(&f) {
         return Ok(BuildArtifact {
             executable: x,
