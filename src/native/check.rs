@@ -497,7 +497,7 @@ fn expr(
         Expr::StructLiteral { name, fields } => {
             let Some(layout) = layouts.get(name) else {
                 errors.push(Diagnostic {
-                    message: "unknown struct".into(),
+                    message: format!("unknown struct `{name}`"),
                     span: None,
                 });
                 return None;

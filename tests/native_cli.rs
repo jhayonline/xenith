@@ -172,6 +172,20 @@ fn check_locates_each_duplicate_parameter_after_the_original() {
 }
 
 #[test]
+fn check_locates_unknown_struct_literal() {
+    let dir = fixture_project("fn main() -> i32 { return Missing { value: 1 }.value }");
+    let output = xenith(&dir.path().join("app"))
+        .arg("check")
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(!output.status.success());
+    assert!(stderr.contains("src/main.xen:1:27: error: unknown struct `Missing`"));
+    assert!(stderr.contains("^^^^^^^"));
+}
+
+#[test]
 fn check_renders_located_binding_and_condition_diagnostics() {
     let duplicate =
         fixture_project("fn main() -> i32 { let value = 1 let value = 2 return value }");
