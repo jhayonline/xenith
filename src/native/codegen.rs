@@ -6,7 +6,7 @@ use super::{
 use cranelift_codegen::{
     ir::{
         condcodes::IntCC, types, AbiParam, ArgumentPurpose, InstBuilder, MemFlags, Signature,
-        StackSlotData, StackSlotKind, Type as ClifType, Value,
+        StackSlotData, StackSlotKind, TrapCode, Type as ClifType, Value,
     },
     settings,
 };
@@ -136,7 +136,9 @@ fn emit(
         for s in &f.body {
             match s {
                 Stmt::While { condition, body } => {
-                    lower_while(&mut b, condition, body, &mut vals, ids, m, l, return_area)
+                    if lower_while(&mut b, condition, body, &mut vals, ids, m, l, return_area) {
+                        break;
+                    }
                 }
                 Stmt::If {
                     condition,
@@ -281,7 +283,9 @@ fn lower_branch(
                 return true;
             }
             Stmt::While { condition, body } => {
-                lower_while(b, condition, body, values, ids, m, layouts, return_area)
+                if lower_while(b, condition, body, values, ids, m, layouts, return_area) {
+                    return true;
+                }
             }
         }
     }
@@ -297,7 +301,8 @@ fn lower_while(
     m: &mut ObjectModule,
     layouts: &HashMap<String, StructLayout>,
     return_area: Option<Value>,
-) {
+) -> bool {
+    let always_true = matches!(condition, Expr::Bool(true));
     let names = assigned_names(body, values);
     let header = b.create_block();
     let loop_body = b.create_block();
@@ -331,7 +336,8 @@ fn lower_while(
     b.ins().brif(condition, loop_body, &[], exit, &[]);
     b.switch_to_block(loop_body);
     b.seal_block(loop_body);
-    if !lower_branch(b, body, &mut loop_values, ids, m, layouts, return_area) {
+    let body_returns = lower_branch(b, body, &mut loop_values, ids, m, layouts, return_area);
+    if !body_returns {
         let next: Vec<Value> = names
             .iter()
             .flat_map(|name| loop_values[name].0.iter().copied())
@@ -341,6 +347,9 @@ fn lower_while(
     b.seal_block(header);
     b.switch_to_block(exit);
     b.seal_block(exit);
+    if always_true && body_returns {
+        b.ins().trap(TrapCode::unwrap_user(1));
+    }
     let mut offset = 0;
     for name in &names {
         let value_count = values[name].0.len();
@@ -353,6 +362,7 @@ fn lower_while(
         );
         offset += value_count;
     }
+    always_true && body_returns
 }
 
 fn lower_if(

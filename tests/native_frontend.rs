@@ -53,6 +53,15 @@ fn accepts_function_returning_directly_from_infinite_loop() {
 }
 
 #[test]
+fn native_program_returns_directly_from_infinite_loop() {
+    let artifact = build_source("fn main() -> i32 { while true { return 42 } }");
+    assert_eq!(
+        Command::new(artifact.executable).status().unwrap().code(),
+        Some(42)
+    );
+}
+
+#[test]
 fn parser_diagnostic_points_to_the_unexpected_token() {
     let source = "fn main() -> i32 { return ) }";
     let errors = parse(Path::new("main.xen"), source).expect_err("source should not parse");
