@@ -15,8 +15,14 @@ pub struct Program {
 }
 #[derive(Debug, Clone)]
 pub struct Import {
-    pub names: Vec<String>,
+    pub names: Vec<ImportName>,
+    pub namespace: Option<String>,
     pub path: String,
+}
+#[derive(Debug, Clone)]
+pub struct ImportName {
+    pub original: String,
+    pub local: String,
 }
 #[derive(Debug, Clone)]
 pub struct Struct {
@@ -303,10 +309,32 @@ impl Parser {
         while self.i < self.tokens.len() {
             if self.peek() == Some("grab") {
                 self.take();
+                if self.peek() == Some("*") {
+                    self.take();
+                    self.need("as")?;
+                    let namespace = self.identifier("module namespace")?;
+                    self.need("from")?;
+                    let path = self.take().ok_or_else(|| {
+                        vec![Diagnostic::at("expected module path", self.location())]
+                    })?;
+                    imports.push(Import {
+                        names: vec![],
+                        namespace: Some(namespace),
+                        path: path.trim_matches('"').to_string(),
+                    });
+                    continue;
+                }
                 self.need("{")?;
                 let mut names = vec![];
                 while self.peek() != Some("}") {
-                    names.push(self.identifier("import name")?);
+                    let original = self.identifier("import name")?;
+                    let local = if self.peek() == Some("as") {
+                        self.take();
+                        self.identifier("import alias")?
+                    } else {
+                        original.clone()
+                    };
+                    names.push(ImportName { original, local });
                     if self.peek() == Some(",") {
                         self.take();
                     } else {
@@ -319,7 +347,11 @@ impl Parser {
                     .take()
                     .ok_or_else(|| vec![Diagnostic::at("expected module path", self.location())])?;
                 let path = path.trim_matches('"').to_string();
-                imports.push(Import { names, path });
+                imports.push(Import {
+                    names,
+                    namespace: None,
+                    path,
+                });
                 continue;
             }
             let exported = if self.peek() == Some("export") {
@@ -743,6 +775,12 @@ impl Parser {
             }
             self.need("}")?;
             Ok(Expr::StructLiteral { name: s, fields })
+        } else if self.tokens.get(self.i).map(String::as_str) == Some(".")
+            && self.tokens.get(self.i + 2).map(String::as_str) == Some("(")
+        {
+            self.take();
+            let member = self.identifier("module member")?;
+            self.call(format!("{s}__{member}"))
         } else if self.tokens.get(self.i).map(String::as_str) == Some("(") {
             self.call(s)
         } else {

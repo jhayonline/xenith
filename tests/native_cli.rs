@@ -123,6 +123,59 @@ fn native_project_reports_a_module_cycle() {
 }
 
 #[test]
+fn native_project_imports_a_function_under_an_alias() {
+    let dir = fixture_project(
+        "grab { answer as result } from \"helper\"\nfn main() -> i32 { return result() }",
+    );
+    let project = dir.path().join("app");
+    std::fs::write(
+        project.join("src/helper.xen"),
+        "export fn answer() -> i32 { return 42 }",
+    )
+    .unwrap();
+    assert_eq!(
+        xenith(&project).arg("run").status().unwrap().code(),
+        Some(42)
+    );
+}
+
+#[test]
+fn native_project_rejects_duplicate_imported_names() {
+    let dir = fixture_project("grab { value } from \"first\"\ngrab { value } from \"second\"\nfn main() -> i32 { return 0 }");
+    let project = dir.path().join("app");
+    std::fs::write(
+        project.join("src/first.xen"),
+        "export fn value() -> i32 { return 1 }",
+    )
+    .unwrap();
+    std::fs::write(
+        project.join("src/second.xen"),
+        "export fn value() -> i32 { return 2 }",
+    )
+    .unwrap();
+    let output = xenith(&project).arg("check").output().unwrap();
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("ambiguous imported name `value`"));
+}
+
+#[test]
+fn native_project_calls_a_namespaced_import() {
+    let dir = fixture_project(
+        "grab * as helper from \"helper\"\nfn main() -> i32 { return helper.answer() }",
+    );
+    let project = dir.path().join("app");
+    std::fs::write(
+        project.join("src/helper.xen"),
+        "export fn answer() -> i32 { return 42 }",
+    )
+    .unwrap();
+    assert_eq!(
+        xenith(&project).arg("run").status().unwrap().code(),
+        Some(42)
+    );
+}
+
+#[test]
 fn build_and_run_create_a_native_artifact_and_preserve_exit_code() {
     let dir = fixture_project("fn main() -> i32 { return 7 }");
     let project = dir.path().join("app");

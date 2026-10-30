@@ -49,6 +49,7 @@ fn load_module(
         .map_err(|e| NativeError::diagnostics(path.clone(), source.clone(), e))?;
     let mut structs = Vec::new();
     let mut functions = Vec::new();
+    let mut imported_names = HashSet::new();
     for import in &parsed.imports {
         let imported_path = path
             .parent()
@@ -56,26 +57,53 @@ fn load_module(
             .join(&import.path)
             .with_extension("xen");
         let dependency = load_module(&imported_path, false, visiting, loaded, paths)?;
+        if let Some(namespace) = &import.namespace {
+            for function in dependency.functions.iter().filter(|item| item.exported) {
+                let mut function = function.clone();
+                function.name = format!("{namespace}__{}", function.name);
+                functions.push(function);
+            }
+            continue;
+        }
         for name in &import.names {
+            if !imported_names.insert(name.local.clone()) {
+                return Err(NativeError::diagnostics(
+                    path.clone(),
+                    source.clone(),
+                    vec![Diagnostic {
+                        message: format!("ambiguous imported name `{}`", name.local),
+                        span: None,
+                    }],
+                ));
+            }
             let function = dependency
                 .functions
                 .iter()
-                .find(|f| f.name == *name && f.exported)
+                .find(|f| f.name == name.original && f.exported)
                 .cloned();
             let structure = dependency
                 .structs
                 .iter()
-                .find(|s| s.name == *name && s.exported)
+                .find(|s| s.name == name.original && s.exported)
                 .cloned();
             match (function, structure) {
-                (Some(f), None) => functions.push(f),
-                (None, Some(s)) => structs.push(s),
+                (Some(mut f), None) => {
+                    f.name = name.local.clone();
+                    functions.push(f)
+                }
+                (None, Some(mut s)) => {
+                    s.name = name.local.clone();
+                    structs.push(s)
+                }
                 _ => {
                     return Err(NativeError::diagnostics(
                         path.clone(),
                         source.clone(),
                         vec![Diagnostic {
-                            message: format!("module `{}` does not export `{name}`", import.path),
+                            message: format!(
+                                "module `{}` does not export `{}`",
+                                import.path, name.original
+                            ),
                             span: None,
                         }],
                     ))
