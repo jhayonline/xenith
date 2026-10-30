@@ -561,8 +561,15 @@ impl Parser {
                 ));
             }
         }
-        if let Ok(n) = s.parse() {
-            Ok(Expr::Int(n, Type::I32))
+        if let Ok(n) = s.parse::<i64>() {
+            if i32::try_from(n).is_err() {
+                Err(vec![Diagnostic::at(
+                    "i32 integer literal out of range",
+                    span,
+                )])
+            } else {
+                Ok(Expr::Int(n, Type::I32))
+            }
         } else if self.tokens.get(self.i).map(String::as_str) == Some("{")
             && self.tokens.get(self.i + 2).map(String::as_str) == Some(":")
         {

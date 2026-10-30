@@ -284,6 +284,17 @@ fn parses_typed_function_and_call() {
 }
 
 #[test]
+fn rejects_out_of_range_unsuffixed_integer_literal() {
+    let errors = parse(
+        Path::new("main.xen"),
+        "fn main() -> i32 { return 2147483648 }",
+    )
+    .expect_err("source should not parse");
+
+    assert!(errors[0].message.contains("out of range"));
+}
+
+#[test]
 fn accepts_forward_calls_and_rejects_bad_calls() {
     assert!(check_source(
         "fn main() -> i32 { return add(1, 2) } fn add(a: i32, b: i32) -> i32 { return a + b }",
