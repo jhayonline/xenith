@@ -452,6 +452,12 @@ fn lower(
             vec![b.ins().iconst(types::I8, i64::from(*value))],
             Type::Bool,
         ),
+        Expr::Neg(value) => {
+            let (values, ty) = lower(b, value, v, ids, m, l);
+            let zero = b.ins().iconst(flat(&ty, l)[0], 0);
+            let values = b.ins().ssub_overflow(zero, values[0]);
+            (vec![checked_integer_operation(b, values)], ty)
+        }
         Expr::Not(value) => {
             let value = lower(b, value, v, ids, m, l).0[0];
             let zero = b.ins().iconst(types::I8, 0);

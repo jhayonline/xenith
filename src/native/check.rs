@@ -410,6 +410,16 @@ fn expr(
     match expression {
         Expr::Int(_, ty) => Some(ty.clone()),
         Expr::Bool(_) => Some(Type::Bool),
+        Expr::Neg(value) => {
+            let ty = expr(value, names, signatures, layouts, errors);
+            if !matches!(ty, Some(Type::I32 | Type::I64)) {
+                errors.push(Diagnostic {
+                    message: "unary `-` requires an integer".into(),
+                    span: None,
+                });
+            }
+            ty
+        }
         Expr::Not(value) => {
             if expr(value, names, signatures, layouts, errors) != Some(Type::Bool) {
                 errors.push(Diagnostic {

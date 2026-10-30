@@ -74,6 +74,7 @@ pub enum Expr {
         base: Box<Expr>,
         name: String,
     },
+    Neg(Box<Expr>),
     Not(Box<Expr>),
     Logical(Box<Expr>, String, Box<Expr>),
     Compare(Box<Expr>, String, Box<Expr>),
@@ -550,6 +551,11 @@ impl Parser {
         }
         if s == "!" {
             return Ok(Expr::Not(Box::new(self.atom()?)));
+        }
+        if let Some(name) = s.strip_prefix('-') {
+            if is_identifier(name) {
+                return Ok(Expr::Neg(Box::new(Expr::Name(name.into()))));
+            }
         }
         if s == "(" {
             let expression = self.expr()?;
