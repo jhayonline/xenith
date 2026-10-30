@@ -202,6 +202,22 @@ fn check_locates_each_duplicate_function_declaration() {
 }
 
 #[test]
+fn check_locates_each_duplicate_struct_declaration() {
+    let dir = fixture_project(
+        "struct Pair { value: i32 }\nstruct Pair { value: i32 }\nstruct Pair { value: i32 }\nfn main() -> i32 { let pair: Pair = Pair { value: 0 } return pair.value }",
+    );
+    let output = xenith(&dir.path().join("app"))
+        .arg("check")
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(!output.status.success());
+    assert!(stderr.contains("src/main.xen:2:8: error: duplicate struct `Pair`"));
+    assert!(stderr.contains("src/main.xen:3:8: error: duplicate struct `Pair`"));
+}
+
+#[test]
 fn check_renders_located_binding_and_condition_diagnostics() {
     let duplicate =
         fixture_project("fn main() -> i32 { let value = 1 let value = 2 return value }");

@@ -29,10 +29,14 @@ fn attach_name_spans(source: &str, diagnostics: &mut [syntax::Diagnostic]) {
         }
         if let Some((_, tail)) = diagnostic.message.split_once('`') {
             if let Some((name, _)) = tail.split_once('`') {
-                let declaration_keyword = diagnostic
-                    .message
-                    .starts_with("duplicate function `")
-                    .then_some("fn");
+                let declaration_keyword = if diagnostic.message.starts_with("duplicate function `")
+                {
+                    Some("fn")
+                } else if diagnostic.message.starts_with("duplicate struct `") {
+                    Some("struct")
+                } else {
+                    None
+                };
                 let spans = declaration_keyword.map_or_else(
                     || identifier_spans(source, name),
                     |keyword| declaration_spans(source, keyword, name),
@@ -41,6 +45,7 @@ fn attach_name_spans(source: &str, diagnostics: &mut [syntax::Diagnostic]) {
                 let span = if diagnostic.message.starts_with("duplicate binding `")
                     || diagnostic.message.starts_with("duplicate parameter `")
                     || diagnostic.message.starts_with("duplicate function `")
+                    || diagnostic.message.starts_with("duplicate struct `")
                 {
                     spans.get(*occurrence + 1).or_else(|| spans.last())
                 } else {
