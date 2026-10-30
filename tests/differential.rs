@@ -13,7 +13,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-const XENITH: &str = env!("CARGO_BIN_EXE_xenith");
+const XENITH: &str = env!("CARGO_BIN_EXE_xenith-legacy");
 
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))

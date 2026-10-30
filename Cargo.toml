@@ -34,3 +34,7 @@ panic = "abort"
 [[bin]]
 name = "xenith"
 path = "src/main.rs"
+
+[[bin]]
+name = "xenith-legacy"
+path = "src/bin/xenith-legacy.rs"

@@ -21,8 +21,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// Path to the interpreter Cargo just built.
-const XENITH: &str = env!("CARGO_BIN_EXE_xenith");
+/// Path to the legacy interpreter Cargo just built.
+const XENITH: &str = env!("CARGO_BIN_EXE_xenith-legacy");
 
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
