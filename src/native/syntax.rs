@@ -428,7 +428,11 @@ impl Parser {
                 let condition = self.condition()?;
                 let then_body = self.block()?;
                 self.need("else")?;
-                let else_body = self.block()?;
+                let else_body = if self.peek() == Some("if") {
+                    vec![self.stmt()?]
+                } else {
+                    self.block()?
+                };
                 Ok(Stmt::If {
                     condition,
                     then_body,
