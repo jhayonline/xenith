@@ -116,8 +116,24 @@ fn lex(source: &str) -> Vec<Token> {
     let mut out = Vec::new();
     let mut word = String::new();
     let mut word_start = 0;
+    let mut in_comment = false;
     for (index, c) in source.char_indices() {
-        if c.is_whitespace() {
+        if in_comment {
+            if c == '\n' {
+                in_comment = false;
+            } else {
+                continue;
+            }
+        }
+        if c == '#' {
+            if !word.is_empty() {
+                out.push(Token {
+                    text: std::mem::take(&mut word),
+                    span: Span::new(word_start, index),
+                });
+            }
+            in_comment = true;
+        } else if c.is_whitespace() {
             if !word.is_empty() {
                 out.push(Token {
                     text: std::mem::take(&mut word),

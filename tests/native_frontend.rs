@@ -408,6 +408,15 @@ fn native_program_accepts_hexadecimal_and_binary_literals() {
 }
 
 #[test]
+fn native_program_ignores_line_comments() {
+    let artifact = build_source("# entry point\nfn main() -> i32 {\n  return 42 # success\n}");
+    assert_eq!(
+        Command::new(artifact.executable).status().unwrap().code(),
+        Some(42)
+    );
+}
+
+#[test]
 fn native_program_calls_typed_function() {
     let artifact = build_source(
         "fn twice(value: i32) -> i32 { return value * 2 } fn main() -> i32 { return twice(21) }",
