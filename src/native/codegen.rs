@@ -144,17 +144,21 @@ fn emit(
                     condition,
                     then_body,
                     else_body,
-                } => lower_if(
-                    &mut b,
-                    condition,
-                    then_body,
-                    else_body,
-                    &mut vals,
-                    ids,
-                    m,
-                    l,
-                    return_area,
-                ),
+                } => {
+                    if lower_if(
+                        &mut b,
+                        condition,
+                        then_body,
+                        else_body,
+                        &mut vals,
+                        ids,
+                        m,
+                        l,
+                        return_area,
+                    ) {
+                        break;
+                    }
+                }
                 Stmt::Let { name, value, .. } | Stmt::Assign { name, value } => {
                     let v = lower(&mut b, value, &vals, ids, m, l);
                     vals.insert(name.clone(), v);
@@ -266,7 +270,7 @@ fn lower_branch(
                 then_body,
                 else_body,
             } => {
-                lower_if(
+                if lower_if(
                     b,
                     condition,
                     then_body,
@@ -276,7 +280,9 @@ fn lower_branch(
                     m,
                     layouts,
                     return_area,
-                );
+                ) {
+                    return true;
+                }
             }
             Stmt::Return(value) => {
                 emit_return(b, value, values, ids, m, layouts, return_area);
@@ -375,7 +381,7 @@ fn lower_if(
     m: &mut ObjectModule,
     layouts: &HashMap<String, StructLayout>,
     return_area: Option<Value>,
-) {
+) -> bool {
     let condition = lower(b, condition, values, ids, m, layouts).0[0];
     let yes = b.create_block();
     let no = b.create_block();
@@ -395,11 +401,15 @@ fn lower_if(
         }
     }
     b.ins().brif(condition, yes, &[], no, &[]);
+    let mut branches_return = Vec::new();
     for (block, branch) in [(yes, then_body), (no, else_body)] {
         b.switch_to_block(block);
         b.seal_block(block);
         let mut branch_values = values.clone();
-        if !lower_branch(b, branch, &mut branch_values, ids, m, layouts, return_area) {
+        let branch_returns =
+            lower_branch(b, branch, &mut branch_values, ids, m, layouts, return_area);
+        branches_return.push(branch_returns);
+        if !branch_returns {
             let args: Vec<Value> = names
                 .iter()
                 .flat_map(|name| branch_values[name].0.iter().copied())
@@ -409,6 +419,10 @@ fn lower_if(
     }
     b.seal_block(merge);
     b.switch_to_block(merge);
+    if branches_return.into_iter().all(|returned| returned) {
+        b.ins().trap(TrapCode::unwrap_user(1));
+        return true;
+    }
     let merge_values = b.block_params(merge).to_vec();
     let mut offset = 0;
     for name in &names {
@@ -422,6 +436,7 @@ fn lower_if(
         );
         offset += value_count;
     }
+    false
 }
 fn lower(
     b: &mut FunctionBuilder,
