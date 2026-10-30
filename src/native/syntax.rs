@@ -446,12 +446,7 @@ impl Parser {
                 Ok(Stmt::Return(self.expr()?))
             }
             Some(_) => {
-                let name = self.take().ok_or_else(|| {
-                    vec![Diagnostic::at(
-                        "expected assignment target",
-                        self.location(),
-                    )]
-                })?;
+                let name = self.identifier("assignment target")?;
                 self.need("=")?;
                 Ok(Stmt::Assign {
                     name,
