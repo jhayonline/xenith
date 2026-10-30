@@ -239,6 +239,22 @@ impl Parser {
         self.i += 1;
         x
     }
+    fn identifier(&mut self, description: &str) -> Result<String, Vec<Diagnostic>> {
+        let name = self.take().ok_or_else(|| {
+            vec![Diagnostic::at(
+                format!("expected {description}"),
+                self.location(),
+            )]
+        })?;
+        if is_identifier(&name) {
+            Ok(name)
+        } else {
+            Err(vec![Diagnostic::at(
+                format!("invalid {description} `{name}`"),
+                self.previous_location(),
+            )])
+        }
+    }
     fn need(&mut self, s: &str) -> Result<(), Vec<Diagnostic>> {
         if self.take().as_deref() == Some(s) {
             Ok(())
@@ -303,12 +319,7 @@ impl Parser {
                 continue;
             }
             self.need("fn")?;
-            let name = self.take().ok_or_else(|| {
-                vec![Diagnostic {
-                    message: "expected function name".into(),
-                    span: Some(self.location()),
-                }]
-            })?;
+            let name = self.identifier("function name")?;
             self.need("(")?;
             let mut params = vec![];
             while self.tokens.get(self.i).map(String::as_str) != Some(")") {
@@ -686,4 +697,25 @@ fn non_decimal_integer_literal(text: &str, span: Span) -> Option<Result<Expr, Ve
         )]));
     }
     Some(Ok(Expr::Int(value as i64, ty)))
+}
+
+fn is_identifier(name: &str) -> bool {
+    let mut characters = name.chars();
+    matches!(characters.next(), Some(character) if character.is_ascii_alphabetic() || character == '_')
+        && characters.all(|character| character.is_ascii_alphanumeric() || character == '_')
+        && !matches!(
+            name,
+            "fn" | "struct"
+                | "let"
+                | "mut"
+                | "return"
+                | "if"
+                | "else"
+                | "while"
+                | "true"
+                | "false"
+                | "i32"
+                | "i64"
+                | "bool"
+        )
 }

@@ -316,6 +316,14 @@ fn rejects_malformed_numeric_literal_suffix() {
 }
 
 #[test]
+fn rejects_invalid_declaration_identifier() {
+    let errors = parse(Path::new("main.xen"), "fn 1main() -> i32 { return 0 }")
+        .expect_err("source should not parse");
+
+    assert!(errors[0].message.contains("invalid function name"));
+}
+
+#[test]
 fn accepts_forward_calls_and_rejects_bad_calls() {
     assert!(check_source(
         "fn main() -> i32 { return add(1, 2) } fn add(a: i32, b: i32) -> i32 { return a + b }",
