@@ -612,6 +612,9 @@ impl Parser {
         {
             return Err(vec![Diagnostic::at("invalid numeric literal", span)]);
         }
+        if !is_identifier(&s) {
+            return Err(vec![Diagnostic::at("invalid identifier", span)]);
+        }
         if self.tokens.get(self.i).map(String::as_str) == Some("{")
             && self.tokens.get(self.i + 2).map(String::as_str) == Some(":")
         {
