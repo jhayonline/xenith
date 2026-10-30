@@ -92,6 +92,16 @@ fn native_program_runs_else_if_chain() {
 }
 
 #[test]
+fn native_program_runs_if_without_else() {
+    let artifact =
+        build_source("fn main() -> i32 { let mut value = 0 if true { value = 42 } return value }");
+    assert_eq!(
+        Command::new(artifact.executable).status().unwrap().code(),
+        Some(42)
+    );
+}
+
+#[test]
 fn parser_diagnostic_points_to_the_unexpected_token() {
     let source = "fn main() -> i32 { return ) }";
     let errors = parse(Path::new("main.xen"), source).expect_err("source should not parse");
