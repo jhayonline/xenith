@@ -126,7 +126,7 @@ fn parser_propagates_bad_statement_inside_if_block() {
     )
     .expect_err("source should not parse");
 
-    assert_eq!(errors.len(), 1);
+    assert_eq!(errors.len(), 2, "{errors:?}");
 }
 
 #[test]
@@ -397,6 +397,22 @@ fn rejects_invalid_field_access_identifier() {
     .expect_err("source should not parse");
 
     assert!(errors[0].message.contains("invalid field name"));
+}
+
+#[test]
+fn parser_preserves_invalid_struct_literal_field_diagnostic() {
+    let errors = parse(
+        Path::new("main.xen"),
+        "struct Pair { value: i32 } fn main() -> i32 { let pair = Pair { @value: 0 } return 0 }",
+    )
+    .expect_err("source should not parse");
+
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message.contains("invalid field name")),
+        "{errors:?}"
+    );
 }
 
 #[test]

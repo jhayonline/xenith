@@ -322,7 +322,14 @@ impl Parser {
                 structs.push(Struct { name, fields });
                 continue;
             }
-            self.need("fn")?;
+            if self.peek() != Some("fn") {
+                if errors.is_empty() {
+                    errors.push(Diagnostic::at("expected `fn`", self.location()));
+                }
+                self.synchronize_top_level();
+                continue;
+            }
+            self.take();
             let name = self.identifier("function name")?;
             self.need("(")?;
             let mut params = vec![];
@@ -378,6 +385,11 @@ impl Parser {
             self.take();
         }
         if self.peek() == Some(",") {
+            self.take();
+        }
+    }
+    fn synchronize_top_level(&mut self) {
+        while !matches!(self.peek(), Some("fn" | "struct")) && self.peek().is_some() {
             self.take();
         }
     }
@@ -628,12 +640,7 @@ impl Parser {
             self.take();
             let mut fields = vec![];
             while self.tokens.get(self.i).map(String::as_str) != Some("}") {
-                let field = self.take().ok_or_else(|| {
-                    vec![Diagnostic {
-                        message: "expected field name".into(),
-                        span: Some(self.location()),
-                    }]
-                })?;
+                let field = self.identifier("field name")?;
                 self.need(":")?;
                 let value = self.expr()?;
                 fields.push((field, value));
