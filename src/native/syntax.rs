@@ -281,12 +281,7 @@ impl Parser {
         while self.i < self.tokens.len() {
             if self.tokens.get(self.i).map(String::as_str) == Some("struct") {
                 self.take();
-                let name = self.take().ok_or_else(|| {
-                    vec![Diagnostic {
-                        message: "expected struct name".into(),
-                        span: Some(self.location()),
-                    }]
-                })?;
+                let name = self.identifier("struct name")?;
                 self.need("{")?;
                 let mut fields = vec![];
                 while self.peek() != Some("}") && self.peek().is_some() {
