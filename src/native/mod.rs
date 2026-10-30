@@ -32,7 +32,7 @@ fn attach_name_spans(source: &str, diagnostics: &mut [syntax::Diagnostic]) {
                 let spans = identifier_spans(source, name);
                 let occurrence = occurrences.entry(diagnostic.message.clone()).or_insert(0);
                 let span = if diagnostic.message.starts_with("duplicate binding `") {
-                    spans.get(1).or_else(|| spans.first())
+                    spans.get(*occurrence + 1).or_else(|| spans.last())
                 } else {
                     spans.get(*occurrence).or_else(|| spans.last())
                 };
