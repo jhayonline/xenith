@@ -389,6 +389,17 @@ fn rejects_invalid_expression_identifier() {
 }
 
 #[test]
+fn rejects_invalid_field_access_identifier() {
+    let errors = parse(
+        Path::new("main.xen"),
+        "struct Pair { value: i32 } fn main() -> i32 { let pair = Pair { value: 0 } return pair.@value }",
+    )
+    .expect_err("source should not parse");
+
+    assert!(errors[0].message.contains("invalid field name"));
+}
+
+#[test]
 fn accepts_forward_calls_and_rejects_bad_calls() {
     assert!(check_source(
         "fn main() -> i32 { return add(1, 2) } fn add(a: i32, b: i32) -> i32 { return a + b }",

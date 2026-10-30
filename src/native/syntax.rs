@@ -529,12 +529,7 @@ impl Parser {
     fn postfix(&mut self, mut left: Expr) -> Result<Expr, Vec<Diagnostic>> {
         while self.tokens.get(self.i).map(String::as_str) == Some(".") {
             self.take();
-            let name = self.take().ok_or_else(|| {
-                vec![Diagnostic {
-                    message: "expected field name".into(),
-                    span: Some(self.location()),
-                }]
-            })?;
+            let name = self.identifier("field name")?;
             left = Expr::Field {
                 base: Box::new(left),
                 name,
