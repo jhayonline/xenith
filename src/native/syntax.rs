@@ -270,7 +270,11 @@ impl Parser {
             Some("i32") => Ok(Type::I32),
             Some("i64") => Ok(Type::I64),
             Some("bool") => Ok(Type::Bool),
-            Some(name) => Ok(Type::Named(name.to_owned())),
+            Some(name) if is_identifier(name) => Ok(Type::Named(name.to_owned())),
+            Some(name) => Err(vec![Diagnostic::at(
+                format!("invalid type name `{name}`"),
+                self.previous_location(),
+            )]),
             None => Err(vec![Diagnostic::at("expected type", self.location())]),
         }
     }
