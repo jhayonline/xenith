@@ -40,23 +40,150 @@ fn build_and_run_create_a_native_artifact_and_preserve_exit_code() {
     let project = dir.path().join("app");
     assert!(xenith(&project).arg("build").status().unwrap().success());
     assert!(project.join("target/host/debug/app").is_file());
-    assert_eq!(xenith(&project).arg("run").status().unwrap().code(), Some(7));
+    assert_eq!(
+        xenith(&project).arg("run").status().unwrap().code(),
+        Some(7)
+    );
 }
 
 #[test]
 fn unchanged_build_is_fresh_and_missing_main_is_a_diagnostic() {
     let dir = fixture_project("fn main() -> i32 { return 0 }");
     let project = dir.path().join("app");
-    assert!(String::from_utf8_lossy(&xenith(&project).arg("build").output().unwrap().stdout).contains("Built"));
-    assert!(String::from_utf8_lossy(&xenith(&project).arg("build").output().unwrap().stdout).contains("Fresh"));
+    assert!(
+        String::from_utf8_lossy(&xenith(&project).arg("build").output().unwrap().stdout)
+            .contains("Built")
+    );
+    assert!(
+        String::from_utf8_lossy(&xenith(&project).arg("build").output().unwrap().stdout)
+            .contains("Fresh")
+    );
     std::fs::remove_file(project.join("src/main.xen")).unwrap();
-    assert!(String::from_utf8_lossy(&xenith(&project).arg("build").output().unwrap().stderr).contains("src/main.xen"));
+    assert!(
+        String::from_utf8_lossy(&xenith(&project).arg("build").output().unwrap().stderr)
+            .contains("src/main.xen")
+    );
+}
+
+#[test]
+fn check_renders_a_located_parser_diagnostic() {
+    let dir = fixture_project("fn main() -> i32 { return ) }");
+    let project = dir.path().join("app");
+
+    let output = xenith(&project).arg("check").output().unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(!output.status.success());
+    assert!(stderr.contains("src/main.xen:1:27: error: expected expression"));
+    assert!(stderr.contains("fn main() -> i32 { return ) }"));
+    assert!(stderr.contains("                          ^"));
+}
+
+#[test]
+fn check_renders_a_located_unknown_name_diagnostic() {
+    let dir = fixture_project("fn main() -> i32 { return missing }");
+    let project = dir.path().join("app");
+    let output = xenith(&project).arg("check").output().unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(!output.status.success());
+    assert!(stderr.contains("src/main.xen:1:27: error: unknown name `missing`"));
+    assert!(stderr.contains("1 | fn main() -> i32 { return missing }"));
+    assert!(stderr.contains("                          ^"));
+    assert!(stderr.contains("^^^^^^^"));
+}
+
+#[test]
+fn check_renders_located_binding_and_condition_diagnostics() {
+    let duplicate =
+        fixture_project("fn main() -> i32 { let value = 1 let value = 2 return value }");
+    let duplicate_output = xenith(&duplicate.path().join("app"))
+        .arg("check")
+        .output()
+        .unwrap();
+    assert!(String::from_utf8_lossy(&duplicate_output.stderr)
+        .contains("error: duplicate binding `value`"));
+    assert!(String::from_utf8_lossy(&duplicate_output.stderr)
+        .contains("note: previous binding `value` here"));
+    assert!(String::from_utf8_lossy(&duplicate_output.stderr).contains("^"));
+
+    let condition = fixture_project("fn main() -> i32 { if 1 { return 1 } else { return 0 } }");
+    let condition_output = xenith(&condition.path().join("app"))
+        .arg("check")
+        .output()
+        .unwrap();
+    assert!(String::from_utf8_lossy(&condition_output.stderr)
+        .contains("error: if condition must be bool"));
+    assert!(String::from_utf8_lossy(&condition_output.stderr).contains("^"));
+}
+
+#[test]
+fn check_renders_a_located_type_mismatch() {
+    let dir = fixture_project("fn main() -> i32 { let mut value = 1 value = false return value }");
+    let output = xenith(&dir.path().join("app"))
+        .arg("check")
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(!output.status.success());
+    assert!(stderr.contains("error: type mismatch for `value`"));
+    assert!(stderr.contains("^"));
+}
+
+#[test]
+fn check_renders_a_located_return_type_diagnostic() {
+    let dir = fixture_project("fn main() -> i32 { return false }");
+    let output = xenith(&dir.path().join("app"))
+        .arg("check")
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(!output.status.success());
+    assert!(stderr.contains("error: return type mismatch in `main`"));
+    assert!(stderr.contains("^"));
+}
+
+#[test]
+fn check_renders_a_located_arithmetic_diagnostic() {
+    let dir = fixture_project("fn main() -> i32 { return true + false }");
+    let output = xenith(&dir.path().join("app"))
+        .arg("check")
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(!output.status.success());
+    assert!(stderr.contains("error: arithmetic operands require integers"));
+    assert!(stderr.contains("^"));
+}
+
+#[test]
+fn check_renders_every_collected_diagnostic() {
+    let dir = fixture_project(
+        "fn main() -> i32 { let value = 1 let value = 2 missing = 3 return value }",
+    );
+    let output = xenith(&dir.path().join("app"))
+        .arg("check")
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(!output.status.success());
+    assert!(stderr.contains("duplicate binding `value`"));
+    assert!(stderr.contains("unknown name `missing`"));
 }
 
 #[test]
 fn documented_native_workflow_is_present() {
     let readme = std::fs::read_to_string("README.md").unwrap();
-    for command in ["xenith new hello", "xenith check", "xenith build", "xenith run"] {
+    for command in [
+        "xenith new hello",
+        "xenith check",
+        "xenith build",
+        "xenith run",
+    ] {
         assert!(readme.contains(command), "README is missing `{command}`");
     }
 }
