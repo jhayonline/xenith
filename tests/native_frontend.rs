@@ -76,6 +76,17 @@ fn parser_recovery_terminates_at_end_of_unterminated_block() {
 }
 
 #[test]
+fn parser_recovers_from_bad_struct_field_before_next_function() {
+    let errors = parse(
+        Path::new("main.xen"),
+        "struct Pair { left i32 } fn main() -> i32 { return ) }",
+    )
+    .expect_err("source should not parse");
+
+    assert_eq!(errors.len(), 2);
+}
+
+#[test]
 fn native_program_respects_arithmetic_precedence() {
     let artifact = build_source("fn main() -> i32 { return 2 + 20 * 2 }");
     assert_eq!(

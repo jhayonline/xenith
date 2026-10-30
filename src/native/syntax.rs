@@ -258,22 +258,31 @@ impl Parser {
                 self.need("{")?;
                 let mut fields = vec![];
                 while self.peek() != Some("}") && self.peek().is_some() {
-                    let field = self.take().ok_or_else(|| {
-                        vec![Diagnostic {
-                            message: "expected field".into(),
-                            span: Some(self.location()),
-                        }]
-                    })?;
-                    self.need(":")?;
-                    fields.push(Field {
-                        name: field,
-                        ty: self.ty()?,
-                    });
+                    let Some(field) = self.take() else {
+                        errors.push(Diagnostic::at("expected field", self.location()));
+                        break;
+                    };
+                    if let Err(mut field_errors) = self.need(":") {
+                        errors.append(&mut field_errors);
+                        self.synchronize_struct_field();
+                        continue;
+                    }
+                    let ty = match self.ty() {
+                        Ok(ty) => ty,
+                        Err(mut field_errors) => {
+                            errors.append(&mut field_errors);
+                            self.synchronize_struct_field();
+                            continue;
+                        }
+                    };
+                    fields.push(Field { name: field, ty });
                     if self.tokens.get(self.i).map(String::as_str) == Some(",") {
                         self.take();
                     }
                 }
-                self.need("}")?;
+                if let Err(mut closing_errors) = self.need("}") {
+                    errors.append(&mut closing_errors);
+                }
                 structs.push(Struct { name, fields });
                 continue;
             }
@@ -342,6 +351,14 @@ impl Parser {
         while !matches!(self.peek(), Some("let" | "return" | "if" | "while" | "}"))
             && self.peek().is_some()
         {
+            self.take();
+        }
+    }
+    fn synchronize_struct_field(&mut self) {
+        while !matches!(self.peek(), Some("," | "}" | "fn" | "struct")) && self.peek().is_some() {
+            self.take();
+        }
+        if self.peek() == Some(",") {
             self.take();
         }
     }
