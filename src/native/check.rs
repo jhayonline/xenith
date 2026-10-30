@@ -198,6 +198,57 @@ fn check_function(
     let mut returned = false;
     for statement in &function.body {
         match statement {
+            Stmt::For {
+                init,
+                condition,
+                step,
+                body,
+            } => {
+                let mut loop_names = names.clone();
+                if let Stmt::Let {
+                    name,
+                    mutable,
+                    ty,
+                    value,
+                } = init.as_ref()
+                {
+                    let value_type = expr(value, &loop_names, signatures, layouts, errors);
+                    if let Some(annotation) = ty {
+                        validate_type(annotation, layouts, errors);
+                    }
+                    loop_names.insert(
+                        name.clone(),
+                        (ty.clone().or(value_type).unwrap_or(Type::I32), *mutable),
+                    );
+                } else {
+                    errors.push(Diagnostic {
+                        message: "for initializer must be a binding".into(),
+                        span: None,
+                    });
+                }
+                if expr(condition, &loop_names, signatures, layouts, errors) != Some(Type::Bool) {
+                    errors.push(Diagnostic {
+                        message: "for condition must be bool".into(),
+                        span: None,
+                    });
+                }
+                if !matches!(step.as_ref(), Stmt::Assign { .. }) {
+                    errors.push(Diagnostic {
+                        message: "for step must be an assignment".into(),
+                        span: None,
+                    });
+                }
+                let _ = check_block(
+                    std::slice::from_ref(step),
+                    &loop_names,
+                    function,
+                    signatures,
+                    layouts,
+                    errors,
+                    1,
+                );
+                let _ = check_block(body, &loop_names, function, signatures, layouts, errors, 1);
+            }
             Stmt::While { condition, body } => {
                 if expr(condition, &names, signatures, layouts, errors) != Some(Type::Bool) {
                     errors.push(Diagnostic {
@@ -334,6 +385,65 @@ fn check_block(
             break;
         }
         match statement {
+            Stmt::For {
+                init,
+                condition,
+                step,
+                body,
+            } => {
+                let mut loop_names = names.clone();
+                if let Stmt::Let {
+                    name,
+                    mutable,
+                    ty,
+                    value,
+                } = init.as_ref()
+                {
+                    let value_type = expr(value, &loop_names, signatures, layouts, errors);
+                    if let Some(annotation) = ty {
+                        validate_type(annotation, layouts, errors);
+                    }
+                    loop_names.insert(
+                        name.clone(),
+                        (ty.clone().or(value_type).unwrap_or(Type::I32), *mutable),
+                    );
+                } else {
+                    errors.push(Diagnostic {
+                        message: "for initializer must be a binding".into(),
+                        span: None,
+                    });
+                }
+                if expr(condition, &loop_names, signatures, layouts, errors) != Some(Type::Bool) {
+                    errors.push(Diagnostic {
+                        message: "for condition must be bool".into(),
+                        span: None,
+                    });
+                }
+                if !matches!(step.as_ref(), Stmt::Assign { .. }) {
+                    errors.push(Diagnostic {
+                        message: "for step must be an assignment".into(),
+                        span: None,
+                    });
+                }
+                let _ = check_block(
+                    std::slice::from_ref(step),
+                    &loop_names,
+                    function,
+                    signatures,
+                    layouts,
+                    errors,
+                    loop_depth + 1,
+                );
+                let _ = check_block(
+                    body,
+                    &loop_names,
+                    function,
+                    signatures,
+                    layouts,
+                    errors,
+                    loop_depth + 1,
+                );
+            }
             Stmt::Let {
                 name,
                 mutable,
