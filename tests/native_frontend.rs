@@ -471,6 +471,19 @@ fn checks_unknown_struct_field_values() {
 }
 
 #[test]
+fn checks_arguments_to_unknown_function() {
+    let errors = check_source("fn main() -> i32 { return missing_function(missing_argument) }")
+        .expect_err("source should not type-check");
+
+    assert!(errors.iter().any(|error| error
+        .message
+        .contains("unknown function `missing_function`")));
+    assert!(errors
+        .iter()
+        .any(|error| error.message.contains("unknown name `missing_argument`")));
+}
+
+#[test]
 fn rejects_duplicate_parameter_names() {
     assert_error(
         "fn pick(x: i32, x: i32) -> i32 { return x } fn main() -> i32 { return pick(1, 2) }",

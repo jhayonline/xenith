@@ -471,6 +471,9 @@ fn expr(
                     message: format!("unknown function `{name}`"),
                     span: None,
                 });
+                for argument in arguments {
+                    expr(argument, names, signatures, layouts, errors);
+                }
                 return None;
             };
             if arguments.len() != signature.parameters.len() {
