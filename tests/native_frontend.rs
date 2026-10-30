@@ -537,6 +537,10 @@ fn rejects_reassignment_without_mut_and_mixed_numbers() {
         "integer overflow",
     );
     assert_error(
+        "fn main() -> i32 { return -(-2147483648) }",
+        "integer overflow",
+    );
+    assert_error(
         "fn main() -> i32 { if false && missing { return 0 } else { return 0 } }",
         "unknown name `missing`",
     );

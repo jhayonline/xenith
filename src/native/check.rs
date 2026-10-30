@@ -417,6 +417,11 @@ fn expr(
                     message: "unary `-` requires an integer".into(),
                     span: None,
                 });
+            } else if constant_negation_overflows(value, ty.as_ref()) {
+                errors.push(Diagnostic {
+                    message: "integer overflow".into(),
+                    span: None,
+                });
             }
             ty
         }
@@ -650,6 +655,19 @@ fn constant_arithmetic_overflows(
             _ => Some(*left),
         }
         .is_none(),
+        _ => false,
+    }
+}
+
+fn constant_negation_overflows(value: &Expr, ty: Option<&Type>) -> bool {
+    let Expr::Int(value, _) = value else {
+        return false;
+    };
+    match ty {
+        Some(Type::I32) => {
+            i32::try_from(*value).is_err() || (*value as i32).checked_neg().is_none()
+        }
+        Some(Type::I64) => value.checked_neg().is_none(),
         _ => false,
     }
 }
