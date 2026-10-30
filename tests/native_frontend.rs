@@ -484,6 +484,20 @@ fn checks_arguments_to_unknown_function() {
 }
 
 #[test]
+fn checks_fields_of_unknown_struct_literal() {
+    let errors =
+        check_source("fn main() -> i32 { let value = Missing { field: missing_value } return 0 }")
+            .expect_err("source should not type-check");
+
+    assert!(errors
+        .iter()
+        .any(|error| error.message.contains("unknown struct `Missing`")));
+    assert!(errors
+        .iter()
+        .any(|error| error.message.contains("unknown name `missing_value`")));
+}
+
+#[test]
 fn rejects_duplicate_parameter_names() {
     assert_error(
         "fn pick(x: i32, x: i32) -> i32 { return x } fn main() -> i32 { return pick(1, 2) }",

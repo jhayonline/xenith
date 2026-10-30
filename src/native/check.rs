@@ -506,6 +506,9 @@ fn expr(
                     message: format!("unknown struct `{name}`"),
                     span: None,
                 });
+                for (_, value) in fields {
+                    expr(value, names, signatures, layouts, errors);
+                }
                 return None;
             };
             let mut given = HashMap::new();
