@@ -399,7 +399,12 @@ impl Parser {
         let mut errors = vec![];
         while self.peek() != Some("}") && self.peek().is_some() {
             match self.stmt() {
-                Ok(statement) => body.push(statement),
+                Ok(statement) => {
+                    body.push(statement);
+                    while self.peek() == Some(";") {
+                        self.take();
+                    }
+                }
                 Err(mut statement_errors) => {
                     errors.append(&mut statement_errors);
                     self.synchronize_statement();
