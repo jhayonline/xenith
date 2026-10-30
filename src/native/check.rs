@@ -586,8 +586,48 @@ fn expr(
                     message: "division by zero".into(),
                     span: None,
                 });
+            } else if constant_arithmetic_overflows(left, *operator, right, left_type.as_ref()) {
+                errors.push(Diagnostic {
+                    message: "integer overflow".into(),
+                    span: None,
+                });
             }
             left_type
         }
+    }
+}
+
+fn constant_arithmetic_overflows(
+    left: &Expr,
+    operator: char,
+    right: &Expr,
+    ty: Option<&Type>,
+) -> bool {
+    let (Expr::Int(left, _), Expr::Int(right, _)) = (left, right) else {
+        return false;
+    };
+    match ty {
+        Some(Type::I32) => {
+            let (Ok(left), Ok(right)) = (i32::try_from(*left), i32::try_from(*right)) else {
+                return true;
+            };
+            match operator {
+                '+' => left.checked_add(right),
+                '-' => left.checked_sub(right),
+                '*' => left.checked_mul(right),
+                '/' => left.checked_div(right),
+                _ => Some(left),
+            }
+            .is_none()
+        }
+        Some(Type::I64) => match operator {
+            '+' => left.checked_add(*right),
+            '-' => left.checked_sub(*right),
+            '*' => left.checked_mul(*right),
+            '/' => left.checked_div(*right),
+            _ => Some(*left),
+        }
+        .is_none(),
+        _ => false,
     }
 }

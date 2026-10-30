@@ -376,6 +376,10 @@ fn rejects_reassignment_without_mut_and_mixed_numbers() {
     assert_error("fn main() -> i32 { return 1 + 2i64 }", "same type");
     assert_error("fn main() -> i32 { return 1 / 0 }", "division by zero");
     assert_error(
+        "fn main() -> i32 { return 2147483647 + 1 }",
+        "integer overflow",
+    );
+    assert_error(
         "fn main() -> i32 { if false && missing { return 0 } else { return 0 } }",
         "unknown name `missing`",
     );
