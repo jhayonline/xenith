@@ -550,15 +550,27 @@ impl Parser {
             return Ok(Expr::Bool(false));
         }
         if let Some(n) = s.strip_suffix("i64").or_else(|| s.strip_suffix("i32")) {
-            if let Ok(value) = n.parse() {
-                return Ok(Expr::Int(
-                    value,
-                    if s.ends_with("i64") {
-                        Type::I64
-                    } else {
-                        Type::I32
-                    },
-                ));
+            if n.chars().enumerate().all(|(index, character)| {
+                character.is_ascii_digit() || (index == 0 && character == '-')
+            }) {
+                let ty = if s.ends_with("i64") {
+                    Type::I64
+                } else {
+                    Type::I32
+                };
+                let value = n.parse::<i64>().map_err(|_| {
+                    vec![Diagnostic::at(
+                        format!("{:?} integer literal out of range", ty).to_lowercase(),
+                        span,
+                    )]
+                })?;
+                if ty == Type::I32 && i32::try_from(value).is_err() {
+                    return Err(vec![Diagnostic::at(
+                        "i32 integer literal out of range",
+                        span,
+                    )]);
+                }
+                return Ok(Expr::Int(value, ty));
             }
         }
         if let Ok(n) = s.parse::<i64>() {

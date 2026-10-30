@@ -295,6 +295,19 @@ fn rejects_out_of_range_unsuffixed_integer_literal() {
 }
 
 #[test]
+fn rejects_out_of_range_i64_literal() {
+    let errors = parse(
+        Path::new("main.xen"),
+        "fn main() -> i32 { let value = 9223372036854775808i64 return 0 }",
+    )
+    .expect_err("source should not parse");
+
+    assert!(errors[0]
+        .message
+        .contains("i64 integer literal out of range"));
+}
+
+#[test]
 fn accepts_forward_calls_and_rejects_bad_calls() {
     assert!(check_source(
         "fn main() -> i32 { return add(1, 2) } fn add(a: i32, b: i32) -> i32 { return a + b }",
