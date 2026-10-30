@@ -9,12 +9,19 @@ pub enum Type {
 }
 #[derive(Debug, Clone)]
 pub struct Program {
+    pub imports: Vec<Import>,
     pub structs: Vec<Struct>,
     pub functions: Vec<Function>,
 }
 #[derive(Debug, Clone)]
+pub struct Import {
+    pub names: Vec<String>,
+    pub path: String,
+}
+#[derive(Debug, Clone)]
 pub struct Struct {
     pub name: String,
+    pub exported: bool,
     pub fields: Vec<Field>,
 }
 #[derive(Debug, Clone)]
@@ -25,6 +32,7 @@ pub struct Field {
 #[derive(Debug, Clone)]
 pub struct Function {
     pub name: String,
+    pub exported: bool,
     pub params: Vec<Parameter>,
     pub result: Type,
     pub body: Vec<Stmt>,
@@ -290,8 +298,36 @@ impl Parser {
     fn program(&mut self) -> Result<Program, Vec<Diagnostic>> {
         let mut functions = vec![];
         let mut structs = vec![];
+        let mut imports = vec![];
         let mut errors = vec![];
         while self.i < self.tokens.len() {
+            if self.peek() == Some("grab") {
+                self.take();
+                self.need("{")?;
+                let mut names = vec![];
+                while self.peek() != Some("}") {
+                    names.push(self.identifier("import name")?);
+                    if self.peek() == Some(",") {
+                        self.take();
+                    } else {
+                        break;
+                    }
+                }
+                self.need("}")?;
+                self.need("from")?;
+                let path = self
+                    .take()
+                    .ok_or_else(|| vec![Diagnostic::at("expected module path", self.location())])?;
+                let path = path.trim_matches('"').to_string();
+                imports.push(Import { names, path });
+                continue;
+            }
+            let exported = if self.peek() == Some("export") {
+                self.take();
+                true
+            } else {
+                false
+            };
             if self.tokens.get(self.i).map(String::as_str) == Some("struct") {
                 self.take();
                 let name = self.identifier("struct name")?;
@@ -327,7 +363,11 @@ impl Parser {
                 if let Err(mut closing_errors) = self.need("}") {
                     errors.append(&mut closing_errors);
                 }
-                structs.push(Struct { name, fields });
+                structs.push(Struct {
+                    name,
+                    exported,
+                    fields,
+                });
                 continue;
             }
             if self.peek() != Some("fn") {
@@ -370,13 +410,18 @@ impl Parser {
             };
             functions.push(Function {
                 name,
+                exported,
                 params,
                 result,
                 body,
             });
         }
         if errors.is_empty() {
-            Ok(Program { structs, functions })
+            Ok(Program {
+                imports,
+                structs,
+                functions,
+            })
         } else {
             Err(errors)
         }

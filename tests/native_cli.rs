@@ -35,6 +35,94 @@ fn fixture_project(source: &str) -> tempfile::TempDir {
 }
 
 #[test]
+fn native_project_builds_and_runs_an_imported_function() {
+    let dir =
+        fixture_project("grab { answer } from \"helper\"\nfn main() -> i32 { return answer() }");
+    let project = dir.path().join("app");
+    std::fs::write(
+        project.join("src/helper.xen"),
+        "export fn answer() -> i32 { return 42 }",
+    )
+    .unwrap();
+    assert_eq!(
+        xenith(&project).arg("run").status().unwrap().code(),
+        Some(42)
+    );
+}
+
+#[test]
+fn native_project_rejects_an_imported_private_function() {
+    let dir = fixture_project("grab { hidden } from \"helper\"\nfn main() -> i32 { return 0 }");
+    let project = dir.path().join("app");
+    std::fs::write(
+        project.join("src/helper.xen"),
+        "fn hidden() -> i32 { return 42 }",
+    )
+    .unwrap();
+    let output = xenith(&project).arg("check").output().unwrap();
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("does not export `hidden`"));
+}
+
+#[test]
+fn native_project_builds_an_imported_struct() {
+    let dir = fixture_project(
+        "grab { Pair } from \"types\"\nfn main() -> i32 { let pair = Pair { value: 9 } return pair.value }",
+    );
+    let project = dir.path().join("app");
+    std::fs::write(
+        project.join("src/types.xen"),
+        "export struct Pair { value: i32 }",
+    )
+    .unwrap();
+    assert_eq!(
+        xenith(&project).arg("run").status().unwrap().code(),
+        Some(9)
+    );
+}
+
+#[test]
+fn native_build_rebuilds_after_an_imported_module_changes() {
+    let dir =
+        fixture_project("grab { answer } from \"helper\"\nfn main() -> i32 { return answer() }");
+    let project = dir.path().join("app");
+    let helper = project.join("src/helper.xen");
+    std::fs::write(&helper, "export fn answer() -> i32 { return 1 }").unwrap();
+    assert!(
+        String::from_utf8_lossy(&xenith(&project).arg("build").output().unwrap().stdout)
+            .contains("Built")
+    );
+    assert!(
+        String::from_utf8_lossy(&xenith(&project).arg("build").output().unwrap().stdout)
+            .contains("Fresh")
+    );
+    std::fs::write(&helper, "export fn answer() -> i32 { return 2 }").unwrap();
+    assert!(
+        String::from_utf8_lossy(&xenith(&project).arg("build").output().unwrap().stdout)
+            .contains("Built")
+    );
+}
+
+#[test]
+fn native_project_reports_a_module_cycle() {
+    let dir = fixture_project("grab { first } from \"first\"\nfn main() -> i32 { return first() }");
+    let project = dir.path().join("app");
+    std::fs::write(
+        project.join("src/first.xen"),
+        "grab { second } from \"second\"\nexport fn first() -> i32 { return second() }",
+    )
+    .unwrap();
+    std::fs::write(
+        project.join("src/second.xen"),
+        "grab { first } from \"first\"\nexport fn second() -> i32 { return first() }",
+    )
+    .unwrap();
+    let output = xenith(&project).arg("check").output().unwrap();
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("circular native module import"));
+}
+
+#[test]
 fn build_and_run_create_a_native_artifact_and_preserve_exit_code() {
     let dir = fixture_project("fn main() -> i32 { return 7 }");
     let project = dir.path().join("app");
