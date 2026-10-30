@@ -374,6 +374,11 @@ fn rejects_missing_or_invalid_main() {
 fn rejects_reassignment_without_mut_and_mixed_numbers() {
     assert_error("fn main() -> i32 { let x = 1 x = 2 return x }", "immutable");
     assert_error("fn main() -> i32 { return 1 + 2i64 }", "same type");
+    assert_error("fn main() -> i32 { return 1 / 0 }", "division by zero");
+    assert_error(
+        "fn main() -> i32 { if false && missing { return 0 } else { return 0 } }",
+        "unknown name `missing`",
+    );
     assert_error(
         "fn main() -> i32 { let value = 1 let value = 2 return value }",
         "duplicate binding `value`",

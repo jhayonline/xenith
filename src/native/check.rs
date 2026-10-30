@@ -420,14 +420,29 @@ fn expr(
             Some(Type::Bool)
         }
         Expr::Logical(left, operator, right) => {
-            for value in [left, right] {
-                if expr(value, names, signatures, layouts, errors) != Some(Type::Bool) {
-                    errors.push(Diagnostic {
-                        message: format!("`{operator}` requires bool"),
-                        span: None,
-                    });
-                }
+            let left_type = expr(left, names, signatures, layouts, errors);
+            if left_type != Some(Type::Bool) {
+                errors.push(Diagnostic {
+                    message: format!("`{operator}` requires bool"),
+                    span: None,
+                });
             }
+            let short_circuits = matches!(
+                (operator.as_str(), left.as_ref()),
+                ("&&", Expr::Bool(false)) | ("||", Expr::Bool(true))
+            );
+            let mut right_errors = vec![];
+            let right_type = expr(right, names, signatures, layouts, &mut right_errors);
+            if right_type != Some(Type::Bool) {
+                right_errors.push(Diagnostic {
+                    message: format!("`{operator}` requires bool"),
+                    span: None,
+                });
+            }
+            if short_circuits {
+                right_errors.retain(|error| error.message != "division by zero");
+            }
+            errors.append(&mut right_errors);
             Some(Type::Bool)
         }
         Expr::Name(name) => names
@@ -553,7 +568,7 @@ fn expr(
             }
             Some(Type::Bool)
         }
-        Expr::Binary(left, _, right) => {
+        Expr::Binary(left, operator, right) => {
             let left_type = expr(left, names, signatures, layouts, errors);
             let right_type = expr(right, names, signatures, layouts, errors);
             if left_type != right_type {
@@ -564,6 +579,11 @@ fn expr(
             } else if !matches!(left_type, Some(Type::I32 | Type::I64)) {
                 errors.push(Diagnostic {
                     message: "arithmetic operands require integers".into(),
+                    span: None,
+                });
+            } else if *operator == '/' && matches!(right.as_ref(), Expr::Int(0, _)) {
+                errors.push(Diagnostic {
+                    message: "division by zero".into(),
                     span: None,
                 });
             }
