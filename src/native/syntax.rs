@@ -549,6 +549,9 @@ impl Parser {
         if s == "false" {
             return Ok(Expr::Bool(false));
         }
+        if let Some(literal) = non_decimal_integer_literal(&s, span) {
+            return literal;
+        }
         if let Some(n) = s.strip_suffix("i64").or_else(|| s.strip_suffix("i32")) {
             if n.chars().enumerate().all(|(index, character)| {
                 character.is_ascii_digit() || (index == 0 && character == '-')
@@ -632,4 +635,39 @@ impl Parser {
             Ok(Expr::Name(s))
         }
     }
+}
+
+fn non_decimal_integer_literal(text: &str, span: Span) -> Option<Result<Expr, Vec<Diagnostic>>> {
+    let (negative, text) = match text.strip_prefix('-') {
+        Some(text) => (true, text),
+        None => (false, text),
+    };
+    let (radix, digits) = text
+        .strip_prefix("0x")
+        .map(|digits| (16, digits))
+        .or_else(|| text.strip_prefix("0b").map(|digits| (2, digits)))?;
+    let (digits, ty) = if let Some(digits) = digits.strip_suffix("i64") {
+        (digits, Type::I64)
+    } else if let Some(digits) = digits.strip_suffix("i32") {
+        (digits, Type::I32)
+    } else {
+        (digits, Type::I32)
+    };
+    let magnitude = match i128::from_str_radix(digits, radix) {
+        Ok(value) => value,
+        Err(_) => return Some(Err(vec![Diagnostic::at("invalid numeric literal", span)])),
+    };
+    let value = if negative { -magnitude } else { magnitude };
+    let in_range = match ty {
+        Type::I32 => value >= i32::MIN as i128 && value <= i32::MAX as i128,
+        Type::I64 => value >= i64::MIN as i128 && value <= i64::MAX as i128,
+        _ => unreachable!("integer literals only have integer types"),
+    };
+    if !in_range {
+        return Some(Err(vec![Diagnostic::at(
+            format!("{:?} integer literal out of range", ty).to_lowercase(),
+            span,
+        )]));
+    }
+    Some(Ok(Expr::Int(value as i64, ty)))
 }

@@ -399,6 +399,15 @@ fn generated_native_program_returns_main_exit_code() {
 }
 
 #[test]
+fn native_program_accepts_hexadecimal_and_binary_literals() {
+    let artifact = build_source("fn main() -> i32 { return 0x20 + 0b1010 }");
+    assert_eq!(
+        Command::new(artifact.executable).status().unwrap().code(),
+        Some(42)
+    );
+}
+
+#[test]
 fn native_program_calls_typed_function() {
     let artifact = build_source(
         "fn twice(value: i32) -> i32 { return value * 2 } fn main() -> i32 { return twice(21) }",
