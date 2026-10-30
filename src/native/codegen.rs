@@ -4,13 +4,21 @@ use super::{
     syntax::{Expr, Function, Stmt, Type},
 };
 use cranelift_codegen::{
-    ir::{condcodes::IntCC, types, AbiParam, InstBuilder, Signature, Value},
+    ir::{
+        condcodes::IntCC, types, AbiParam, ArgumentPurpose, InstBuilder, MemFlags, Signature,
+        StackSlotData, StackSlotKind, Type as ClifType, Value,
+    },
     settings,
 };
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
 use cranelift_module::{default_libcall_names, FuncId, Linkage, Module};
 use cranelift_object::{ObjectBuilder, ObjectModule};
-use std::{collections::HashMap, fs, path::Path, process::Command};
+use std::{
+    collections::{HashMap, HashSet},
+    fs,
+    path::Path,
+    process::Command,
+};
 
 pub fn emit_object(program: &TypedProgram, output: &Path) -> Result<(), NativeError> {
     let isa = cranelift_native::builder()
@@ -60,14 +68,42 @@ fn flat(ty: &Type, layouts: &HashMap<String, StructLayout>) -> Vec<cranelift_cod
             .collect(),
     }
 }
+
+fn indirect_return(ty: &Type, layouts: &HashMap<String, StructLayout>) -> bool {
+    flat(ty, layouts).len() > 2
+}
+
+fn return_layout(
+    ty: &Type,
+    layouts: &HashMap<String, StructLayout>,
+) -> (u32, Vec<(ClifType, i32)>) {
+    let mut size = 0;
+    let mut lanes = Vec::new();
+    for lane in flat(ty, layouts) {
+        let alignment = lane.bytes().min(8);
+        size = (size + alignment - 1) / alignment * alignment;
+        lanes.push((lane, size as i32));
+        size += lane.bytes();
+    }
+    (size, lanes)
+}
+
 fn signature(m: &ObjectModule, f: &Function, l: &HashMap<String, StructLayout>) -> Signature {
     let mut s = m.make_signature();
+    if indirect_return(&f.result, l) {
+        s.params.push(AbiParam::special(
+            m.target_config().pointer_type(),
+            ArgumentPurpose::StructReturn,
+        ));
+    }
     for p in &f.params {
         s.params
             .extend(flat(&p.ty, l).into_iter().map(AbiParam::new));
     }
-    s.returns
-        .extend(flat(&f.result, l).into_iter().map(AbiParam::new));
+    if !indirect_return(&f.result, l) {
+        s.returns
+            .extend(flat(&f.result, l).into_iter().map(AbiParam::new));
+    }
     s
 }
 fn emit(
@@ -86,7 +122,8 @@ fn emit(
         b.switch_to_block(block);
         b.seal_block(block);
         let incoming = b.block_params(block).to_vec();
-        let mut at = 0;
+        let return_area = indirect_return(&f.result, l).then(|| incoming[0]);
+        let mut at = usize::from(return_area.is_some());
         let mut vals = HashMap::new();
         for p in &f.params {
             let n = flat(&p.ty, l).len();
@@ -99,73 +136,30 @@ fn emit(
         for s in &f.body {
             match s {
                 Stmt::While { condition, body } => {
-                    let names: Vec<String> = body
-                        .iter()
-                        .filter_map(|statement| match statement {
-                            Stmt::Assign { name, .. } => Some(name.clone()),
-                            _ => None,
-                        })
-                        .collect();
-                    let header = b.create_block();
-                    let loop_body = b.create_block();
-                    let exit = b.create_block();
-                    for _ in &names {
-                        b.append_block_param(header, types::I32);
-                    }
-                    let initial: Vec<Value> = names.iter().map(|name| vals[name].0[0]).collect();
-                    b.ins().jump(header, &initial);
-                    b.switch_to_block(header);
-                    let mut loop_values = vals.clone();
-                    for (name, current) in names.iter().zip(b.block_params(header).iter()) {
-                        loop_values.insert(name.clone(), (vec![*current], Type::I32));
-                    }
-                    let condition = lower(&mut b, condition, &loop_values, ids, m, l).0[0];
-                    b.ins().brif(condition, loop_body, &[], exit, &[]);
-                    b.switch_to_block(loop_body);
-                    b.seal_block(loop_body);
-                    for statement in body {
-                        if let Stmt::Assign { name, value } = statement {
-                            let next = lower(&mut b, value, &loop_values, ids, m, l).0[0];
-                            loop_values.insert(name.clone(), (vec![next], Type::I32));
-                        }
-                    }
-                    let next: Vec<Value> =
-                        names.iter().map(|name| loop_values[name].0[0]).collect();
-                    b.ins().jump(header, &next);
-                    b.seal_block(header);
-                    b.switch_to_block(exit);
-                    b.seal_block(exit);
-                    for (name, current) in names.iter().zip(b.block_params(header).iter()) {
-                        vals.insert(name.clone(), (vec![*current], Type::I32));
-                    }
+                    lower_while(&mut b, condition, body, &mut vals, ids, m, l, return_area)
                 }
                 Stmt::If {
                     condition,
                     then_body,
                     else_body,
-                } => {
-                    let condition = lower(&mut b, condition, &vals, ids, m, l).0[0];
-                    let yes = b.create_block();
-                    let no = b.create_block();
-                    b.ins().brif(condition, yes, &[], no, &[]);
-                    for (block, branch) in [(yes, then_body), (no, else_body)] {
-                        b.switch_to_block(block);
-                        b.seal_block(block);
-                        for statement in branch {
-                            if let Stmt::Return(value) = statement {
-                                let (value, _) = lower(&mut b, value, &vals, ids, m, l);
-                                b.ins().return_(&value);
-                            }
-                        }
-                    }
-                }
+                } => lower_if(
+                    &mut b,
+                    condition,
+                    then_body,
+                    else_body,
+                    &mut vals,
+                    ids,
+                    m,
+                    l,
+                    return_area,
+                ),
                 Stmt::Let { name, value, .. } | Stmt::Assign { name, value } => {
                     let v = lower(&mut b, value, &vals, ids, m, l);
                     vals.insert(name.clone(), v);
                 }
                 Stmt::Return(v) => {
-                    let (v, _) = lower(&mut b, v, &vals, ids, m, l);
-                    b.ins().return_(&v);
+                    emit_return(&mut b, v, &vals, ids, m, l, return_area);
+                    break;
                 }
             }
         }
@@ -175,6 +169,249 @@ fn emit(
         .map_err(|e| NativeError::not_implemented(e.to_string()))?;
     m.clear_context(&mut c);
     Ok(())
+}
+type Values = HashMap<String, (Vec<Value>, Type)>;
+
+fn emit_return(
+    b: &mut FunctionBuilder,
+    expression: &Expr,
+    values: &Values,
+    ids: &HashMap<String, (FuncId, Type)>,
+    m: &mut ObjectModule,
+    layouts: &HashMap<String, StructLayout>,
+    return_area: Option<Value>,
+) {
+    let (returned, ty) = lower(b, expression, values, ids, m, layouts);
+    if let Some(return_area) = return_area {
+        for (value, (_, offset)) in returned
+            .into_iter()
+            .zip(return_layout(&ty, layouts).1.into_iter())
+        {
+            b.ins().store(MemFlags::new(), value, return_area, offset);
+        }
+        b.ins().return_(&[]);
+    } else {
+        b.ins().return_(&returned);
+    }
+}
+
+fn assigned_names(statements: &[Stmt], values: &Values) -> Vec<String> {
+    assigned_names_in_scope(statements, values, &HashSet::new())
+}
+
+fn assigned_names_in_scope(
+    statements: &[Stmt],
+    values: &Values,
+    shadowed: &HashSet<String>,
+) -> Vec<String> {
+    let mut names = Vec::new();
+    let mut shadowed = shadowed.clone();
+    for statement in statements {
+        match statement {
+            Stmt::Let { name, .. } => {
+                shadowed.insert(name.clone());
+            }
+            Stmt::Assign { name, .. }
+                if values.contains_key(name)
+                    && !shadowed.contains(name)
+                    && !names.contains(name) =>
+            {
+                names.push(name.clone())
+            }
+            Stmt::If {
+                then_body,
+                else_body,
+                ..
+            } => {
+                for name in assigned_names_in_scope(then_body, values, &shadowed)
+                    .into_iter()
+                    .chain(assigned_names_in_scope(else_body, values, &shadowed))
+                {
+                    if !names.contains(&name) {
+                        names.push(name);
+                    }
+                }
+            }
+            Stmt::While { body, .. } => {
+                for name in assigned_names_in_scope(body, values, &shadowed) {
+                    if !names.contains(&name) {
+                        names.push(name);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    names
+}
+
+fn lower_branch(
+    b: &mut FunctionBuilder,
+    statements: &[Stmt],
+    values: &mut Values,
+    ids: &HashMap<String, (FuncId, Type)>,
+    m: &mut ObjectModule,
+    layouts: &HashMap<String, StructLayout>,
+    return_area: Option<Value>,
+) -> bool {
+    for statement in statements {
+        match statement {
+            Stmt::Let { name, value, .. } | Stmt::Assign { name, value } => {
+                values.insert(name.clone(), lower(b, value, values, ids, m, layouts));
+            }
+            Stmt::If {
+                condition,
+                then_body,
+                else_body,
+            } => {
+                lower_if(
+                    b,
+                    condition,
+                    then_body,
+                    else_body,
+                    values,
+                    ids,
+                    m,
+                    layouts,
+                    return_area,
+                );
+            }
+            Stmt::Return(value) => {
+                emit_return(b, value, values, ids, m, layouts, return_area);
+                return true;
+            }
+            Stmt::While { condition, body } => {
+                lower_while(b, condition, body, values, ids, m, layouts, return_area)
+            }
+        }
+    }
+    false
+}
+
+fn lower_while(
+    b: &mut FunctionBuilder,
+    condition: &Expr,
+    body: &[Stmt],
+    values: &mut Values,
+    ids: &HashMap<String, (FuncId, Type)>,
+    m: &mut ObjectModule,
+    layouts: &HashMap<String, StructLayout>,
+    return_area: Option<Value>,
+) {
+    let names = assigned_names(body, values);
+    let header = b.create_block();
+    let loop_body = b.create_block();
+    let exit = b.create_block();
+    for name in &names {
+        for ty in flat(&values[name].1, layouts) {
+            b.append_block_param(header, ty);
+        }
+    }
+    let initial: Vec<Value> = names
+        .iter()
+        .flat_map(|name| values[name].0.iter().copied())
+        .collect();
+    b.ins().jump(header, &initial);
+    b.switch_to_block(header);
+    let mut loop_values = values.clone();
+    let header_values = b.block_params(header).to_vec();
+    let mut offset = 0;
+    for name in &names {
+        let value_count = values[name].0.len();
+        loop_values.insert(
+            name.clone(),
+            (
+                header_values[offset..offset + value_count].to_vec(),
+                values[name].1.clone(),
+            ),
+        );
+        offset += value_count;
+    }
+    let condition = lower(b, condition, &loop_values, ids, m, layouts).0[0];
+    b.ins().brif(condition, loop_body, &[], exit, &[]);
+    b.switch_to_block(loop_body);
+    b.seal_block(loop_body);
+    if !lower_branch(b, body, &mut loop_values, ids, m, layouts, return_area) {
+        let next: Vec<Value> = names
+            .iter()
+            .flat_map(|name| loop_values[name].0.iter().copied())
+            .collect();
+        b.ins().jump(header, &next);
+    }
+    b.seal_block(header);
+    b.switch_to_block(exit);
+    b.seal_block(exit);
+    let mut offset = 0;
+    for name in &names {
+        let value_count = values[name].0.len();
+        values.insert(
+            name.clone(),
+            (
+                header_values[offset..offset + value_count].to_vec(),
+                values[name].1.clone(),
+            ),
+        );
+        offset += value_count;
+    }
+}
+
+fn lower_if(
+    b: &mut FunctionBuilder,
+    condition: &Expr,
+    then_body: &[Stmt],
+    else_body: &[Stmt],
+    values: &mut Values,
+    ids: &HashMap<String, (FuncId, Type)>,
+    m: &mut ObjectModule,
+    layouts: &HashMap<String, StructLayout>,
+    return_area: Option<Value>,
+) {
+    let condition = lower(b, condition, values, ids, m, layouts).0[0];
+    let yes = b.create_block();
+    let no = b.create_block();
+    let merge = b.create_block();
+    let names = assigned_names(then_body, values)
+        .into_iter()
+        .chain(assigned_names(else_body, values))
+        .fold(Vec::new(), |mut names, name| {
+            if !names.contains(&name) {
+                names.push(name);
+            }
+            names
+        });
+    for name in &names {
+        for ty in flat(&values[name].1, layouts) {
+            b.append_block_param(merge, ty);
+        }
+    }
+    b.ins().brif(condition, yes, &[], no, &[]);
+    for (block, branch) in [(yes, then_body), (no, else_body)] {
+        b.switch_to_block(block);
+        b.seal_block(block);
+        let mut branch_values = values.clone();
+        if !lower_branch(b, branch, &mut branch_values, ids, m, layouts, return_area) {
+            let args: Vec<Value> = names
+                .iter()
+                .flat_map(|name| branch_values[name].0.iter().copied())
+                .collect();
+            b.ins().jump(merge, &args);
+        }
+    }
+    b.seal_block(merge);
+    b.switch_to_block(merge);
+    let merge_values = b.block_params(merge).to_vec();
+    let mut offset = 0;
+    for name in &names {
+        let value_count = values[name].0.len();
+        values.insert(
+            name.clone(),
+            (
+                merge_values[offset..offset + value_count].to_vec(),
+                values[name].1.clone(),
+            ),
+        );
+        offset += value_count;
+    }
 }
 fn lower(
     b: &mut FunctionBuilder,
@@ -190,6 +427,34 @@ fn lower(
             vec![b.ins().iconst(types::I8, i64::from(*value))],
             Type::Bool,
         ),
+        Expr::Not(value) => {
+            let value = lower(b, value, v, ids, m, l).0[0];
+            let zero = b.ins().iconst(types::I8, 0);
+            (vec![b.ins().icmp(IntCC::Equal, value, zero)], Type::Bool)
+        }
+        Expr::Logical(left, operator, right) => {
+            let left = lower(b, left, v, ids, m, l).0[0];
+            let evaluate_right = b.create_block();
+            let short_circuit = b.create_block();
+            let merge = b.create_block();
+            b.append_block_param(merge, types::I8);
+            if operator == "&&" {
+                b.ins().brif(left, evaluate_right, &[], short_circuit, &[]);
+            } else {
+                b.ins().brif(left, short_circuit, &[], evaluate_right, &[]);
+            }
+            b.switch_to_block(evaluate_right);
+            b.seal_block(evaluate_right);
+            let right = lower(b, right, v, ids, m, l).0[0];
+            b.ins().jump(merge, &[right]);
+            b.switch_to_block(short_circuit);
+            b.seal_block(short_circuit);
+            let value = b.ins().iconst(types::I8, i64::from(operator == "||"));
+            b.ins().jump(merge, &[value]);
+            b.seal_block(merge);
+            b.switch_to_block(merge);
+            (vec![b.block_params(merge)[0]], Type::Bool)
+        }
         Expr::Name(n) => v[n].clone(),
         Expr::StructLiteral { name, fields } => {
             let mut out = vec![];
@@ -211,21 +476,72 @@ fn lower(
         Expr::Field { base, name } => {
             let (a, t) = lower(b, base, v, ids, m, l);
             let Type::Named(s) = t else { unreachable!() };
-            let i = l[&s].fields.iter().position(|(n, _)| n == name).unwrap();
-            (vec![a[i]], l[&s].fields[i].1.clone())
+            let mut offset = 0;
+            for (field, ty) in &l[&s].fields {
+                let width = flat(ty, l).len();
+                if field == name {
+                    return (a[offset..offset + width].to_vec(), ty.clone());
+                }
+                offset += width;
+            }
+            unreachable!()
         }
         Expr::Call { name, arguments } => {
             let mut a = vec![];
             for x in arguments {
                 a.extend(lower(b, x, v, ids, m, l).0)
             }
+            let result_type = &ids[name].1;
+            let indirect = indirect_return(result_type, l);
+            let return_buffer = if indirect {
+                let (size, _) = return_layout(result_type, l);
+                let slot = b.create_sized_stack_slot(StackSlotData::new(
+                    StackSlotKind::ExplicitSlot,
+                    size,
+                    3,
+                ));
+                let pointer = b
+                    .ins()
+                    .stack_addr(m.target_config().pointer_type(), slot, 0);
+                a.insert(0, pointer);
+                Some(pointer)
+            } else {
+                None
+            };
             let callee = m.declare_func_in_func(ids[name].0, b.func);
             let call = b.ins().call(callee, &a);
-            (b.inst_results(call).to_vec(), ids[name].1.clone())
+            let values = if let Some(return_buffer) = return_buffer {
+                return_layout(result_type, l)
+                    .1
+                    .into_iter()
+                    .map(|(ty, offset)| b.ins().load(ty, MemFlags::new(), return_buffer, offset))
+                    .collect()
+            } else {
+                b.inst_results(call).to_vec()
+            };
+            (values, result_type.clone())
         }
         Expr::Compare(a, operator, c) => {
-            let x = lower(b, a, v, ids, m, l).0[0];
-            let y = lower(b, c, v, ids, m, l).0[0];
+            let (left, ty) = lower(b, a, v, ids, m, l);
+            let right = lower(b, c, v, ids, m, l).0;
+            if matches!(ty, Type::Named(_)) {
+                let mut fields = left.into_iter().zip(right);
+                let (first_left, first_right) = fields.next().unwrap();
+                let mut equal = b.ins().icmp(IntCC::Equal, first_left, first_right);
+                for (left, right) in fields {
+                    let field_equal = b.ins().icmp(IntCC::Equal, left, right);
+                    equal = b.ins().band(equal, field_equal);
+                }
+                let value = if operator == "!=" {
+                    let zero = b.ins().iconst(types::I8, 0);
+                    b.ins().icmp(IntCC::Equal, equal, zero)
+                } else {
+                    equal
+                };
+                return (vec![value], Type::Bool);
+            }
+            let x = left[0];
+            let y = right[0];
             let cc = match operator.as_str() {
                 "<" => IntCC::SignedLessThan,
                 ">" => IntCC::SignedGreaterThan,
@@ -238,7 +554,8 @@ fn lower(
             (vec![b.ins().icmp(cc, x, y)], Type::Bool)
         }
         Expr::Binary(a, o, c) => {
-            let x = lower(b, a, v, ids, m, l).0[0];
+            let (left, ty) = lower(b, a, v, ids, m, l);
+            let x = left[0];
             let y = lower(b, c, v, ids, m, l).0[0];
             (
                 vec![match o {
@@ -247,7 +564,7 @@ fn lower(
                     '*' => b.ins().imul(x, y),
                     _ => b.ins().sdiv(x, y),
                 }],
-                Type::I32,
+                ty,
             )
         }
     }

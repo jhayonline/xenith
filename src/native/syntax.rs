@@ -74,47 +74,110 @@ pub enum Expr {
         base: Box<Expr>,
         name: String,
     },
+    Not(Box<Expr>),
+    Logical(Box<Expr>, String, Box<Expr>),
     Compare(Box<Expr>, String, Box<Expr>),
     Binary(Box<Expr>, char, Box<Expr>),
 }
 #[derive(Debug, Clone)]
 pub struct Diagnostic {
     pub message: String,
+    pub span: Option<Span>,
 }
-fn lex(source: &str) -> Vec<String> {
+
+impl Diagnostic {
+    fn at(message: impl Into<String>, span: Span) -> Self {
+        Self {
+            message: message.into(),
+            span: Some(span),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Span {
+    pub start: usize,
+    pub end: usize,
+}
+
+impl Span {
+    pub const fn new(start: usize, end: usize) -> Self {
+        Self { start, end }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct Token {
+    text: String,
+    span: Span,
+}
+
+fn lex(source: &str) -> Vec<Token> {
     let mut out = Vec::new();
     let mut word = String::new();
-    for c in source.chars() {
+    let mut word_start = 0;
+    for (index, c) in source.char_indices() {
         if c.is_whitespace() {
             if !word.is_empty() {
-                out.push(std::mem::take(&mut word));
+                out.push(Token {
+                    text: std::mem::take(&mut word),
+                    span: Span::new(word_start, index),
+                });
             }
         } else if c == '>' && word == "-" {
             word.push(c);
-            out.push(std::mem::take(&mut word));
-        } else if "{}(),:;=+-*/.<>!".contains(c) {
+            out.push(Token {
+                text: std::mem::take(&mut word),
+                span: Span::new(word_start, index + c.len_utf8()),
+            });
+        } else if "{}(),:;=+-*/.<>!&|".contains(c) {
             if !word.is_empty() {
-                out.push(std::mem::take(&mut word));
+                out.push(Token {
+                    text: std::mem::take(&mut word),
+                    span: Span::new(word_start, index),
+                });
             }
             if c == '-' {
+                word_start = index;
                 word.push(c);
             } else {
-                out.push(c.to_string());
+                out.push(Token {
+                    text: c.to_string(),
+                    span: Span::new(index, index + c.len_utf8()),
+                });
             }
         } else {
+            if word.is_empty() {
+                word_start = index;
+            }
             word.push(c);
         }
     }
+    let source_end = source.len();
     if !word.is_empty() {
-        out.push(word)
+        out.push(Token {
+            text: word,
+            span: Span::new(word_start, source_end),
+        });
     }
     let mut merged = Vec::new();
     let mut index = 0;
     while index < out.len() {
-        if matches!(out[index].as_str(), "<" | ">" | "!" | "=")
-            && out.get(index + 1).map(String::as_str) == Some("=")
+        if matches!(out[index].text.as_str(), "<" | ">" | "!" | "=")
+            && out.get(index + 1).map(|token| token.text.as_str()) == Some("=")
         {
-            merged.push(format!("{}=", out[index]));
+            merged.push(Token {
+                text: format!("{}=", out[index].text),
+                span: Span::new(out[index].span.start, out[index + 1].span.end),
+            });
+            index += 2;
+        } else if matches!(out[index].text.as_str(), "&" | "|")
+            && out.get(index + 1).map(|token| token.text.as_str()) == Some(out[index].text.as_str())
+        {
+            merged.push(Token {
+                text: format!("{}{}", out[index].text, out[index].text),
+                span: Span::new(out[index].span.start, out[index + 1].span.end),
+            });
             index += 2;
         } else {
             merged.push(out[index].clone());
@@ -125,14 +188,36 @@ fn lex(source: &str) -> Vec<String> {
 }
 pub fn parse(_file: &Path, source: &str) -> Result<Program, Vec<Diagnostic>> {
     let tokens = lex(source);
-    let mut p = Parser { tokens, i: 0 };
+    let mut p = Parser {
+        spans: tokens.iter().map(|token| token.span).collect(),
+        tokens: tokens.into_iter().map(|token| token.text).collect(),
+        i: 0,
+        source_end: source.len(),
+    };
     p.program()
 }
 struct Parser {
     tokens: Vec<String>,
+    spans: Vec<Span>,
     i: usize,
+    source_end: usize,
 }
 impl Parser {
+    fn peek(&self) -> Option<&str> {
+        self.tokens.get(self.i).map(String::as_str)
+    }
+    fn location(&self) -> Span {
+        self.tokens
+            .get(self.i)
+            .and_then(|_| self.spans.get(self.i).copied())
+            .unwrap_or_else(|| Span::new(self.source_end, self.source_end))
+    }
+    fn previous_location(&self) -> Span {
+        self.spans
+            .get(self.i.saturating_sub(1))
+            .copied()
+            .unwrap_or_else(|| self.location())
+    }
     fn take(&mut self) -> Option<String> {
         let x = self.tokens.get(self.i).cloned();
         self.i += 1;
@@ -142,9 +227,10 @@ impl Parser {
         if self.take().as_deref() == Some(s) {
             Ok(())
         } else {
-            Err(vec![Diagnostic {
-                message: format!("expected `{s}`"),
-            }])
+            Err(vec![Diagnostic::at(
+                format!("expected `{s}`"),
+                self.previous_location(),
+            )])
         }
     }
     fn ty(&mut self) -> Result<Type, Vec<Diagnostic>> {
@@ -153,9 +239,7 @@ impl Parser {
             Some("i64") => Ok(Type::I64),
             Some("bool") => Ok(Type::Bool),
             Some(name) => Ok(Type::Named(name.to_owned())),
-            None => Err(vec![Diagnostic {
-                message: "expected type".into(),
-            }]),
+            None => Err(vec![Diagnostic::at("expected type", self.location())]),
         }
     }
     fn program(&mut self) -> Result<Program, Vec<Diagnostic>> {
@@ -167,6 +251,7 @@ impl Parser {
                 let name = self.take().ok_or_else(|| {
                     vec![Diagnostic {
                         message: "expected struct name".into(),
+                        span: Some(self.location()),
                     }]
                 })?;
                 self.need("{")?;
@@ -175,6 +260,7 @@ impl Parser {
                     let field = self.take().ok_or_else(|| {
                         vec![Diagnostic {
                             message: "expected field".into(),
+                            span: Some(self.location()),
                         }]
                     })?;
                     self.need(":")?;
@@ -194,6 +280,7 @@ impl Parser {
             let name = self.take().ok_or_else(|| {
                 vec![Diagnostic {
                     message: "expected function name".into(),
+                    span: Some(self.location()),
                 }]
             })?;
             self.need("(")?;
@@ -202,6 +289,7 @@ impl Parser {
                 let parameter_name = self.take().ok_or_else(|| {
                     vec![Diagnostic {
                         message: "expected parameter name".into(),
+                        span: Some(self.location()),
                     }]
                 })?;
                 self.need(":")?;
@@ -215,6 +303,7 @@ impl Parser {
                 } else if self.tokens.get(self.i).map(String::as_str) != Some(")") {
                     return Err(vec![Diagnostic {
                         message: "expected `,` or `)` after parameter".into(),
+                        span: Some(self.location()),
                     }]);
                 }
             }
@@ -240,38 +329,18 @@ impl Parser {
         match self.tokens.get(self.i).map(String::as_str) {
             Some("while") => {
                 self.take();
-                let left = self.expr()?;
-                let operator = self.take().ok_or_else(|| {
-                    vec![Diagnostic {
-                        message: "expected comparison".into(),
-                    }]
-                })?;
-                let right = self.expr()?;
+                let condition = self.condition()?;
                 self.need("{")?;
                 let mut body = vec![];
                 while self.tokens.get(self.i).map(String::as_str) != Some("}") {
                     body.push(self.stmt()?);
                 }
                 self.need("}")?;
-                Ok(Stmt::While {
-                    condition: Expr::Compare(Box::new(left), operator, Box::new(right)),
-                    body,
-                })
+                Ok(Stmt::While { condition, body })
             }
             Some("if") => {
                 self.take();
-                let left = self.expr()?;
-                let condition = if self.tokens.get(self.i).map(String::as_str) == Some("{") {
-                    left
-                } else {
-                    let operator = self.take().ok_or_else(|| {
-                        vec![Diagnostic {
-                            message: "expected comparison".into(),
-                        }]
-                    })?;
-                    let right = self.expr()?;
-                    Expr::Compare(Box::new(left), operator, Box::new(right))
-                };
+                let condition = self.condition()?;
                 self.need("{")?;
                 let mut then_body = vec![];
                 while self.tokens.get(self.i).map(String::as_str) != Some("}") {
@@ -328,15 +397,65 @@ impl Parser {
             }
             None => Err(vec![Diagnostic {
                 message: "unexpected end".into(),
+                span: Some(self.location()),
             }]),
         }
     }
     fn expr(&mut self) -> Result<Expr, Vec<Diagnostic>> {
+        self.logical_or()
+    }
+    fn condition(&mut self) -> Result<Expr, Vec<Diagnostic>> {
+        self.expr()
+    }
+    fn logical_or(&mut self) -> Result<Expr, Vec<Diagnostic>> {
+        let mut left = self.logical_and()?;
+        while self.tokens.get(self.i).map(String::as_str) == Some("||") {
+            self.take();
+            left = Expr::Logical(Box::new(left), "||".into(), Box::new(self.logical_and()?));
+        }
+        Ok(left)
+    }
+    fn logical_and(&mut self) -> Result<Expr, Vec<Diagnostic>> {
+        let mut left = self.comparison()?;
+        while self.tokens.get(self.i).map(String::as_str) == Some("&&") {
+            self.take();
+            left = Expr::Logical(Box::new(left), "&&".into(), Box::new(self.comparison()?));
+        }
+        Ok(left)
+    }
+    fn comparison(&mut self) -> Result<Expr, Vec<Diagnostic>> {
+        let left = self.arithmetic()?;
+        if matches!(
+            self.tokens.get(self.i).map(String::as_str),
+            Some("<") | Some(">") | Some("<=") | Some(">=") | Some("==") | Some("!=")
+        ) {
+            let operator = self.take().unwrap();
+            return Ok(Expr::Compare(
+                Box::new(left),
+                operator,
+                Box::new(self.arithmetic()?),
+            ));
+        }
+        Ok(left)
+    }
+    fn arithmetic(&mut self) -> Result<Expr, Vec<Diagnostic>> {
+        let mut left = self.multiplicative()?;
+        while matches!(
+            self.tokens.get(self.i).map(String::as_str),
+            Some("+") | Some("-")
+        ) {
+            let op = self.take().unwrap().chars().next().unwrap();
+            let right = self.multiplicative()?;
+            left = Expr::Binary(Box::new(left), op, Box::new(right));
+        }
+        Ok(left)
+    }
+    fn multiplicative(&mut self) -> Result<Expr, Vec<Diagnostic>> {
         let atom = self.atom()?;
         let mut left = self.postfix(atom)?;
         while matches!(
             self.tokens.get(self.i).map(String::as_str),
-            Some("+") | Some("-") | Some("*") | Some("/")
+            Some("*") | Some("/")
         ) {
             let op = self.take().unwrap().chars().next().unwrap();
             let atom = self.atom()?;
@@ -351,6 +470,7 @@ impl Parser {
             let name = self.take().ok_or_else(|| {
                 vec![Diagnostic {
                     message: "expected field name".into(),
+                    span: Some(self.location()),
                 }]
             })?;
             left = Expr::Field {
@@ -364,8 +484,21 @@ impl Parser {
         let s = self.take().ok_or_else(|| {
             vec![Diagnostic {
                 message: "expected expression".into(),
+                span: Some(self.location()),
             }]
         })?;
+        let span = self.previous_location();
+        if matches!(s.as_str(), ")" | "}" | "," | ";" | ":" | "=" | "else") {
+            return Err(vec![Diagnostic::at("expected expression", span)]);
+        }
+        if s == "!" {
+            return Ok(Expr::Not(Box::new(self.atom()?)));
+        }
+        if s == "(" {
+            let expression = self.expr()?;
+            self.need(")")?;
+            return Ok(expression);
+        }
         if s == "true" {
             return Ok(Expr::Bool(true));
         }
@@ -386,13 +519,16 @@ impl Parser {
         }
         if let Ok(n) = s.parse() {
             Ok(Expr::Int(n, Type::I32))
-        } else if self.tokens.get(self.i).map(String::as_str) == Some("{") {
+        } else if self.tokens.get(self.i).map(String::as_str) == Some("{")
+            && self.tokens.get(self.i + 2).map(String::as_str) == Some(":")
+        {
             self.take();
             let mut fields = vec![];
             while self.tokens.get(self.i).map(String::as_str) != Some("}") {
                 let field = self.take().ok_or_else(|| {
                     vec![Diagnostic {
                         message: "expected field name".into(),
+                        span: Some(self.location()),
                     }]
                 })?;
                 self.need(":")?;
@@ -414,6 +550,7 @@ impl Parser {
                 } else if self.tokens.get(self.i).map(String::as_str) != Some(")") {
                     return Err(vec![Diagnostic {
                         message: "expected `,` or `)` after argument".into(),
+                        span: Some(self.location()),
                     }]);
                 }
             }

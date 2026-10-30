@@ -1,6 +1,9 @@
 use std::path::Path;
 use std::process::Command;
-use xenith::native::{check::check, syntax::parse};
+use xenith::native::{
+    check::check,
+    syntax::{parse, Span},
+};
 
 fn assert_error(source: &str, fragment: &str) {
     let program = parse(Path::new("src/main.xen"), source).expect("source should parse");
@@ -45,6 +48,35 @@ fn accepts_typed_main_with_integer_expression() {
 }
 
 #[test]
+fn parser_diagnostic_points_to_the_unexpected_token() {
+    let source = "fn main() -> i32 { return ) }";
+    let errors = parse(Path::new("main.xen"), source).expect_err("source should not parse");
+
+    assert_eq!(errors[0].message, "expected expression");
+    assert_eq!(errors[0].span, Some(Span::new(26, 27)));
+}
+
+#[test]
+fn native_program_respects_arithmetic_precedence() {
+    let artifact = build_source("fn main() -> i32 { return 2 + 20 * 2 }");
+    assert_eq!(
+        Command::new(artifact.executable).status().unwrap().code(),
+        Some(42)
+    );
+}
+
+#[test]
+fn native_program_preserves_i64_arithmetic_type_through_if() {
+    let artifact = build_source(
+        "fn main() -> i32 { let mut value = 40i64 + 1i64 if true { value = value + 1i64 } else { value = 0i64 } if value == 42i64 { return 42 } else { return 0 } }",
+    );
+    assert_eq!(
+        Command::new(artifact.executable).status().unwrap().code(),
+        Some(42)
+    );
+}
+
+#[test]
 fn parses_struct_literal_and_field_access() {
     let program = parse(
         Path::new("main.xen"),
@@ -75,6 +107,46 @@ fn checks_if_conditions_and_comparisons() {
         "fn main() -> i32 { if 1 < 2i64 { return 1 } else { return 2 } }",
         "same type",
     );
+    assert_error(
+        "fn main() -> i32 { if 1 && true { return 1 } else { return 2 } }",
+        "`&&` requires bool",
+    );
+    assert_error(
+        "fn main() -> i32 { let value = 0 if true { value = 1 } else { value = 2 } return value }",
+        "immutable binding",
+    );
+    assert_error(
+        "fn main() -> i32 { let value = 0 if true { if true { value = 1 } else { return 0 } } else { return 0 } return value }",
+        "immutable binding",
+    );
+    assert_error(
+        "fn main() -> i32 { let mut value = 0 while value < 1 { if true { missing = 1 } else { value = 1 } } return value }",
+        "unknown name",
+    );
+    assert_error(
+        "fn main() -> i32 { let mut value = 0 if true { if true { value = false } else { value = 1 } } else { value = 2 } return value }",
+        "type mismatch",
+    );
+    assert_error(
+        "fn main() -> i32 { if true { let temporary = 42 } else { return 0 } return temporary }",
+        "unknown name",
+    );
+    assert_error(
+        "fn main() -> i32 { if true { return 42 } else { let value = 0 } }",
+        "main must return",
+    );
+    assert_error(
+        "struct Pair { first: i32, second: i32 } fn main() -> i32 { let left = Pair { first: 1, second: 2 } let right = Pair { first: 1, second: 3 } if (left < right) { return 1 } else { return 0 } }",
+        "ordering comparisons require integer",
+    );
+    assert_error(
+        "fn main() -> i32 { if true < false { return 1 } else { return 0 } }",
+        "ordering comparisons require integer",
+    );
+    assert_error(
+        "fn main() -> i32 { let value = true + false return 0 }",
+        "arithmetic operands require integers",
+    );
 }
 
 #[test]
@@ -102,6 +174,18 @@ fn accepts_struct_fields_and_rejects_invalid_construction() {
     assert_error(
         "struct Point { x: i32 } fn main() -> i32 { return Point { x: 1 }.y }",
         "unknown field",
+    );
+    assert_error(
+        "struct Point { x: i32, y: i32 } fn main() -> i32 { let point = Point { x: 1, x: 2, y: 3 } return point.x }",
+        "duplicate field `x`",
+    );
+    assert_error(
+        "struct Outer { inner: Missing } fn main() -> i32 { return 0 }",
+        "unknown struct `Missing`",
+    );
+    assert_error(
+        "struct A { b: B } struct B { a: A } fn main() -> i32 { return 0 }",
+        "recursive struct layout",
     );
 }
 
@@ -161,12 +245,28 @@ fn rejects_missing_or_invalid_main() {
         "fn main(value: i32) -> i32 { return value }",
         "takes no parameters",
     );
+    assert_error(
+        "fn helper(value: Missing) -> i32 { return 0 } fn main() -> i32 { return 0 }",
+        "unknown type `Missing`",
+    );
+    assert_error(
+        "fn main() -> i32 { let value: Missing = 0 return 0 }",
+        "unknown type `Missing`",
+    );
 }
 
 #[test]
 fn rejects_reassignment_without_mut_and_mixed_numbers() {
     assert_error("fn main() -> i32 { let x = 1 x = 2 return x }", "immutable");
     assert_error("fn main() -> i32 { return 1 + 2i64 }", "same type");
+    assert_error(
+        "fn main() -> i32 { let value = 1 let value = 2 return value }",
+        "duplicate binding `value`",
+    );
+    assert_error(
+        "fn main() -> i32 { if true { let value = 1 let value = 2 return value } else { return 0 } }",
+        "duplicate binding `value`",
+    );
 }
 
 #[test]
@@ -226,6 +326,72 @@ fn native_program_passes_returns_and_reads_structs() {
 }
 
 #[test]
+fn native_program_reads_mixed_scalar_struct_fields() {
+    let artifact = build_source(
+        "struct Status { enabled: bool, limit: i64 } fn main() -> i32 { let status = Status { enabled: true, limit: 42i64 } if status.enabled && status.limit == 42i64 { return 42 } else { return 0 } }",
+    );
+    assert_eq!(
+        Command::new(artifact.executable).status().unwrap().code(),
+        Some(42)
+    );
+}
+
+#[test]
+fn native_program_reads_three_field_structs() {
+    let artifact = build_source(
+        "struct Triple { first: i32, second: i32, third: i32 } fn main() -> i32 { let triple = Triple { first: 10, second: 20, third: 12 } return triple.first + triple.second + triple.third }",
+    );
+    assert_eq!(
+        Command::new(artifact.executable).status().unwrap().code(),
+        Some(42)
+    );
+}
+
+#[test]
+fn native_program_reads_nested_struct_fields() {
+    let artifact = build_source(
+        "struct Position { x: i32, y: i32 } struct Player { position: Position, active: bool } fn main() -> i32 { let player = Player { position: Position { x: 20, y: 22 }, active: true } if player.active { return player.position.x + player.position.y } else { return 0 } }",
+    );
+    assert_eq!(
+        Command::new(artifact.executable).status().unwrap().code(),
+        Some(42)
+    );
+}
+
+#[test]
+fn native_program_passes_nested_structs_through_calls() {
+    let artifact = build_source(
+        "struct Position { x: i32, y: i32 } struct Player { position: Position, active: bool } fn keep(player: Player) -> Player { return player } fn main() -> i32 { let player = keep(Player { position: Position { x: 20, y: 22 }, active: true }) if player.active { return player.position.x + player.position.y } else { return 0 } }",
+    );
+    assert_eq!(
+        Command::new(artifact.executable).status().unwrap().code(),
+        Some(42)
+    );
+}
+
+#[test]
+fn native_program_returns_wide_struct_from_if() {
+    let artifact = build_source(
+        "struct Position { x: i32, y: i32 } struct Player { position: Position, active: bool } fn choose(flag: bool) -> Player { if flag { return Player { position: Position { x: 20, y: 22 }, active: true } } else { return Player { position: Position { x: 0, y: 0 }, active: false } } } fn main() -> i32 { let player = choose(true) if player.active { return player.position.x + player.position.y } else { return 0 } }",
+    );
+    assert_eq!(
+        Command::new(artifact.executable).status().unwrap().code(),
+        Some(42)
+    );
+}
+
+#[test]
+fn native_program_returns_wide_struct_from_while() {
+    let artifact = build_source(
+        "struct Position { x: i32, y: i32 } struct Player { position: Position, active: bool } fn choose() -> Player { while true { return Player { position: Position { x: 20, y: 22 }, active: true } } return Player { position: Position { x: 0, y: 0 }, active: false } } fn main() -> i32 { let player = choose() if player.active { return player.position.x + player.position.y } else { return 0 } }",
+    );
+    assert_eq!(
+        Command::new(artifact.executable).status().unwrap().code(),
+        Some(42)
+    );
+}
+
+#[test]
 fn native_program_branches_on_comparison() {
     let true_path = build_source("fn main() -> i32 { if 1 < 2 { return 42 } else { return 7 } }");
     let false_path = build_source("fn main() -> i32 { if 2 < 1 { return 7 } else { return 42 } }");
@@ -235,6 +401,39 @@ fn native_program_branches_on_comparison() {
     );
     assert_eq!(
         Command::new(false_path.executable).status().unwrap().code(),
+        Some(42)
+    );
+}
+
+#[test]
+fn native_program_uses_struct_literal_in_if_condition() {
+    let artifact = build_source(
+        "struct Pair { first: i32, second: i32 } fn main() -> i32 { if Pair { first: 42, second: 0 }.first == 42 { return 42 } else { return 0 } }",
+    );
+    assert_eq!(
+        Command::new(artifact.executable).status().unwrap().code(),
+        Some(42)
+    );
+}
+
+#[test]
+fn native_program_compares_every_struct_field_for_equality() {
+    let artifact = build_source(
+        "struct Pair { first: i32, second: i32 } fn main() -> i32 { let left = Pair { first: 20, second: 22 } let right = Pair { first: 20, second: 0 } if left == right { return 0 } else { return 42 } }",
+    );
+    assert_eq!(
+        Command::new(artifact.executable).status().unwrap().code(),
+        Some(42)
+    );
+}
+
+#[test]
+fn native_program_compares_every_struct_field_for_inequality() {
+    let artifact = build_source(
+        "struct Pair { first: i32, second: i32 } fn main() -> i32 { let left = Pair { first: 20, second: 22 } let right = Pair { first: 20, second: 0 } if left != right { return 42 } else { return 0 } }",
+    );
+    assert_eq!(
+        Command::new(artifact.executable).status().unwrap().code(),
         Some(42)
     );
 }
@@ -251,6 +450,199 @@ fn native_program_branches_on_extended_comparison() {
 #[test]
 fn native_program_branches_on_boolean_literal() {
     let artifact = build_source("fn main() -> i32 { if true { return 42 } else { return 0 } }");
+    assert_eq!(
+        Command::new(artifact.executable).status().unwrap().code(),
+        Some(42)
+    );
+}
+
+#[test]
+fn native_program_branches_on_boolean_parameter() {
+    let artifact = build_source("fn choose(flag: bool) -> i32 { if flag { return 42 } else { return 0 } } fn main() -> i32 { return choose(true) }");
+    assert_eq!(
+        Command::new(artifact.executable).status().unwrap().code(),
+        Some(42)
+    );
+}
+
+#[test]
+fn native_program_evaluates_boolean_operators() {
+    let artifact = build_source(
+        "fn main() -> i32 { if !false && true || false { return 42 } else { return 0 } }",
+    );
+    assert_eq!(
+        Command::new(artifact.executable).status().unwrap().code(),
+        Some(42)
+    );
+}
+
+#[test]
+fn native_program_evaluates_parenthesized_conditions() {
+    let artifact =
+        build_source("fn main() -> i32 { if !(false || (1 < 0)) { return 42 } else { return 0 } }");
+    assert_eq!(
+        Command::new(artifact.executable).status().unwrap().code(),
+        Some(42)
+    );
+}
+
+#[test]
+fn native_boolean_operators_short_circuit() {
+    let and_artifact =
+        build_source("fn main() -> i32 { if false && 1 / 0 < 1 { return 0 } else { return 42 } }");
+    let or_artifact =
+        build_source("fn main() -> i32 { if true || 1 / 0 < 1 { return 42 } else { return 0 } }");
+    assert_eq!(
+        Command::new(and_artifact.executable)
+            .status()
+            .unwrap()
+            .code(),
+        Some(42)
+    );
+    assert_eq!(
+        Command::new(or_artifact.executable)
+            .status()
+            .unwrap()
+            .code(),
+        Some(42)
+    );
+}
+
+#[test]
+fn native_program_preserves_assignments_after_if() {
+    let true_artifact = build_source(
+        "fn main() -> i32 { let mut value = 0 if true { value = 42 } else { value = 7 } return value }",
+    );
+    let false_artifact = build_source(
+        "fn main() -> i32 { let mut value = 0 if false { value = 7 } else { value = 42 } return value }",
+    );
+    assert_eq!(
+        Command::new(true_artifact.executable)
+            .status()
+            .unwrap()
+            .code(),
+        Some(42)
+    );
+    assert_eq!(
+        Command::new(false_artifact.executable)
+            .status()
+            .unwrap()
+            .code(),
+        Some(42)
+    );
+}
+
+#[test]
+fn native_program_keeps_outer_binding_when_nested_binding_is_shadowed() {
+    let artifact = build_source(
+        "fn main() -> i32 { let mut value = 0 if true { let mut value = 40 value = value + 2 } else { } return value }",
+    );
+    assert_eq!(
+        Command::new(artifact.executable).status().unwrap().code(),
+        Some(0)
+    );
+}
+
+#[test]
+fn native_program_preserves_struct_assignments_after_if() {
+    let artifact = build_source(
+        "struct Pair { first: i32, second: i32 } fn main() -> i32 { let mut pair = Pair { first: 0, second: 0 } if true { pair = Pair { first: 20, second: 22 } } else { pair = Pair { first: 1, second: 1 } } return pair.first + pair.second }",
+    );
+    assert_eq!(
+        Command::new(artifact.executable).status().unwrap().code(),
+        Some(42)
+    );
+}
+
+#[test]
+fn native_program_preserves_struct_assignments_after_while() {
+    let artifact = build_source(
+        "struct Pair { first: i32, second: i32 } fn main() -> i32 { let mut pair = Pair { first: 0, second: 0 } let mut count = 0 while count < 1 { pair = Pair { first: 20, second: 22 } count = count + 1 } return pair.first + pair.second }",
+    );
+    assert_eq!(
+        Command::new(artifact.executable).status().unwrap().code(),
+        Some(42)
+    );
+}
+
+#[test]
+fn native_program_preserves_struct_assignments_from_while_inside_if() {
+    let artifact = build_source(
+        "struct Pair { first: i32, second: i32 } fn main() -> i32 { let mut pair = Pair { first: 0, second: 0 } if true { let mut count = 0 while count < 1 { pair = Pair { first: 20, second: 22 } count = count + 1 } } else { } return pair.first + pair.second }",
+    );
+    assert_eq!(
+        Command::new(artifact.executable).status().unwrap().code(),
+        Some(42)
+    );
+}
+
+#[test]
+fn native_program_preserves_struct_assignments_from_while_inside_while() {
+    let artifact = build_source(
+        "struct Pair { first: i32, second: i32 } fn main() -> i32 { let mut pair = Pair { first: 0, second: 0 } let mut outer = 0 while outer < 1 { let mut inner = 0 while inner < 1 { pair = Pair { first: 20, second: 22 } inner = inner + 1 } outer = outer + 1 } return pair.first + pair.second }",
+    );
+    assert_eq!(
+        Command::new(artifact.executable).status().unwrap().code(),
+        Some(42)
+    );
+}
+
+#[test]
+fn native_program_preserves_nested_if_assignments() {
+    let artifact = build_source(
+        "fn main() -> i32 { let mut value = 0 if true { if true { value = 42 } else { value = 1 } } else { value = 2 } return value }",
+    );
+    assert_eq!(
+        Command::new(artifact.executable).status().unwrap().code(),
+        Some(42)
+    );
+}
+
+#[test]
+fn native_program_preserves_assignments_from_if_inside_while() {
+    let artifact = build_source(
+        "fn main() -> i32 { let mut value = 0 let mut count = 0 while count < 6 { if count < 6 { value = value + 7 } else { value = 0 } count = count + 1 } return value }",
+    );
+    assert_eq!(
+        Command::new(artifact.executable).status().unwrap().code(),
+        Some(42)
+    );
+}
+
+#[test]
+fn native_program_runs_while_inside_if() {
+    let artifact = build_source(
+        "fn main() -> i32 { let mut value = 0 if true { let mut count = 0 while count < 6 { value = value + 7 count = count + 1 } } else { value = 0 } return value }",
+    );
+    assert_eq!(
+        Command::new(artifact.executable).status().unwrap().code(),
+        Some(42)
+    );
+}
+
+#[test]
+fn native_program_returns_from_if_inside_while() {
+    let artifact = build_source(
+        "fn main() -> i32 { let mut count = 0 while count < 6 { if count == 3 { return 42 } else { count = count + 1 } } return 0 }",
+    );
+    assert_eq!(
+        Command::new(artifact.executable).status().unwrap().code(),
+        Some(42)
+    );
+}
+
+#[test]
+fn native_program_returns_directly_from_while() {
+    let artifact = build_source("fn main() -> i32 { while true { return 42 } return 0 }");
+    assert_eq!(
+        Command::new(artifact.executable).status().unwrap().code(),
+        Some(42)
+    );
+}
+
+#[test]
+fn native_program_ignores_statements_after_top_level_return() {
+    let artifact = build_source("fn main() -> i32 { return 42 let unused = 0 return unused }");
     assert_eq!(
         Command::new(artifact.executable).status().unwrap().code(),
         Some(42)
