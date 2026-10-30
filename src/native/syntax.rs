@@ -285,9 +285,13 @@ impl Parser {
                 self.need("{")?;
                 let mut fields = vec![];
                 while self.peek() != Some("}") && self.peek().is_some() {
-                    let Some(field) = self.take() else {
-                        errors.push(Diagnostic::at("expected field", self.location()));
-                        break;
+                    let field = match self.identifier("field name") {
+                        Ok(field) => field,
+                        Err(mut field_errors) => {
+                            errors.append(&mut field_errors);
+                            self.synchronize_struct_field();
+                            continue;
+                        }
                     };
                     if let Err(mut field_errors) = self.need(":") {
                         errors.append(&mut field_errors);
