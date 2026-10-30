@@ -31,7 +31,9 @@ fn attach_name_spans(source: &str, diagnostics: &mut [syntax::Diagnostic]) {
             if let Some((name, _)) = tail.split_once('`') {
                 let spans = identifier_spans(source, name);
                 let occurrence = occurrences.entry(diagnostic.message.clone()).or_insert(0);
-                let span = if diagnostic.message.starts_with("duplicate binding `") {
+                let span = if diagnostic.message.starts_with("duplicate binding `")
+                    || diagnostic.message.starts_with("duplicate parameter `")
+                {
                     spans.get(*occurrence + 1).or_else(|| spans.last())
                 } else {
                     spans.get(*occurrence).or_else(|| spans.last())

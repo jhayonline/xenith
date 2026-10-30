@@ -156,6 +156,22 @@ fn check_locates_each_duplicate_binding_after_the_original() {
 }
 
 #[test]
+fn check_locates_each_duplicate_parameter_after_the_original() {
+    let dir = fixture_project(
+        "fn helper(\n    value: i32,\n    value: i32,\n    value: i32\n) -> i32 { return 0 }\nfn main() -> i32 { return helper(1, 2, 3) }",
+    );
+    let output = xenith(&dir.path().join("app"))
+        .arg("check")
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(!output.status.success());
+    assert!(stderr.contains("src/main.xen:3:5: error: duplicate parameter `value`"));
+    assert!(stderr.contains("src/main.xen:4:5: error: duplicate parameter `value`"));
+}
+
+#[test]
 fn check_renders_located_binding_and_condition_diagnostics() {
     let duplicate =
         fixture_project("fn main() -> i32 { let value = 1 let value = 2 return value }");
