@@ -74,7 +74,6 @@ fn parser_recovery_terminates_at_end_of_unterminated_block() {
 
     assert_eq!(errors.len(), 2);
 }
-
 #[test]
 fn parser_recovers_from_bad_struct_field_before_next_function() {
     let errors = parse(
@@ -84,6 +83,17 @@ fn parser_recovers_from_bad_struct_field_before_next_function() {
     .expect_err("source should not parse");
 
     assert_eq!(errors.len(), 2);
+}
+
+#[test]
+fn parser_propagates_bad_statement_inside_if_block() {
+    let errors = parse(
+        Path::new("main.xen"),
+        "fn main() -> i32 { if true { let = 1 let = 2 } else { return 0 } }",
+    )
+    .expect_err("source should not parse");
+
+    assert_eq!(errors.len(), 1);
 }
 
 #[test]

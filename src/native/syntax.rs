@@ -320,20 +320,13 @@ impl Parser {
             self.need(")")?;
             self.need("->")?;
             let result = self.ty()?;
-            self.need("{")?;
-            let mut body = vec![];
-            while self.peek() != Some("}") && self.peek().is_some() {
-                match self.stmt() {
-                    Ok(statement) => body.push(statement),
-                    Err(mut statement_errors) => {
-                        errors.append(&mut statement_errors);
-                        self.synchronize_statement();
-                    }
+            let body = match self.block() {
+                Ok(body) => body,
+                Err(mut block_errors) => {
+                    errors.append(&mut block_errors);
+                    vec![]
                 }
-            }
-            if let Err(mut closing_errors) = self.need("}") {
-                errors.append(&mut closing_errors);
-            }
+            };
             functions.push(Function {
                 name,
                 params,
@@ -362,35 +355,42 @@ impl Parser {
             self.take();
         }
     }
+    fn block(&mut self) -> Result<Vec<Stmt>, Vec<Diagnostic>> {
+        self.need("{")?;
+        let mut body = vec![];
+        let mut errors = vec![];
+        while self.peek() != Some("}") && self.peek().is_some() {
+            match self.stmt() {
+                Ok(statement) => body.push(statement),
+                Err(mut statement_errors) => {
+                    errors.append(&mut statement_errors);
+                    self.synchronize_statement();
+                }
+            }
+        }
+        if let Err(mut closing_errors) = self.need("}") {
+            errors.append(&mut closing_errors);
+        }
+        if errors.is_empty() {
+            Ok(body)
+        } else {
+            Err(errors)
+        }
+    }
     fn stmt(&mut self) -> Result<Stmt, Vec<Diagnostic>> {
         match self.tokens.get(self.i).map(String::as_str) {
             Some("while") => {
                 self.take();
                 let condition = self.condition()?;
-                self.need("{")?;
-                let mut body = vec![];
-                while self.peek() != Some("}") && self.peek().is_some() {
-                    body.push(self.stmt()?);
-                }
-                self.need("}")?;
+                let body = self.block()?;
                 Ok(Stmt::While { condition, body })
             }
             Some("if") => {
                 self.take();
                 let condition = self.condition()?;
-                self.need("{")?;
-                let mut then_body = vec![];
-                while self.peek() != Some("}") && self.peek().is_some() {
-                    then_body.push(self.stmt()?);
-                }
-                self.need("}")?;
+                let then_body = self.block()?;
                 self.need("else")?;
-                self.need("{")?;
-                let mut else_body = vec![];
-                while self.peek() != Some("}") && self.peek().is_some() {
-                    else_body.push(self.stmt()?);
-                }
-                self.need("}")?;
+                let else_body = self.block()?;
                 Ok(Stmt::If {
                     condition,
                     then_body,
