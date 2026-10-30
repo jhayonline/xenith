@@ -18,6 +18,13 @@ pub struct TypedProgram(
     pub HashMap<String, StructLayout>,
 );
 
+#[derive(Default)]
+struct Flow {
+    returns: bool,
+    breaks_loop: bool,
+    can_fall_through: bool,
+}
+
 pub fn check(program: &Program) -> Result<TypedProgram, Vec<Diagnostic>> {
     let mut errors = vec![];
     let signatures = signatures(program, &mut errors);
@@ -198,8 +205,10 @@ fn check_function(
                         span: None,
                     });
                 }
-                let body_returns = check_block(body, &names, function, signatures, layouts, errors);
-                returned |= matches!(condition, Expr::Bool(true)) && body_returns;
+                let body_flow = check_block(body, &names, function, signatures, layouts, errors, 1);
+                returned |= matches!(condition, Expr::Bool(true))
+                    && body_flow.returns
+                    && !body_flow.breaks_loop;
             }
             Stmt::If {
                 condition,
@@ -212,11 +221,11 @@ fn check_function(
                         span: None,
                     });
                 }
-                let then_returns =
-                    check_block(then_body, &names, function, signatures, layouts, errors);
-                let else_returns =
-                    check_block(else_body, &names, function, signatures, layouts, errors);
-                returned |= then_returns && else_returns;
+                let then_flow =
+                    check_block(then_body, &names, function, signatures, layouts, errors, 0);
+                let else_flow =
+                    check_block(else_body, &names, function, signatures, layouts, errors, 0);
+                returned |= then_flow.returns && else_flow.returns;
             }
             Stmt::Let {
                 name,
@@ -283,6 +292,18 @@ fn check_function(
                     });
                 }
             }
+            Stmt::Stop => {
+                errors.push(Diagnostic {
+                    message: "stop outside a loop".into(),
+                    span: None,
+                });
+            }
+            Stmt::Skip => {
+                errors.push(Diagnostic {
+                    message: "skip outside a loop".into(),
+                    span: None,
+                });
+            }
         }
     }
     if !returned {
@@ -300,11 +321,18 @@ fn check_block(
     signatures: &HashMap<String, FunctionSignature>,
     layouts: &HashMap<String, StructLayout>,
     errors: &mut Vec<Diagnostic>,
-) -> bool {
+    loop_depth: usize,
+) -> Flow {
     let mut names = inherited.clone();
     let mut declared = HashSet::new();
-    let mut returned = false;
+    let mut flow = Flow {
+        can_fall_through: true,
+        ..Flow::default()
+    };
     for statement in statements {
+        if !flow.can_fall_through {
+            break;
+        }
         match statement {
             Stmt::Let {
                 name,
@@ -359,7 +387,8 @@ fn check_block(
                 }),
             },
             Stmt::Return(value) => {
-                returned = true;
+                flow.returns = true;
+                flow.can_fall_through = false;
                 if expr(value, &names, signatures, layouts, errors) != Some(function.result.clone())
                 {
                     errors.push(Diagnostic {
@@ -379,11 +408,15 @@ fn check_block(
                         span: None,
                     });
                 }
-                let then_returns =
-                    check_block(then_body, &names, function, signatures, layouts, errors);
-                let else_returns =
-                    check_block(else_body, &names, function, signatures, layouts, errors);
-                returned |= then_returns && else_returns;
+                let then_flow = check_block(
+                    then_body, &names, function, signatures, layouts, errors, loop_depth,
+                );
+                let else_flow = check_block(
+                    else_body, &names, function, signatures, layouts, errors, loop_depth,
+                );
+                flow.returns = then_flow.returns && else_flow.returns;
+                flow.breaks_loop |= then_flow.breaks_loop || else_flow.breaks_loop;
+                flow.can_fall_through = then_flow.can_fall_through || else_flow.can_fall_through;
             }
             Stmt::While { condition, body } => {
                 if expr(condition, &names, signatures, layouts, errors) != Some(Type::Bool) {
@@ -392,12 +425,45 @@ fn check_block(
                         span: None,
                     });
                 }
-                let body_returns = check_block(body, &names, function, signatures, layouts, errors);
-                returned |= matches!(condition, Expr::Bool(true)) && body_returns;
+                let body_flow = check_block(
+                    body,
+                    &names,
+                    function,
+                    signatures,
+                    layouts,
+                    errors,
+                    loop_depth + 1,
+                );
+                flow.returns = matches!(condition, Expr::Bool(true))
+                    && body_flow.returns
+                    && !body_flow.breaks_loop;
+                flow.can_fall_through =
+                    !matches!(condition, Expr::Bool(true)) || body_flow.breaks_loop;
+            }
+            Stmt::Stop => {
+                if loop_depth == 0 {
+                    errors.push(Diagnostic {
+                        message: "stop outside a loop".into(),
+                        span: None,
+                    });
+                } else {
+                    flow.breaks_loop = true;
+                    flow.can_fall_through = false;
+                }
+            }
+            Stmt::Skip => {
+                if loop_depth == 0 {
+                    errors.push(Diagnostic {
+                        message: "skip outside a loop".into(),
+                        span: None,
+                    });
+                } else {
+                    flow.can_fall_through = false;
+                }
             }
         }
     }
-    returned
+    flow
 }
 
 fn expr(

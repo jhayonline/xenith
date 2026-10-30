@@ -36,6 +36,8 @@ pub struct Parameter {
 }
 #[derive(Debug, Clone)]
 pub enum Stmt {
+    Stop,
+    Skip,
     While {
         condition: Expr,
         body: Vec<Stmt>,
@@ -374,8 +376,10 @@ impl Parser {
         }
     }
     fn synchronize_statement(&mut self) {
-        while !matches!(self.peek(), Some("let" | "return" | "if" | "while" | "}"))
-            && self.peek().is_some()
+        while !matches!(
+            self.peek(),
+            Some("let" | "return" | "if" | "while" | "stop" | "skip" | "}")
+        ) && self.peek().is_some()
         {
             self.take();
         }
@@ -422,6 +426,14 @@ impl Parser {
     }
     fn stmt(&mut self) -> Result<Stmt, Vec<Diagnostic>> {
         match self.tokens.get(self.i).map(String::as_str) {
+            Some("stop") => {
+                self.take();
+                Ok(Stmt::Stop)
+            }
+            Some("skip") => {
+                self.take();
+                Ok(Stmt::Skip)
+            }
             Some("while") => {
                 self.take();
                 let condition = self.condition()?;

@@ -5,8 +5,8 @@ use super::{
 };
 use cranelift_codegen::{
     ir::{
-        condcodes::IntCC, types, AbiParam, ArgumentPurpose, InstBuilder, MemFlags, Signature,
-        StackSlotData, StackSlotKind, TrapCode, Type as ClifType, Value,
+        condcodes::IntCC, types, AbiParam, ArgumentPurpose, Block, InstBuilder, MemFlags,
+        Signature, StackSlotData, StackSlotKind, TrapCode, Type as ClifType, Value,
     },
     settings,
 };
@@ -133,10 +133,26 @@ fn emit(
             );
             at += n;
         }
+        let mut loops = Vec::new();
         for s in &f.body {
             match s {
+                Stmt::Stop | Stmt::Skip => {
+                    unreachable!("loop control is checked before native lowering")
+                }
                 Stmt::While { condition, body } => {
-                    if lower_while(&mut b, condition, body, &mut vals, ids, m, l, return_area) {
+                    if lower_while(
+                        &mut b,
+                        condition,
+                        body,
+                        &mut vals,
+                        ids,
+                        m,
+                        l,
+                        return_area,
+                        &mut loops,
+                        &HashSet::new(),
+                    ) == LowerFlow::Returns
+                    {
                         break;
                     }
                 }
@@ -155,7 +171,10 @@ fn emit(
                         m,
                         l,
                         return_area,
-                    ) {
+                        &mut loops,
+                        &HashSet::new(),
+                    ) == LowerFlow::Returns
+                    {
                         break;
                     }
                 }
@@ -177,6 +196,53 @@ fn emit(
     Ok(())
 }
 type Values = HashMap<String, (Vec<Value>, Type)>;
+
+#[derive(Clone)]
+struct LoopTarget {
+    header: Block,
+    exit: Block,
+    names: Vec<String>,
+    carried: HashMap<String, Vec<Value>>,
+    protected: HashSet<String>,
+    has_stop: bool,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum LowerFlow {
+    FallsThrough,
+    Returns,
+    LoopJump,
+}
+
+fn loop_args(target: &LoopTarget) -> Vec<Value> {
+    target
+        .names
+        .iter()
+        .flat_map(|name| target.carried[name].iter().copied())
+        .collect()
+}
+
+fn record_assignment(loops: &mut [LoopTarget], name: &str, value: &[Value]) {
+    for target in loops {
+        if !target.protected.contains(name) {
+            if let Some(carried) = target.carried.get_mut(name) {
+                *carried = value.to_vec();
+            }
+        }
+    }
+}
+
+fn sync_loop_values(loops: &mut [LoopTarget], values: &Values, shadowed: &HashSet<String>) {
+    for target in loops {
+        for name in &target.names {
+            if !shadowed.contains(name) && !target.protected.contains(name) {
+                if let Some((value, _)) = values.get(name) {
+                    target.carried.insert(name.clone(), value.clone());
+                }
+            }
+        }
+    }
+}
 
 fn emit_return(
     b: &mut FunctionBuilder,
@@ -259,18 +325,45 @@ fn lower_branch(
     m: &mut ObjectModule,
     layouts: &HashMap<String, StructLayout>,
     return_area: Option<Value>,
-) -> bool {
+    loops: &mut Vec<LoopTarget>,
+    shadowed: &mut HashSet<String>,
+) -> LowerFlow {
     for statement in statements {
         match statement {
-            Stmt::Let { name, value, .. } | Stmt::Assign { name, value } => {
-                values.insert(name.clone(), lower(b, value, values, ids, m, layouts));
+            Stmt::Stop => {
+                let target = loops.last_mut().expect("checked loop control has a target");
+                target.has_stop = true;
+                let args = loop_args(target);
+                b.ins().jump(target.exit, &args);
+                return LowerFlow::LoopJump;
+            }
+            Stmt::Skip => {
+                let target = loops.last().expect("checked loop control has a target");
+                let args = loop_args(target);
+                b.ins().jump(target.header, &args);
+                return LowerFlow::LoopJump;
+            }
+            Stmt::Let { name, value, .. } => {
+                let value = lower(b, value, values, ids, m, layouts);
+                values.insert(name.clone(), value);
+                shadowed.insert(name.clone());
+                for target in &mut *loops {
+                    target.protected.insert(name.clone());
+                }
+            }
+            Stmt::Assign { name, value } => {
+                let value = lower(b, value, values, ids, m, layouts);
+                if !shadowed.contains(name) {
+                    record_assignment(loops, name, &value.0);
+                }
+                values.insert(name.clone(), value);
             }
             Stmt::If {
                 condition,
                 then_body,
                 else_body,
             } => {
-                if lower_if(
+                let flow = lower_if(
                     b,
                     condition,
                     then_body,
@@ -280,22 +373,37 @@ fn lower_branch(
                     m,
                     layouts,
                     return_area,
-                ) {
-                    return true;
+                    loops,
+                    shadowed,
+                );
+                if flow != LowerFlow::FallsThrough {
+                    return flow;
                 }
             }
             Stmt::Return(value) => {
                 emit_return(b, value, values, ids, m, layouts, return_area);
-                return true;
+                return LowerFlow::Returns;
             }
             Stmt::While { condition, body } => {
-                if lower_while(b, condition, body, values, ids, m, layouts, return_area) {
-                    return true;
+                let flow = lower_while(
+                    b,
+                    condition,
+                    body,
+                    values,
+                    ids,
+                    m,
+                    layouts,
+                    return_area,
+                    loops,
+                    shadowed,
+                );
+                if flow != LowerFlow::FallsThrough {
+                    return flow;
                 }
             }
         }
     }
-    false
+    LowerFlow::FallsThrough
 }
 
 fn lower_while(
@@ -307,7 +415,9 @@ fn lower_while(
     m: &mut ObjectModule,
     layouts: &HashMap<String, StructLayout>,
     return_area: Option<Value>,
-) -> bool {
+    loops: &mut Vec<LoopTarget>,
+    inherited_shadows: &HashSet<String>,
+) -> LowerFlow {
     let always_true = matches!(condition, Expr::Bool(true));
     let names = assigned_names(body, values);
     let header = b.create_block();
@@ -316,6 +426,7 @@ fn lower_while(
     for name in &names {
         for ty in flat(&values[name].1, layouts) {
             b.append_block_param(header, ty);
+            b.append_block_param(exit, ty);
         }
     }
     let initial: Vec<Value> = names
@@ -339,11 +450,42 @@ fn lower_while(
         offset += value_count;
     }
     let condition = lower(b, condition, &loop_values, ids, m, layouts).0[0];
-    b.ins().brif(condition, loop_body, &[], exit, &[]);
+    b.ins()
+        .brif(condition, loop_body, &[], exit, &header_values);
     b.switch_to_block(loop_body);
     b.seal_block(loop_body);
-    let body_returns = lower_branch(b, body, &mut loop_values, ids, m, layouts, return_area);
-    if !body_returns {
+    loops.push(LoopTarget {
+        header,
+        exit,
+        names: names.clone(),
+        carried: names
+            .iter()
+            .map(|name| (name.clone(), loop_values[name].0.clone()))
+            .collect(),
+        protected: inherited_shadows
+            .iter()
+            .filter(|name| !names.contains(name))
+            .cloned()
+            .collect(),
+        has_stop: false,
+    });
+    let mut body_shadows = inherited_shadows.clone();
+    for name in &names {
+        body_shadows.remove(name);
+    }
+    let body_flow = lower_branch(
+        b,
+        body,
+        &mut loop_values,
+        ids,
+        m,
+        layouts,
+        return_area,
+        loops,
+        &mut body_shadows,
+    );
+    let loop_target = loops.pop().expect("loop target was pushed");
+    if body_flow == LowerFlow::FallsThrough {
         let next: Vec<Value> = names
             .iter()
             .flat_map(|name| loop_values[name].0.iter().copied())
@@ -353,22 +495,28 @@ fn lower_while(
     b.seal_block(header);
     b.switch_to_block(exit);
     b.seal_block(exit);
-    if always_true && body_returns {
+    if always_true && body_flow == LowerFlow::Returns && !loop_target.has_stop {
         b.ins().trap(TrapCode::unwrap_user(1));
     }
+    let exit_values = b.block_params(exit).to_vec();
     let mut offset = 0;
     for name in &names {
         let value_count = values[name].0.len();
         values.insert(
             name.clone(),
             (
-                header_values[offset..offset + value_count].to_vec(),
+                exit_values[offset..offset + value_count].to_vec(),
                 values[name].1.clone(),
             ),
         );
         offset += value_count;
     }
-    always_true && body_returns
+    sync_loop_values(loops, values, inherited_shadows);
+    if always_true && body_flow == LowerFlow::Returns && !loop_target.has_stop {
+        LowerFlow::Returns
+    } else {
+        LowerFlow::FallsThrough
+    }
 }
 
 fn lower_if(
@@ -381,7 +529,9 @@ fn lower_if(
     m: &mut ObjectModule,
     layouts: &HashMap<String, StructLayout>,
     return_area: Option<Value>,
-) -> bool {
+    loops: &mut Vec<LoopTarget>,
+    inherited_shadows: &HashSet<String>,
+) -> LowerFlow {
     let condition = lower(b, condition, values, ids, m, layouts).0[0];
     let yes = b.create_block();
     let no = b.create_block();
@@ -401,15 +551,29 @@ fn lower_if(
         }
     }
     b.ins().brif(condition, yes, &[], no, &[]);
-    let mut branches_return = Vec::new();
+    let mut branch_flows = Vec::new();
     for (block, branch) in [(yes, then_body), (no, else_body)] {
         b.switch_to_block(block);
         b.seal_block(block);
         let mut branch_values = values.clone();
-        let branch_returns =
-            lower_branch(b, branch, &mut branch_values, ids, m, layouts, return_area);
-        branches_return.push(branch_returns);
-        if !branch_returns {
+        let mut branch_loops = loops.clone();
+        let mut branch_shadows = inherited_shadows.clone();
+        let flow = lower_branch(
+            b,
+            branch,
+            &mut branch_values,
+            ids,
+            m,
+            layouts,
+            return_area,
+            &mut branch_loops,
+            &mut branch_shadows,
+        );
+        for (target, branch_target) in loops.iter_mut().zip(branch_loops) {
+            target.has_stop |= branch_target.has_stop;
+        }
+        branch_flows.push(flow);
+        if flow == LowerFlow::FallsThrough {
             let args: Vec<Value> = names
                 .iter()
                 .flat_map(|name| branch_values[name].0.iter().copied())
@@ -419,9 +583,15 @@ fn lower_if(
     }
     b.seal_block(merge);
     b.switch_to_block(merge);
-    if branches_return.into_iter().all(|returned| returned) {
+    if branch_flows
+        .iter()
+        .all(|flow| *flow != LowerFlow::FallsThrough)
+    {
         b.ins().trap(TrapCode::unwrap_user(1));
-        return true;
+        if branch_flows.iter().all(|flow| *flow == LowerFlow::Returns) {
+            return LowerFlow::Returns;
+        }
+        return LowerFlow::LoopJump;
     }
     let merge_values = b.block_params(merge).to_vec();
     let mut offset = 0;
@@ -436,7 +606,8 @@ fn lower_if(
         );
         offset += value_count;
     }
-    false
+    sync_loop_values(loops, values, inherited_shadows);
+    LowerFlow::FallsThrough
 }
 fn lower(
     b: &mut FunctionBuilder,
