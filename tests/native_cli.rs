@@ -108,6 +108,22 @@ fn check_locates_repeated_semantic_diagnostics_in_source_order() {
 }
 
 #[test]
+fn check_locates_repeated_arithmetic_diagnostics_in_source_order() {
+    let dir = fixture_project(
+        "fn main() -> i32 {\n    let first = true + false\n    let second = true + false\n    return 0\n}",
+    );
+    let output = xenith(&dir.path().join("app"))
+        .arg("check")
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(!output.status.success());
+    assert!(stderr.contains("src/main.xen:2:22: error: arithmetic operands require integers"));
+    assert!(stderr.contains("src/main.xen:3:23: error: arithmetic operands require integers"));
+}
+
+#[test]
 fn check_renders_located_binding_and_condition_diagnostics() {
     let duplicate =
         fixture_project("fn main() -> i32 { let value = 1 let value = 2 return value }");

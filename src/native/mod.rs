@@ -55,17 +55,25 @@ fn attach_name_spans(source: &str, diagnostics: &mut [syntax::Diagnostic]) {
                 diagnostic.span = Some(syntax::Span::new(start, start + keyword.len()));
             }
         }
-        if diagnostic.span.is_none()
-            && (diagnostic.message.starts_with("numeric operands")
-                || diagnostic.message.starts_with("arithmetic operands")
-                || diagnostic.message.starts_with("comparison operands")
-                || diagnostic.message.starts_with("ordering comparisons"))
+        let operators = if diagnostic.message.starts_with("numeric operands")
+            || diagnostic.message.starts_with("arithmetic operands")
         {
-            if let Some((start, operator)) = ["==", "!=", "<=", ">=", "+", "-", "*", "/", "<", ">"]
-                .iter()
-                .find_map(|operator| source.rfind(operator).map(|start| (start, *operator)))
-            {
-                diagnostic.span = Some(syntax::Span::new(start, start + operator.len()));
+            Some(arithmetic_operator_spans(source))
+        } else if diagnostic.message.starts_with("comparison operands")
+            || diagnostic.message.starts_with("ordering comparisons")
+        {
+            Some(comparison_operator_spans(source))
+        } else {
+            None
+        };
+        if diagnostic.span.is_none() {
+            if let Some(spans) = operators {
+                let occurrence = occurrences.entry(diagnostic.message.clone()).or_insert(0);
+                diagnostic.span = spans
+                    .get(*occurrence)
+                    .copied()
+                    .or_else(|| spans.last().copied());
+                *occurrence += 1;
             }
         }
     }
@@ -89,6 +97,47 @@ fn identifier_spans(source: &str, name: &str) -> Vec<syntax::Span> {
             }
         })
         .collect()
+}
+
+fn arithmetic_operator_spans(source: &str) -> Vec<syntax::Span> {
+    operator_spans(source, |character| {
+        matches!(character, '+' | '-' | '*' | '/')
+    })
+}
+
+fn comparison_operator_spans(source: &str) -> Vec<syntax::Span> {
+    operator_spans(source, |character| {
+        matches!(character, '<' | '>' | '=' | '!')
+    })
+}
+
+fn operator_spans(source: &str, is_operator: impl Fn(char) -> bool) -> Vec<syntax::Span> {
+    let mut spans = Vec::new();
+    let mut characters = source.char_indices().peekable();
+    while let Some((start, character)) = characters.next() {
+        if character == '#' {
+            while let Some((_, character)) = characters.next() {
+                if character == '\n' {
+                    break;
+                }
+            }
+            continue;
+        }
+        if !is_operator(character)
+            || (character == '-' && characters.peek().is_some_and(|(_, next)| *next == '>'))
+        {
+            continue;
+        }
+        let mut end = start + character.len_utf8();
+        if matches!(character, '<' | '>' | '=' | '!')
+            && characters.peek().is_some_and(|(_, next)| *next == '=')
+        {
+            let (next_start, next) = characters.next().unwrap();
+            end = next_start + next.len_utf8();
+        }
+        spans.push(syntax::Span::new(start, end));
+    }
+    spans
 }
 pub fn build(p: &project::Project) -> Result<BuildArtifact, NativeError> {
     let t = check_project(p)?;
