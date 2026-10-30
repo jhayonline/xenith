@@ -53,6 +53,32 @@ fn accepts_function_returning_directly_from_infinite_loop() {
 }
 
 #[test]
+fn rejects_stop_outside_a_loop() {
+    assert_error("fn main() -> i32 { stop return 0 }", "stop outside a loop");
+}
+
+#[test]
+fn rejects_skip_outside_a_loop() {
+    assert_error("fn main() -> i32 { skip return 0 }", "skip outside a loop");
+}
+
+#[test]
+fn a_stoppable_infinite_loop_does_not_guarantee_a_return() {
+    assert_error(
+        "fn main() -> i32 { while true { stop } }",
+        "main must return",
+    );
+}
+
+#[test]
+fn an_unreachable_return_after_skip_does_not_satisfy_the_return_requirement() {
+    assert_error(
+        "fn main() -> i32 { while true { skip return 42 } }",
+        "main must return",
+    );
+}
+
+#[test]
 fn native_program_returns_directly_from_infinite_loop() {
     let artifact = build_source("fn main() -> i32 { while true { return 42 } }");
     assert_eq!(
@@ -1037,5 +1063,103 @@ fn native_while_loop_runs_multiple_assignments() {
     assert_eq!(
         Command::new(artifact.executable).status().unwrap().code(),
         Some(42)
+    );
+}
+
+#[test]
+fn native_skip_carries_assignments_to_the_next_iteration() {
+    let artifact = build_source(
+        "fn main() -> i32 { let mut i = 0 let mut count = 0 while i < 5 { i = i + 1 if i == 3 { skip } count = count + 1 } return count }",
+    );
+    assert_eq!(
+        Command::new(artifact.executable).status().unwrap().code(),
+        Some(4)
+    );
+}
+
+#[test]
+fn native_stop_preserves_assignments_before_leaving_the_loop() {
+    let artifact = build_source(
+        "fn main() -> i32 { let mut value = 0 while value < 10 { value = value + 1 if value == 4 { stop } } return value }",
+    );
+    assert_eq!(
+        Command::new(artifact.executable).status().unwrap().code(),
+        Some(4)
+    );
+}
+
+#[test]
+fn native_loop_control_targets_the_innermost_loop() {
+    let artifact = build_source(
+        "fn main() -> i32 { let mut outer = 0 let mut total = 0 while outer < 3 { outer = outer + 1 let mut inner = 0 while true { inner = inner + 1 if inner == 2 { stop } } total = total + inner } return total }",
+    );
+    assert_eq!(
+        Command::new(artifact.executable).status().unwrap().code(),
+        Some(6)
+    );
+}
+
+#[test]
+fn native_stop_in_a_conditional_path_leaves_a_reachable_loop_exit() {
+    let artifact =
+        build_source("fn main() -> i32 { while true { if true { stop } return 42 } return 7 }");
+    assert_eq!(
+        Command::new(artifact.executable).status().unwrap().code(),
+        Some(7)
+    );
+}
+
+#[test]
+fn native_stop_uses_the_outer_binding_when_a_local_is_shadowed() {
+    let artifact = build_source(
+        "fn main() -> i32 { let mut x = 0 while x < 5 { x = x + 1 if true { let x = 99 stop } } return x }",
+    );
+    assert_eq!(
+        Command::new(artifact.executable).status().unwrap().code(),
+        Some(1)
+    );
+}
+
+#[test]
+fn native_stop_ignores_assignments_to_a_shadowing_local() {
+    let artifact = build_source(
+        "fn main() -> i32 { let mut x = 0 while x < 5 { x = x + 1 if true { let mut x = 99 x = x + 1 stop } } return x }",
+    );
+    assert_eq!(
+        Command::new(artifact.executable).status().unwrap().code(),
+        Some(1)
+    );
+}
+
+#[test]
+fn native_stop_ignores_a_shadow_after_nested_control_flow() {
+    let artifact = build_source(
+        "fn main() -> i32 { let mut x = 0 while x < 5 { x = x + 1 if true { let x = 99 if true { } stop } } return x }",
+    );
+    assert_eq!(
+        Command::new(artifact.executable).status().unwrap().code(),
+        Some(1)
+    );
+}
+
+#[test]
+fn native_stop_ignores_a_shadowing_inner_loop() {
+    let artifact = build_source(
+        "fn main() -> i32 { let mut x = 0 while x < 5 { x = x + 1 if true { let mut x = 90 while x < 92 { x = x + 1 } stop } } return x }",
+    );
+    assert_eq!(
+        Command::new(artifact.executable).status().unwrap().code(),
+        Some(1)
+    );
+}
+
+#[test]
+fn native_inner_loop_assignments_reach_an_outer_stop() {
+    let artifact = build_source(
+        "fn main() -> i32 { let mut x = 0 while true { while x < 3 { x = x + 1 } stop } return x }",
+    );
+    assert_eq!(
+        Command::new(artifact.executable).status().unwrap().code(),
+        Some(3)
     );
 }
