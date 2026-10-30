@@ -318,12 +318,7 @@ impl Parser {
             self.need("(")?;
             let mut params = vec![];
             while self.tokens.get(self.i).map(String::as_str) != Some(")") {
-                let parameter_name = self.take().ok_or_else(|| {
-                    vec![Diagnostic {
-                        message: "expected parameter name".into(),
-                        span: Some(self.location()),
-                    }]
-                })?;
+                let parameter_name = self.identifier("parameter name")?;
                 self.need(":")?;
                 let parameter_type = self.ty()?;
                 params.push(Parameter {
