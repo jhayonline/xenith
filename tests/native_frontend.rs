@@ -417,6 +417,17 @@ fn native_program_accepts_hexadecimal_and_binary_literals() {
 }
 
 #[test]
+fn native_program_traps_on_runtime_integer_overflow() {
+    let artifact = build_source(
+        "fn main() -> i32 { let maximum = 2147483647 let one = 1 return maximum + one }",
+    );
+    assert_ne!(
+        Command::new(artifact.executable).status().unwrap().code(),
+        Some(0)
+    );
+}
+
+#[test]
 fn native_program_ignores_line_comments() {
     let artifact = build_source("# entry point\nfn main() -> i32 {\n  return 42 # success\n}");
     assert_eq!(

@@ -584,9 +584,18 @@ fn lower(
             let y = lower(b, c, v, ids, m, l).0[0];
             (
                 vec![match o {
-                    '+' => b.ins().iadd(x, y),
-                    '-' => b.ins().isub(x, y),
-                    '*' => b.ins().imul(x, y),
+                    '+' => {
+                        let values = b.ins().sadd_overflow(x, y);
+                        checked_integer_operation(b, values)
+                    }
+                    '-' => {
+                        let values = b.ins().ssub_overflow(x, y);
+                        checked_integer_operation(b, values)
+                    }
+                    '*' => {
+                        let values = b.ins().smul_overflow(x, y);
+                        checked_integer_operation(b, values)
+                    }
                     _ => b.ins().sdiv(x, y),
                 }],
                 ty,
@@ -594,6 +603,12 @@ fn lower(
         }
     }
 }
+
+fn checked_integer_operation(b: &mut FunctionBuilder, (value, overflow): (Value, Value)) -> Value {
+    b.ins().trapnz(overflow, TrapCode::INTEGER_OVERFLOW);
+    value
+}
+
 pub fn link_host(object: &Path, executable: &Path) -> Result<(), NativeError> {
     let out = Command::new("cc")
         .arg(object)
