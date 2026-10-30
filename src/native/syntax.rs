@@ -426,9 +426,7 @@ impl Parser {
                 } else {
                     false
                 };
-                let name = self.take().ok_or_else(|| {
-                    vec![Diagnostic::at("expected binding name", self.location())]
-                })?;
+                let name = self.identifier("binding name")?;
                 let ty = if self.tokens.get(self.i).map(String::as_str) == Some(":") {
                     self.take();
                     Some(self.ty()?)
