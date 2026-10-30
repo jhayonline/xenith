@@ -48,6 +48,11 @@ fn accepts_typed_main_with_integer_expression() {
 }
 
 #[test]
+fn accepts_function_returning_directly_from_infinite_loop() {
+    assert!(check_source("fn main() -> i32 { while true { return 42 } }").is_ok());
+}
+
+#[test]
 fn parser_diagnostic_points_to_the_unexpected_token() {
     let source = "fn main() -> i32 { return ) }";
     let errors = parse(Path::new("main.xen"), source).expect_err("source should not parse");

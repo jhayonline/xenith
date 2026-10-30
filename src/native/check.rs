@@ -198,7 +198,8 @@ fn check_function(
                         span: None,
                     });
                 }
-                check_block(body, &names, function, signatures, layouts, errors);
+                let body_returns = check_block(body, &names, function, signatures, layouts, errors);
+                returned |= matches!(condition, Expr::Bool(true)) && body_returns;
             }
             Stmt::If {
                 condition,
@@ -391,7 +392,8 @@ fn check_block(
                         span: None,
                     });
                 }
-                check_block(body, &names, function, signatures, layouts, errors);
+                let body_returns = check_block(body, &names, function, signatures, layouts, errors);
+                returned |= matches!(condition, Expr::Bool(true)) && body_returns;
             }
         }
     }
