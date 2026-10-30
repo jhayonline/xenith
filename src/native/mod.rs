@@ -5,7 +5,7 @@ pub mod error;
 pub mod project;
 pub mod syntax;
 pub use error::NativeError;
-use std::{fs, path::PathBuf, process::Command};
+use std::{collections::HashMap, fs, path::PathBuf, process::Command};
 pub struct BuildArtifact {
     pub executable: PathBuf,
     pub reused: bool,
@@ -22,14 +22,23 @@ pub fn check_project(p: &project::Project) -> Result<check::TypedProgram, Native
 }
 
 fn attach_name_spans(source: &str, diagnostics: &mut [syntax::Diagnostic]) {
+    let mut occurrences = HashMap::new();
     for diagnostic in diagnostics {
         if diagnostic.span.is_some() {
             continue;
         }
         if let Some((_, tail)) = diagnostic.message.split_once('`') {
             if let Some((name, _)) = tail.split_once('`') {
-                if let Some(start) = source.rfind(name) {
-                    diagnostic.span = Some(syntax::Span::new(start, start + name.len()));
+                let spans = identifier_spans(source, name);
+                let occurrence = occurrences.entry(diagnostic.message.clone()).or_insert(0);
+                let span = if diagnostic.message.starts_with("duplicate binding `") {
+                    spans.get(1).or_else(|| spans.first())
+                } else {
+                    spans.get(*occurrence).or_else(|| spans.last())
+                };
+                *occurrence += 1;
+                if let Some(span) = span {
+                    diagnostic.span = Some(*span);
                     continue;
                 }
             }
@@ -60,6 +69,26 @@ fn attach_name_spans(source: &str, diagnostics: &mut [syntax::Diagnostic]) {
             }
         }
     }
+}
+
+fn identifier_spans(source: &str, name: &str) -> Vec<syntax::Span> {
+    source
+        .match_indices(name)
+        .filter_map(|(start, _)| {
+            let end = start + name.len();
+            let before = source[..start].chars().next_back();
+            let after = source[end..].chars().next();
+            let is_identifier_character =
+                |character: char| character.is_ascii_alphanumeric() || character == '_';
+            if before.is_none_or(|character| !is_identifier_character(character))
+                && after.is_none_or(|character| !is_identifier_character(character))
+            {
+                Some(syntax::Span::new(start, end))
+            } else {
+                None
+            }
+        })
+        .collect()
 }
 pub fn build(p: &project::Project) -> Result<BuildArtifact, NativeError> {
     let t = check_project(p)?;

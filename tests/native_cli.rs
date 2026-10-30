@@ -94,6 +94,20 @@ fn check_renders_a_located_unknown_name_diagnostic() {
 }
 
 #[test]
+fn check_locates_repeated_semantic_diagnostics_in_source_order() {
+    let dir = fixture_project("fn main() -> i32 {\n    return missing\n    return missing\n}");
+    let output = xenith(&dir.path().join("app"))
+        .arg("check")
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(!output.status.success());
+    assert!(stderr.contains("src/main.xen:2:12: error: unknown name `missing`"));
+    assert!(stderr.contains("src/main.xen:3:12: error: unknown name `missing`"));
+}
+
+#[test]
 fn check_renders_located_binding_and_condition_diagnostics() {
     let duplicate =
         fixture_project("fn main() -> i32 { let value = 1 let value = 2 return value }");
