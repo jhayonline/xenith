@@ -557,6 +557,9 @@ impl Parser {
         }
         if let Some(name) = s.strip_prefix('-') {
             if is_identifier(name) {
+                if self.tokens.get(self.i).map(String::as_str) == Some("(") {
+                    return Ok(Expr::Neg(Box::new(self.call(name.into())?)));
+                }
                 return Ok(Expr::Neg(Box::new(Expr::Name(name.into()))));
             }
         }
@@ -641,24 +644,27 @@ impl Parser {
             self.need("}")?;
             Ok(Expr::StructLiteral { name: s, fields })
         } else if self.tokens.get(self.i).map(String::as_str) == Some("(") {
-            self.take();
-            let mut arguments = vec![];
-            while self.tokens.get(self.i).map(String::as_str) != Some(")") {
-                arguments.push(self.expr()?);
-                if self.tokens.get(self.i).map(String::as_str) == Some(",") {
-                    self.take();
-                } else if self.tokens.get(self.i).map(String::as_str) != Some(")") {
-                    return Err(vec![Diagnostic {
-                        message: "expected `,` or `)` after argument".into(),
-                        span: Some(self.location()),
-                    }]);
-                }
-            }
-            self.need(")")?;
-            Ok(Expr::Call { name: s, arguments })
+            self.call(s)
         } else {
             Ok(Expr::Name(s))
         }
+    }
+    fn call(&mut self, name: String) -> Result<Expr, Vec<Diagnostic>> {
+        self.need("(")?;
+        let mut arguments = vec![];
+        while self.tokens.get(self.i).map(String::as_str) != Some(")") {
+            arguments.push(self.expr()?);
+            if self.tokens.get(self.i).map(String::as_str) == Some(",") {
+                self.take();
+            } else if self.tokens.get(self.i).map(String::as_str) != Some(")") {
+                return Err(vec![Diagnostic {
+                    message: "expected `,` or `)` after argument".into(),
+                    span: Some(self.location()),
+                }]);
+            }
+        }
+        self.need(")")?;
+        Ok(Expr::Call { name, arguments })
     }
 }
 
