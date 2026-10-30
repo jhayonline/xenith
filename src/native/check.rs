@@ -482,10 +482,13 @@ fn expr(
                     span: None,
                 });
             }
-            for (argument, parameter_type) in arguments.iter().zip(&signature.parameters) {
-                if expr(argument, names, signatures, layouts, errors)
-                    != Some(parameter_type.clone())
-                {
+            let argument_types: Vec<_> = arguments
+                .iter()
+                .map(|argument| expr(argument, names, signatures, layouts, errors))
+                .collect();
+            for (argument_type, parameter_type) in argument_types.iter().zip(&signature.parameters)
+            {
+                if *argument_type != Some(parameter_type.clone()) {
                     errors.push(Diagnostic {
                         message: format!("argument type does not match `{name}`"),
                         span: None,
