@@ -186,6 +186,22 @@ fn check_locates_unknown_struct_literal() {
 }
 
 #[test]
+fn check_locates_each_duplicate_function_declaration() {
+    let dir = fixture_project(
+        "fn helper() -> i32 { return 0 }\nfn helper() -> i32 { return 0 }\nfn helper() -> i32 { return 0 }\nfn main() -> i32 { return helper() }",
+    );
+    let output = xenith(&dir.path().join("app"))
+        .arg("check")
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(!output.status.success());
+    assert!(stderr.contains("src/main.xen:2:4: error: duplicate function `helper`"));
+    assert!(stderr.contains("src/main.xen:3:4: error: duplicate function `helper`"));
+}
+
+#[test]
 fn check_renders_located_binding_and_condition_diagnostics() {
     let duplicate =
         fixture_project("fn main() -> i32 { let value = 1 let value = 2 return value }");

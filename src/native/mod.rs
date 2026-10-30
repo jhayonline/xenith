@@ -29,10 +29,18 @@ fn attach_name_spans(source: &str, diagnostics: &mut [syntax::Diagnostic]) {
         }
         if let Some((_, tail)) = diagnostic.message.split_once('`') {
             if let Some((name, _)) = tail.split_once('`') {
-                let spans = identifier_spans(source, name);
+                let declaration_keyword = diagnostic
+                    .message
+                    .starts_with("duplicate function `")
+                    .then_some("fn");
+                let spans = declaration_keyword.map_or_else(
+                    || identifier_spans(source, name),
+                    |keyword| declaration_spans(source, keyword, name),
+                );
                 let occurrence = occurrences.entry(diagnostic.message.clone()).or_insert(0);
                 let span = if diagnostic.message.starts_with("duplicate binding `")
                     || diagnostic.message.starts_with("duplicate parameter `")
+                    || diagnostic.message.starts_with("duplicate function `")
                 {
                     spans.get(*occurrence + 1).or_else(|| spans.last())
                 } else {
@@ -117,6 +125,23 @@ fn keyword_spans(source: &str, keyword: &str) -> Vec<syntax::Span> {
                 .collect::<Vec<_>>();
             line_start += line.len();
             spans
+        })
+        .collect()
+}
+
+fn declaration_spans(source: &str, keyword: &str, name: &str) -> Vec<syntax::Span> {
+    keyword_spans(source, keyword)
+        .into_iter()
+        .filter_map(|keyword_span| {
+            let rest = &source[keyword_span.end..];
+            let start = keyword_span.end + rest.len() - rest.trim_start().len();
+            let end = start + name.len();
+            (source.get(start..end) == Some(name)
+                && source[end..]
+                    .chars()
+                    .next()
+                    .is_none_or(|character| !character.is_ascii_alphanumeric() && character != '_'))
+            .then_some(syntax::Span::new(start, end))
         })
         .collect()
 }
