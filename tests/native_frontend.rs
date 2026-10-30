@@ -97,6 +97,16 @@ fn parser_propagates_bad_statement_inside_if_block() {
 }
 
 #[test]
+fn parser_reports_truncated_let_statement_without_panicking() {
+    let errors = parse(Path::new("main.xen"), "fn main() -> i32 { let")
+        .expect_err("source should not parse");
+
+    assert!(errors
+        .iter()
+        .any(|error| error.message.contains("binding name")));
+}
+
+#[test]
 fn native_program_respects_arithmetic_precedence() {
     let artifact = build_source("fn main() -> i32 { return 2 + 20 * 2 }");
     assert_eq!(

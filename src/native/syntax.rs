@@ -405,7 +405,9 @@ impl Parser {
                 } else {
                     false
                 };
-                let name = self.take().unwrap();
+                let name = self.take().ok_or_else(|| {
+                    vec![Diagnostic::at("expected binding name", self.location())]
+                })?;
                 let ty = if self.tokens.get(self.i).map(String::as_str) == Some(":") {
                     self.take();
                     Some(self.ty()?)
@@ -425,7 +427,12 @@ impl Parser {
                 Ok(Stmt::Return(self.expr()?))
             }
             Some(_) => {
-                let name = self.take().unwrap();
+                let name = self.take().ok_or_else(|| {
+                    vec![Diagnostic::at(
+                        "expected assignment target",
+                        self.location(),
+                    )]
+                })?;
                 self.need("=")?;
                 Ok(Stmt::Assign {
                     name,
