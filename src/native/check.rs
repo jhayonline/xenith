@@ -514,10 +514,13 @@ fn expr(
                     });
                 }
             }
+            let field_types: Vec<_> = fields
+                .iter()
+                .map(|(_, value)| expr(value, names, signatures, layouts, errors))
+                .collect();
             for (field, ty) in &layout.fields {
-                match fields.iter().find(|(given, _)| given == field) {
-                    Some((_, value))
-                        if expr(value, names, signatures, layouts, errors) == Some(ty.clone()) => {}
+                match fields.iter().position(|(given, _)| given == field) {
+                    Some(index) if field_types[index] == Some(ty.clone()) => {}
                     Some(_) => errors.push(Diagnostic {
                         message: "field type mismatch".into(),
                         span: None,

@@ -456,6 +456,21 @@ fn checks_extra_call_arguments_after_arity_error() {
 }
 
 #[test]
+fn checks_unknown_struct_field_values() {
+    let errors = check_source(
+        "struct Point { x: i32 } fn main() -> i32 { let point = Point { x: 0, y: missing } return point.x }",
+    )
+    .expect_err("source should not type-check");
+
+    assert!(errors
+        .iter()
+        .any(|error| error.message.contains("unknown field `y`")));
+    assert!(errors
+        .iter()
+        .any(|error| error.message.contains("unknown name `missing`")));
+}
+
+#[test]
 fn rejects_duplicate_parameter_names() {
     assert_error(
         "fn pick(x: i32, x: i32) -> i32 { return x } fn main() -> i32 { return pick(1, 2) }",
