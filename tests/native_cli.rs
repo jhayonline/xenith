@@ -124,6 +124,22 @@ fn check_locates_repeated_arithmetic_diagnostics_in_source_order() {
 }
 
 #[test]
+fn check_locates_repeated_condition_diagnostics_in_source_order() {
+    let dir = fixture_project(
+        "fn main() -> i32 {\n    if 1 { return 1 } else { return 0 }\n    if 1 { return 1 } else { return 0 }\n}",
+    );
+    let output = xenith(&dir.path().join("app"))
+        .arg("check")
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(!output.status.success());
+    assert!(stderr.contains("src/main.xen:2:5: error: if condition must be bool"));
+    assert!(stderr.contains("src/main.xen:3:5: error: if condition must be bool"));
+}
+
+#[test]
 fn check_renders_located_binding_and_condition_diagnostics() {
     let duplicate =
         fixture_project("fn main() -> i32 { let value = 1 let value = 2 return value }");

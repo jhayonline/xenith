@@ -51,9 +51,13 @@ fn attach_name_spans(source: &str, diagnostics: &mut [syntax::Diagnostic]) {
             None
         };
         if let Some(keyword) = keyword {
-            if let Some(start) = source.rfind(keyword) {
-                diagnostic.span = Some(syntax::Span::new(start, start + keyword.len()));
-            }
+            let spans = keyword_spans(source, keyword);
+            let occurrence = occurrences.entry(diagnostic.message.clone()).or_insert(0);
+            diagnostic.span = spans
+                .get(*occurrence)
+                .copied()
+                .or_else(|| spans.last().copied());
+            *occurrence += 1;
         }
         let operators = if diagnostic.message.starts_with("numeric operands")
             || diagnostic.message.starts_with("arithmetic operands")
@@ -95,6 +99,22 @@ fn identifier_spans(source: &str, name: &str) -> Vec<syntax::Span> {
             } else {
                 None
             }
+        })
+        .collect()
+}
+
+fn keyword_spans(source: &str, keyword: &str) -> Vec<syntax::Span> {
+    let mut line_start = 0;
+    source
+        .split_inclusive('\n')
+        .flat_map(|line| {
+            let code = line.split_once('#').map_or(line, |(code, _)| code);
+            let spans = identifier_spans(code, keyword)
+                .into_iter()
+                .map(|span| syntax::Span::new(line_start + span.start, line_start + span.end))
+                .collect::<Vec<_>>();
+            line_start += line.len();
+            spans
         })
         .collect()
 }
