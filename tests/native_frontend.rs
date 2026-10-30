@@ -1163,3 +1163,74 @@ fn native_inner_loop_assignments_reach_an_outer_stop() {
         Some(3)
     );
 }
+
+#[test]
+fn native_classic_for_counts_and_skip_runs_the_step() {
+    let artifact = build_source(
+        "fn main() -> i32 { let mut total = 0 for (let mut i = 0; i < 5; i = i + 1) { if i == 2 { skip } total = total + i } return total }",
+    );
+    assert_eq!(
+        Command::new(artifact.executable).status().unwrap().code(),
+        Some(8)
+    );
+}
+
+#[test]
+fn native_classic_for_stop_bypasses_the_step_and_exits() {
+    let artifact = build_source(
+        "fn main() -> i32 { let mut total = 0 for (let mut i = 0; i < 5; i = i + 1) { if i == 3 { stop } total = total + i } return total }",
+    );
+    assert_eq!(
+        Command::new(artifact.executable).status().unwrap().code(),
+        Some(3)
+    );
+}
+
+#[test]
+fn native_classic_for_initializer_shadows_without_leaking() {
+    let artifact = build_source(
+        "fn main() -> i32 { let i = 40 for (let mut i = 0; i < 3; i = i + 1) { } return i }",
+    );
+    assert_eq!(
+        Command::new(artifact.executable).status().unwrap().code(),
+        Some(40)
+    );
+}
+
+#[test]
+fn native_classic_for_initializer_is_not_visible_after_the_loop() {
+    assert_error(
+        "fn main() -> i32 { for (let mut i = 0; i < 1; i = i + 1) { } return i }",
+        "unknown name `i`",
+    );
+}
+
+#[test]
+fn native_classic_for_initializer_does_not_replace_an_outer_loop_value() {
+    let artifact = build_source(
+        "fn main() -> i32 { let mut i = 40 while true { for (let mut i = 0; i < 1; i = i + 1) { stop } stop } return i }",
+    );
+    assert_eq!(
+        Command::new(artifact.executable).status().unwrap().code(),
+        Some(40)
+    );
+}
+
+#[test]
+fn native_classic_for_updates_outer_values_inside_an_enclosing_loop() {
+    let artifact = build_source(
+        "fn main() -> i32 { let mut total = 0 while total < 6 { for (let mut i = 0; i < 2; i = i + 1) { total = total + 1 } } return total }",
+    );
+    assert_eq!(
+        Command::new(artifact.executable).status().unwrap().code(),
+        Some(6)
+    );
+}
+
+#[test]
+fn native_classic_for_rejects_a_non_assignment_step() {
+    assert_error(
+        "fn main() -> i32 { for (let mut i = 0; i < 1; skip) { } return 0 }",
+        "for step must be an assignment",
+    );
+}

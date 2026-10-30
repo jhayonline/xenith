@@ -42,6 +42,12 @@ pub enum Stmt {
         condition: Expr,
         body: Vec<Stmt>,
     },
+    For {
+        init: Box<Stmt>,
+        condition: Expr,
+        step: Box<Stmt>,
+        body: Vec<Stmt>,
+    },
     If {
         condition: Expr,
         then_body: Vec<Stmt>,
@@ -378,7 +384,7 @@ impl Parser {
     fn synchronize_statement(&mut self) {
         while !matches!(
             self.peek(),
-            Some("let" | "return" | "if" | "while" | "stop" | "skip" | "}")
+            Some("let" | "return" | "if" | "while" | "for" | "stop" | "skip" | "}")
         ) && self.peek().is_some()
         {
             self.take();
@@ -439,6 +445,23 @@ impl Parser {
                 let condition = self.condition()?;
                 let body = self.block()?;
                 Ok(Stmt::While { condition, body })
+            }
+            Some("for") => {
+                self.take();
+                self.need("(")?;
+                let init = self.stmt()?;
+                self.need(";")?;
+                let condition = self.condition()?;
+                self.need(";")?;
+                let step = self.stmt()?;
+                self.need(")")?;
+                let body = self.block()?;
+                Ok(Stmt::For {
+                    init: Box::new(init),
+                    condition,
+                    step: Box::new(step),
+                    body,
+                })
             }
             Some("if") => {
                 self.take();
