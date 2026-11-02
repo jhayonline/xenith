@@ -1369,11 +1369,21 @@ fn lower(
                 );
                 return (result, Type::Bool);
             }
+            let (callee_name, receiver) = if ids.contains_key(name) {
+                (name.as_str(), None)
+            } else if let Some((receiver, method)) = name.split_once("__") {
+                (method, Some(receiver))
+            } else {
+                (name.as_str(), None)
+            };
             let mut a = vec![];
+            if let Some(receiver) = receiver {
+                a.extend(lower(b, &Expr::Name(receiver.into()), v, ids, m, l).0);
+            }
             for x in arguments {
                 a.extend(lower(b, x, v, ids, m, l).0)
             }
-            let result_type = &ids[name].1;
+            let result_type = &ids[callee_name].1;
             let indirect = indirect_return(result_type, l);
             let return_buffer = if indirect {
                 let (size, _) = return_layout(result_type, l);
@@ -1390,7 +1400,7 @@ fn lower(
             } else {
                 None
             };
-            let callee = m.declare_func_in_func(ids[name].0, b.func);
+            let callee = m.declare_func_in_func(ids[callee_name].0, b.func);
             let call = b.ins().call(callee, &a);
             let values = if let Some(return_buffer) = return_buffer {
                 return_layout(result_type, l)

@@ -869,10 +869,18 @@ impl Parser {
             if self.peek() == Some(".") {
                 self.take();
                 let name = self.identifier("field name")?;
-                left = Expr::Field {
-                    base: Box::new(left),
-                    name,
-                };
+                if self.peek() == Some("(") {
+                    self.take();
+                    let mut arguments = vec![left];
+                    while self.peek() != Some(")") {
+                        arguments.push(self.expr()?);
+                        if self.peek() == Some(",") { self.take(); } else { break; }
+                    }
+                    self.need(")")?;
+                    left = Expr::Call { name, arguments };
+                } else {
+                    left = Expr::Field { base: Box::new(left), name };
+                }
             } else {
                 self.take();
                 let index = self.expr()?;

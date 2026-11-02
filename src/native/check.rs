@@ -1090,6 +1090,19 @@ fn expr(
                     return Some(Type::Bool);
                 }
                 let Some(signature) = signatures.get(name) else {
+                    if let Some((receiver, method)) = name.split_once("__") {
+                        if let (Some((receiver_type, _)), Some(method_signature)) = (names.get(receiver), signatures.get(method)) {
+                            let mut argument_types = vec![Some(receiver_type.clone())];
+                            argument_types.extend(arguments.iter().map(|argument| expr(argument, names, signatures, layouts, errors)));
+                            if argument_types.len() != method_signature.parameters.len() {
+                                errors.push(Diagnostic { message: format!("method `{method}` expects {} arguments including receiver", method_signature.parameters.len()), span: None });
+                            }
+                            for (actual, expected) in argument_types.iter().zip(&method_signature.parameters) {
+                                if *actual != Some(expected.clone()) { errors.push(Diagnostic { message: format!("method `{method}` argument type mismatch"), span: None }); }
+                            }
+                            return Some(method_signature.result.clone());
+                        }
+                    }
                     errors.push(Diagnostic {
                         message: format!("unknown function `{name}`"),
                         span: None,
