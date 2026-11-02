@@ -69,13 +69,17 @@ pub fn check(program: &Program) -> Result<TypedProgram, Vec<Diagnostic>> {
 }
 
 fn validate_type(ty: &Type, layouts: &HashMap<String, StructLayout>, errors: &mut Vec<Diagnostic>) {
-    if let Type::Named(name) = ty {
-        if !layouts.contains_key(name) {
-            errors.push(Diagnostic {
-                message: format!("unknown type `{name}`"),
-                span: None,
-            });
+    match ty {
+        Type::Named(name) if !layouts.contains_key(name) => errors.push(Diagnostic {
+            message: format!("unknown type `{name}`"),
+            span: None,
+        }),
+        Type::List(element) => validate_type(element, layouts, errors),
+        Type::Map(key, value) => {
+            validate_type(key, layouts, errors);
+            validate_type(value, layouts, errors);
         }
+        _ => {}
     }
 }
 fn layouts(program: &Program, errors: &mut Vec<Diagnostic>) -> HashMap<String, StructLayout> {
@@ -333,6 +337,61 @@ fn check_function(
                     });
                 }
             }
+            Stmt::IndexAssign { base, index, value } => {
+                let base_type = expr(base, &names, signatures, layouts, errors);
+                if let Expr::Name(name) = base {
+                    if !names.get(name).is_some_and(|(_, mutable)| *mutable) {
+                        errors.push(Diagnostic {
+                            message: format!("immutable binding `{name}`"),
+                            span: None,
+                        });
+                    }
+                }
+                let index_type = expr(index, &names, signatures, layouts, errors);
+                let value_type = expr(value, &names, signatures, layouts, errors);
+                let expected = match base_type {
+                    Some(Type::List(element)) => {
+                        if index_type != Some(Type::I32) {
+                            errors.push(Diagnostic {
+                                message: "list index must be i32".into(),
+                                span: None,
+                            });
+                        }
+                        Some(*element)
+                    }
+                    Some(Type::Map(key, value)) => {
+                        if index_type != Some(*key.clone()) {
+                            errors.push(Diagnostic {
+                                message: "map key type mismatch".into(),
+                                span: None,
+                            });
+                        }
+                        Some(*value)
+                    }
+                    Some(Type::Bytes) => {
+                        if index_type != Some(Type::I32) {
+                            errors.push(Diagnostic {
+                                message: "bytes index must be i32".into(),
+                                span: None,
+                            });
+                        }
+                        Some(Type::I32)
+                    }
+                    _ => {
+                        errors.push(Diagnostic {
+                            message: "indexed assignment requires a collection".into(),
+                            span: None,
+                        });
+                        None
+                    }
+                };
+                if expected != value_type {
+                    errors.push(Diagnostic {
+                        message: "indexed assignment type mismatch".into(),
+                        span: None,
+                    });
+                }
+            }
             Stmt::Return(value) => {
                 returned = true;
                 if expr(value, &names, signatures, layouts, errors) != Some(function.result.clone())
@@ -343,7 +402,9 @@ fn check_function(
                     });
                 }
             }
-            Stmt::Expr(value) => { let _ = expr(value, &names, signatures, layouts, errors); }
+            Stmt::Expr(value) => {
+                let _ = expr(value, &names, signatures, layouts, errors);
+            }
             Stmt::Stop => {
                 errors.push(Diagnostic {
                     message: "stop outside a loop".into(),
@@ -497,6 +558,47 @@ fn check_block(
                     span: None,
                 }),
             },
+            Stmt::IndexAssign { base, index, value } => {
+                let base_type = expr(base, &names, signatures, layouts, errors);
+                if let Expr::Name(name) = base {
+                    if !names.get(name).is_some_and(|(_, mutable)| *mutable) {
+                        errors.push(Diagnostic {
+                            message: format!("immutable binding `{name}`"),
+                            span: None,
+                        });
+                    }
+                }
+                let index_type = expr(index, &names, signatures, layouts, errors);
+                let value_type = expr(value, &names, signatures, layouts, errors);
+                let expected = match base_type {
+                    Some(Type::List(element)) => {
+                        if index_type != Some(Type::I32) {
+                            errors.push(Diagnostic {
+                                message: "list index must be i32".into(),
+                                span: None,
+                            });
+                        }
+                        Some(*element)
+                    }
+                    Some(Type::Map(key, value)) => {
+                        if index_type != Some(*key.clone()) {
+                            errors.push(Diagnostic {
+                                message: "map key type mismatch".into(),
+                                span: None,
+                            });
+                        }
+                        Some(*value)
+                    }
+                    Some(Type::Bytes) => Some(Type::I32),
+                    _ => None,
+                };
+                if expected != value_type {
+                    errors.push(Diagnostic {
+                        message: "indexed assignment type mismatch".into(),
+                        span: None,
+                    });
+                }
+            }
             Stmt::Return(value) => {
                 flow.returns = true;
                 flow.can_fall_through = false;
@@ -508,7 +610,9 @@ fn check_block(
                     });
                 }
             }
-            Stmt::Expr(value) => { let _ = expr(value, &names, signatures, layouts, errors); }
+            Stmt::Expr(value) => {
+                let _ = expr(value, &names, signatures, layouts, errors);
+            }
             Stmt::If {
                 condition,
                 then_body,
@@ -589,6 +693,55 @@ fn expr(
         Expr::Int(_, ty) => Some(ty.clone()),
         Expr::Bool(_) => Some(Type::Bool),
         Expr::String(_) => Some(Type::String),
+        Expr::Bytes(_) => Some(Type::Bytes),
+        Expr::List(elements) => {
+            let inferred: Vec<_> = elements
+                .iter()
+                .map(|element| expr(element, names, signatures, layouts, errors))
+                .collect();
+            let first = inferred.first().cloned().flatten();
+            if first.is_none() {
+                errors.push(Diagnostic {
+                    message: "list literals cannot be empty without a type".into(),
+                    span: None,
+                });
+            }
+            if inferred.iter().any(|ty| *ty != first) {
+                errors.push(Diagnostic {
+                    message: "list elements must have the same type".into(),
+                    span: None,
+                });
+            }
+            first.map(|ty| Type::List(Box::new(ty)))
+        }
+        Expr::Map(pairs) => {
+            let keys: Vec<_> = pairs
+                .iter()
+                .map(|(key, _)| expr(key, names, signatures, layouts, errors))
+                .collect();
+            let values: Vec<_> = pairs
+                .iter()
+                .map(|(_, value)| expr(value, names, signatures, layouts, errors))
+                .collect();
+            let key = keys.first().cloned().flatten();
+            let value = values.first().cloned().flatten();
+            if key.is_none() || value.is_none() {
+                errors.push(Diagnostic {
+                    message: "map literals cannot be empty without a type".into(),
+                    span: None,
+                });
+            }
+            if keys.iter().any(|ty| *ty != key) || values.iter().any(|ty| *ty != value) {
+                errors.push(Diagnostic {
+                    message: "map keys and values must each have the same type".into(),
+                    span: None,
+                });
+            }
+            match (key, value) {
+                (Some(key), Some(value)) => Some(Type::Map(Box::new(key), Box::new(value))),
+                _ => None,
+            }
+        }
         Expr::Neg(value) => {
             let ty = expr(value, names, signatures, layouts, errors);
             if !matches!(ty, Some(Type::I32 | Type::I64)) {
@@ -651,8 +804,13 @@ fn expr(
             }),
         Expr::Call { name, arguments } => {
             if name == "echo" {
-                if arguments.len() != 1 || expr(&arguments[0], names, signatures, layouts, errors) != Some(Type::String) {
-                    errors.push(Diagnostic { message: "echo expects one string".into(), span: None });
+                if arguments.len() != 1
+                    || expr(&arguments[0], names, signatures, layouts, errors) != Some(Type::String)
+                {
+                    errors.push(Diagnostic {
+                        message: "echo expects one string".into(),
+                        span: None,
+                    });
                 }
                 return Some(Type::I32);
             }
@@ -757,6 +915,35 @@ fn expr(
             _ => {
                 errors.push(Diagnostic {
                     message: "field access requires a struct".into(),
+                    span: None,
+                });
+                None
+            }
+        },
+        Expr::Index { base, index } => match (
+            expr(base, names, signatures, layouts, errors),
+            expr(index, names, signatures, layouts, errors),
+        ) {
+            (Some(Type::List(element)), Some(Type::I32)) => Some(*element),
+            (Some(Type::Map(key, value)), Some(index)) if *key == index => Some(*value),
+            (Some(Type::Bytes), Some(Type::I32)) => Some(Type::I32),
+            (Some(Type::List(_)), _) | (Some(Type::Bytes), _) => {
+                errors.push(Diagnostic {
+                    message: "collection index must be i32".into(),
+                    span: None,
+                });
+                None
+            }
+            (Some(Type::Map(_, _)), _) => {
+                errors.push(Diagnostic {
+                    message: "map key type mismatch".into(),
+                    span: None,
+                });
+                None
+            }
+            _ => {
+                errors.push(Diagnostic {
+                    message: "indexing requires a collection".into(),
                     span: None,
                 });
                 None

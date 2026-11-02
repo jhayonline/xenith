@@ -65,6 +65,7 @@ fn flat(ty: &Type, layouts: &HashMap<String, StructLayout>) -> Vec<cranelift_cod
         Type::I64 => vec![types::I64],
         Type::Bool => vec![types::I8],
         Type::String => vec![types::I64, types::I64],
+        Type::Bytes | Type::List(_) | Type::Map(_, _) => vec![types::I64],
         Type::Named(n) => layouts[n]
             .fields
             .iter()
@@ -208,7 +209,12 @@ fn emit(
                     let v = lower(&mut b, value, &vals, ids, m, l);
                     vals.insert(name.clone(), v);
                 }
-                Stmt::Expr(value) => { let _ = lower(&mut b, value, &vals, ids, m, l); }
+                Stmt::IndexAssign { base, index, value } => {
+                    lower_index_assignment(&mut b, base, index, value, &vals, ids, m, l)
+                }
+                Stmt::Expr(value) => {
+                    let _ = lower(&mut b, value, &vals, ids, m, l);
+                }
                 Stmt::Return(v) => {
                     emit_return(&mut b, v, &vals, ids, m, l, return_area);
                     break;
@@ -218,7 +224,7 @@ fn emit(
         b.finalize();
     }
     m.define_function(ids[&f.name].0, &mut c)
-        .map_err(|e| NativeError::not_implemented(e.to_string()))?;
+        .map_err(|e| NativeError::not_implemented(format!("{e}\n{}", c.func.display())))?;
     m.clear_context(&mut c);
     Ok(())
 }
@@ -406,7 +412,12 @@ fn lower_branch(
                 }
                 values.insert(name.clone(), value);
             }
-            Stmt::Expr(value) => { let _ = lower(b, value, values, ids, m, layouts); }
+            Stmt::IndexAssign { base, index, value } => {
+                lower_index_assignment(b, base, index, value, values, ids, m, layouts)
+            }
+            Stmt::Expr(value) => {
+                let _ = lower(b, value, values, ids, m, layouts);
+            }
             Stmt::If {
                 condition,
                 then_body,
@@ -798,19 +809,138 @@ fn lower(
             Type::Bool,
         ),
         Expr::String(value) => {
-            let id = m.declare_data(
-                &format!("xenith_string_{}", STRING_ID.fetch_add(1, Ordering::Relaxed)),
-                Linkage::Local,
-                true,
-                false,
-            ).map_err(|e| NativeError::not_implemented(e.to_string())).expect("string declaration");
+            let id = m
+                .declare_data(
+                    &format!(
+                        "xenith_string_{}",
+                        STRING_ID.fetch_add(1, Ordering::Relaxed)
+                    ),
+                    Linkage::Local,
+                    true,
+                    false,
+                )
+                .map_err(|e| NativeError::not_implemented(e.to_string()))
+                .expect("string declaration");
             let mut data = DataDescription::new();
             data.define(value.as_bytes().to_vec().into_boxed_slice());
-            m.define_data(id, &data).map_err(|e| NativeError::not_implemented(e.to_string())).expect("string definition");
+            m.define_data(id, &data)
+                .map_err(|e| NativeError::not_implemented(e.to_string()))
+                .expect("string definition");
             let global = m.declare_data_in_func(id, b.func);
-            let pointer = b.ins().symbol_value(m.target_config().pointer_type(), global);
+            let pointer = b
+                .ins()
+                .symbol_value(m.target_config().pointer_type(), global);
             let length = b.ins().iconst(types::I64, value.len() as i64);
             (vec![pointer, length], Type::String)
+        }
+        Expr::Bytes(value) => {
+            let (data, _) = lower(b, &Expr::String(value.clone()), v, ids, m, l);
+            let raw = runtime_call(
+                b,
+                m,
+                "xenith_bytes_new",
+                vec![
+                    AbiParam::new(m.target_config().pointer_type()),
+                    AbiParam::new(types::I64),
+                ],
+                vec![AbiParam::new(types::I64)],
+                &data,
+            );
+            (raw, Type::Bytes)
+        }
+        Expr::List(elements) => {
+            let element_type = match elements.first() {
+                Some(element) => infer_lowered_type(element, v, ids, l),
+                None => unreachable!("checked"),
+            };
+            let (width, lanes) = return_layout(&element_type, l);
+            let length = b.ins().iconst(types::I64, elements.len() as i64);
+            let width_value = b.ins().iconst(types::I64, width as i64);
+            let raw = runtime_call(
+                b,
+                m,
+                "xenith_list_new",
+                vec![AbiParam::new(types::I64), AbiParam::new(types::I64)],
+                vec![AbiParam::new(types::I64)],
+                &[length, width_value],
+            )[0];
+            for (offset, element) in elements.iter().enumerate() {
+                let offset_value = b.ins().iconst(types::I64, offset as i64);
+                let pointer = runtime_call(
+                    b,
+                    m,
+                    "xenith_list_at",
+                    vec![AbiParam::new(types::I64), AbiParam::new(types::I64)],
+                    vec![AbiParam::new(types::I64)],
+                    &[raw, offset_value],
+                )[0];
+                for (value, (_, field_offset)) in lower(b, element, v, ids, m, l)
+                    .0
+                    .into_iter()
+                    .zip(lanes.iter())
+                {
+                    b.ins()
+                        .store(MemFlags::new(), value, pointer, *field_offset);
+                }
+            }
+            (vec![raw], Type::List(Box::new(element_type)))
+        }
+        Expr::Map(pairs) => {
+            let (key_type, value_type) = match pairs.first() {
+                Some((key, value)) => (
+                    infer_lowered_type(key, v, ids, l),
+                    infer_lowered_type(value, v, ids, l),
+                ),
+                None => unreachable!("checked"),
+            };
+            let (width, lanes) = return_layout(&value_type, l);
+            let length = b.ins().iconst(types::I64, pairs.len() as i64);
+            let width_value = b.ins().iconst(types::I64, width as i64);
+            let raw = runtime_call(
+                b,
+                m,
+                "xenith_map_new",
+                vec![AbiParam::new(types::I64), AbiParam::new(types::I64)],
+                vec![AbiParam::new(types::I64)],
+                &[length, width_value],
+            )[0];
+            for (slot, (key, value)) in pairs.iter().enumerate() {
+                let key = lower(b, key, v, ids, m, l).0;
+                let slot = b.ins().iconst(types::I64, slot as i64);
+                let buffer = b.create_sized_stack_slot(StackSlotData::new(
+                    StackSlotKind::ExplicitSlot,
+                    width,
+                    3,
+                ));
+                let pointer = b
+                    .ins()
+                    .stack_addr(m.target_config().pointer_type(), buffer, 0);
+                for (item, (_, field_offset)) in lower(b, value, v, ids, m, l)
+                    .0
+                    .into_iter()
+                    .zip(lanes.iter())
+                {
+                    b.ins().store(MemFlags::new(), item, pointer, *field_offset);
+                }
+                let _ = runtime_call(
+                    b,
+                    m,
+                    "xenith_map_put",
+                    vec![
+                        AbiParam::new(types::I64),
+                        AbiParam::new(types::I64),
+                        AbiParam::new(types::I64),
+                        AbiParam::new(types::I64),
+                        AbiParam::new(types::I64),
+                    ],
+                    vec![],
+                    &[raw, slot, key[0], key[1], pointer],
+                );
+            }
+            (
+                vec![raw],
+                Type::Map(Box::new(key_type), Box::new(value_type)),
+            )
         }
         Expr::Neg(value) => {
             let (values, ty) = lower(b, value, v, ids, m, l);
@@ -877,14 +1007,74 @@ fn lower(
             }
             unreachable!()
         }
+        Expr::Index { base, index } => {
+            let (raw, collection_type) = lower(b, base, v, ids, m, l);
+            let index = lower(b, index, v, ids, m, l).0;
+            let (element_type, pointer) = match collection_type {
+                Type::List(element) => {
+                    let offset = b.ins().sextend(types::I64, index[0]);
+                    let pointer = runtime_call(
+                        b,
+                        m,
+                        "xenith_list_at",
+                        vec![AbiParam::new(types::I64), AbiParam::new(types::I64)],
+                        vec![AbiParam::new(types::I64)],
+                        &[raw[0], offset],
+                    )[0];
+                    (*element, pointer)
+                }
+                Type::Bytes => {
+                    let offset = b.ins().sextend(types::I64, index[0]);
+                    let pointer = runtime_call(
+                        b,
+                        m,
+                        "xenith_list_at",
+                        vec![AbiParam::new(types::I64), AbiParam::new(types::I64)],
+                        vec![AbiParam::new(types::I64)],
+                        &[raw[0], offset],
+                    )[0];
+                    (Type::Bytes, pointer)
+                }
+                Type::Map(_, value) => {
+                    let pointer = runtime_call(
+                        b,
+                        m,
+                        "xenith_map_at",
+                        vec![
+                            AbiParam::new(types::I64),
+                            AbiParam::new(types::I64),
+                            AbiParam::new(types::I64),
+                        ],
+                        vec![AbiParam::new(types::I64)],
+                        &[raw[0], index[0], index[1]],
+                    )[0];
+                    (*value, pointer)
+                }
+                _ => unreachable!(),
+            };
+            if element_type == Type::Bytes {
+                let byte = b.ins().load(types::I8, MemFlags::new(), pointer, 0);
+                return (vec![b.ins().uextend(types::I32, byte)], Type::I32);
+            }
+            let (_, lanes) = return_layout(&element_type, l);
+            let values = lanes
+                .into_iter()
+                .map(|(ty, offset)| b.ins().load(ty, MemFlags::new(), pointer, offset))
+                .collect();
+            (values, element_type)
+        }
         Expr::Call { name, arguments } => {
             if name == "echo" {
                 let argument = lower(b, &arguments[0], v, ids, m, l).0;
                 let mut signature = m.make_signature();
-                signature.params.push(AbiParam::new(m.target_config().pointer_type()));
+                signature
+                    .params
+                    .push(AbiParam::new(m.target_config().pointer_type()));
                 signature.params.push(AbiParam::new(types::I64));
-                let echo = m.declare_function("xenith_echo", Linkage::Import, &signature)
-                    .map_err(|e| NativeError::not_implemented(e.to_string())).expect("echo declaration");
+                let echo = m
+                    .declare_function("xenith_echo", Linkage::Import, &signature)
+                    .map_err(|e| NativeError::not_implemented(e.to_string()))
+                    .expect("echo declaration");
                 let callee = m.declare_func_in_func(echo, b.func);
                 b.ins().call(callee, &argument);
                 return (vec![b.ins().iconst(types::I32, 0)], Type::I32);
@@ -981,13 +1171,151 @@ fn lower(
     }
 }
 
+fn infer_lowered_type(
+    expression: &Expr,
+    values: &Values,
+    ids: &HashMap<String, (FuncId, Type)>,
+    layouts: &HashMap<String, StructLayout>,
+) -> Type {
+    match expression {
+        Expr::Int(_, ty) => ty.clone(),
+        Expr::Bool(_) => Type::Bool,
+        Expr::String(_) => Type::String,
+        Expr::Bytes(_) => Type::Bytes,
+        Expr::Name(name) => values[name].1.clone(),
+        Expr::List(items) => Type::List(Box::new(infer_lowered_type(
+            &items[0], values, ids, layouts,
+        ))),
+        Expr::Map(items) => Type::Map(
+            Box::new(infer_lowered_type(&items[0].0, values, ids, layouts)),
+            Box::new(infer_lowered_type(&items[0].1, values, ids, layouts)),
+        ),
+        Expr::Index { base, .. } => match infer_lowered_type(base, values, ids, layouts) {
+            Type::List(element) => *element,
+            Type::Map(_, value) => *value,
+            Type::Bytes => Type::I32,
+            _ => unreachable!(),
+        },
+        Expr::Call { name, .. } => ids[name].1.clone(),
+        Expr::StructLiteral { name, .. } => Type::Named(name.clone()),
+        Expr::Field { base, name } => {
+            let Type::Named(structure) = infer_lowered_type(base, values, ids, layouts) else {
+                unreachable!()
+            };
+            layouts[&structure]
+                .fields
+                .iter()
+                .find(|(field, _)| field == name)
+                .unwrap()
+                .1
+                .clone()
+        }
+        Expr::Neg(value) | Expr::Not(value) => infer_lowered_type(value, values, ids, layouts),
+        Expr::Logical(_, _, _) | Expr::Compare(_, _, _) => Type::Bool,
+        Expr::Binary(left, _, _) => infer_lowered_type(left, values, ids, layouts),
+    }
+}
+
+fn runtime_call(
+    b: &mut FunctionBuilder,
+    m: &mut ObjectModule,
+    name: &str,
+    params: Vec<AbiParam>,
+    returns: Vec<AbiParam>,
+    arguments: &[Value],
+) -> Vec<Value> {
+    let mut signature = m.make_signature();
+    signature.params = params;
+    signature.returns = returns;
+    let function = m
+        .declare_function(name, Linkage::Import, &signature)
+        .expect("runtime declaration");
+    let callee = m.declare_func_in_func(function, b.func);
+    let call = b.ins().call(callee, arguments);
+    b.inst_results(call).to_vec()
+}
+
+fn lower_index_assignment(
+    b: &mut FunctionBuilder,
+    base: &Expr,
+    index: &Expr,
+    value: &Expr,
+    values: &Values,
+    ids: &HashMap<String, (FuncId, Type)>,
+    m: &mut ObjectModule,
+    layouts: &HashMap<String, StructLayout>,
+) {
+    let (raw, collection_type) = lower(b, base, values, ids, m, layouts);
+    let index = lower(b, index, values, ids, m, layouts).0;
+    let (element_type, pointer) = match collection_type {
+        Type::List(element) => {
+            let offset = b.ins().sextend(types::I64, index[0]);
+            (
+                *element,
+                runtime_call(
+                    b,
+                    m,
+                    "xenith_list_at",
+                    vec![AbiParam::new(types::I64), AbiParam::new(types::I64)],
+                    vec![AbiParam::new(types::I64)],
+                    &[raw[0], offset],
+                )[0],
+            )
+        }
+        Type::Bytes => {
+            let offset = b.ins().sextend(types::I64, index[0]);
+            (
+                Type::Bytes,
+                runtime_call(
+                    b,
+                    m,
+                    "xenith_list_at",
+                    vec![AbiParam::new(types::I64), AbiParam::new(types::I64)],
+                    vec![AbiParam::new(types::I64)],
+                    &[raw[0], offset],
+                )[0],
+            )
+        }
+        Type::Map(_, value_type) => (
+            *value_type,
+            runtime_call(
+                b,
+                m,
+                "xenith_map_at",
+                vec![
+                    AbiParam::new(types::I64),
+                    AbiParam::new(types::I64),
+                    AbiParam::new(types::I64),
+                ],
+                vec![AbiParam::new(types::I64)],
+                &[raw[0], index[0], index[1]],
+            )[0],
+        ),
+        _ => unreachable!(),
+    };
+    if element_type == Type::Bytes {
+        let byte = lower(b, value, values, ids, m, layouts).0[0];
+        let narrowed = b.ins().ireduce(types::I8, byte);
+        b.ins().store(MemFlags::new(), narrowed, pointer, 0);
+        return;
+    }
+    for (item, (_, offset)) in lower(b, value, values, ids, m, layouts)
+        .0
+        .into_iter()
+        .zip(return_layout(&element_type, layouts).1)
+    {
+        b.ins().store(MemFlags::new(), item, pointer, offset);
+    }
+}
+
 fn checked_integer_operation(b: &mut FunctionBuilder, (value, overflow): (Value, Value)) -> Value {
     b.ins().trapnz(overflow, TrapCode::INTEGER_OVERFLOW);
     value
 }
 
 pub fn link_host(object: &Path, executable: &Path) -> Result<(), NativeError> {
-    let runtime = super::runtime::write_source(object.parent().unwrap()).map_err(NativeError::io)?;
+    let runtime =
+        super::runtime::write_source(object.parent().unwrap()).map_err(NativeError::io)?;
     let out = Command::new("cc")
         .arg(object)
         .arg(runtime)

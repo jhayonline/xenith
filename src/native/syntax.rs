@@ -6,6 +6,9 @@ pub enum Type {
     I64,
     Bool,
     String,
+    Bytes,
+    List(Box<Type>),
+    Map(Box<Type>, Box<Type>),
     Named(String),
 }
 #[derive(Debug, Clone)]
@@ -78,6 +81,11 @@ pub enum Stmt {
         name: String,
         value: Expr,
     },
+    IndexAssign {
+        base: Expr,
+        index: Expr,
+        value: Expr,
+    },
     Return(Expr),
     Expr(Expr),
 }
@@ -86,6 +94,9 @@ pub enum Expr {
     Int(i64, Type),
     Bool(bool),
     String(String),
+    Bytes(String),
+    List(Vec<Expr>),
+    Map(Vec<(Expr, Expr)>),
     Name(String),
     Call {
         name: String,
@@ -98,6 +109,10 @@ pub enum Expr {
     Field {
         base: Box<Expr>,
         name: String,
+    },
+    Index {
+        base: Box<Expr>,
+        index: Box<Expr>,
     },
     Neg(Box<Expr>),
     Not(Box<Expr>),
@@ -148,7 +163,10 @@ fn lex(source: &str) -> Vec<Token> {
         if in_string {
             word.push(c);
             if c == '"' {
-                out.push(Token { text: std::mem::take(&mut word), span: Span::new(word_start, index + c.len_utf8()) });
+                out.push(Token {
+                    text: std::mem::take(&mut word),
+                    span: Span::new(word_start, index + c.len_utf8()),
+                });
                 in_string = false;
             }
             continue;
@@ -162,7 +180,10 @@ fn lex(source: &str) -> Vec<Token> {
         }
         if c == '"' {
             if !word.is_empty() {
-                out.push(Token { text: std::mem::take(&mut word), span: Span::new(word_start, index) });
+                out.push(Token {
+                    text: std::mem::take(&mut word),
+                    span: Span::new(word_start, index),
+                });
             }
             word_start = index;
             word.push(c);
@@ -188,7 +209,7 @@ fn lex(source: &str) -> Vec<Token> {
                 text: std::mem::take(&mut word),
                 span: Span::new(word_start, index + c.len_utf8()),
             });
-        } else if "{}(),:;=+-*/.<>!&|".contains(c) {
+        } else if "{}[](),:;=+-*/.<>!&|".contains(c) {
             if !word.is_empty() {
                 out.push(Token {
                     text: std::mem::take(&mut word),
@@ -222,6 +243,11 @@ fn lex(source: &str) -> Vec<Token> {
     let mut index = 0;
     while index < out.len() {
         if matches!(out[index].text.as_str(), "<" | ">" | "!" | "=")
+            && out[index].span.end
+                == out
+                    .get(index + 1)
+                    .map(|token| token.span.start)
+                    .unwrap_or_default()
             && out.get(index + 1).map(|token| token.text.as_str()) == Some("=")
         {
             merged.push(Token {
@@ -230,6 +256,11 @@ fn lex(source: &str) -> Vec<Token> {
             });
             index += 2;
         } else if matches!(out[index].text.as_str(), "&" | "|")
+            && out[index].span.end
+                == out
+                    .get(index + 1)
+                    .map(|token| token.span.start)
+                    .unwrap_or_default()
             && out.get(index + 1).map(|token| token.text.as_str()) == Some(out[index].text.as_str())
         {
             merged.push(Token {
@@ -313,6 +344,21 @@ impl Parser {
             Some("i64") => Ok(Type::I64),
             Some("bool") => Ok(Type::Bool),
             Some("string") => Ok(Type::String),
+            Some("bytes") => Ok(Type::Bytes),
+            Some("list") => {
+                self.need("<")?;
+                let element = self.ty()?;
+                self.need(">")?;
+                Ok(Type::List(Box::new(element)))
+            }
+            Some("map") => {
+                self.need("<")?;
+                let key = self.ty()?;
+                self.need(",")?;
+                let value = self.ty()?;
+                self.need(">")?;
+                Ok(Type::Map(Box::new(key), Box::new(value)))
+            }
             Some(name) if is_identifier(name) => Ok(Type::Named(name.to_owned())),
             Some(name) => Err(vec![Diagnostic::at(
                 format!("invalid type name `{name}`"),
@@ -608,15 +654,24 @@ impl Parser {
                 Ok(Stmt::Return(self.expr()?))
             }
             Some(_) => {
-                if self.tokens.get(self.i + 1).map(String::as_str) != Some("=") {
-                    return Ok(Stmt::Expr(self.expr()?));
+                let target = self.expr()?;
+                if self.peek() != Some("=") {
+                    return Ok(Stmt::Expr(target));
                 }
-                let name = self.identifier("assignment target")?;
-                self.need("=")?;
-                Ok(Stmt::Assign {
-                    name,
-                    value: self.expr()?,
-                })
+                self.take();
+                let value = self.expr()?;
+                match target {
+                    Expr::Name(name) => Ok(Stmt::Assign { name, value }),
+                    Expr::Index { base, index } => Ok(Stmt::IndexAssign {
+                        base: *base,
+                        index: *index,
+                        value,
+                    }),
+                    _ => Err(vec![Diagnostic::at(
+                        "invalid assignment target",
+                        self.previous_location(),
+                    )]),
+                }
             }
             None => Err(vec![Diagnostic {
                 message: "unexpected end".into(),
@@ -688,13 +743,26 @@ impl Parser {
         Ok(left)
     }
     fn postfix(&mut self, mut left: Expr) -> Result<Expr, Vec<Diagnostic>> {
-        while self.tokens.get(self.i).map(String::as_str) == Some(".") {
-            self.take();
-            let name = self.identifier("field name")?;
-            left = Expr::Field {
-                base: Box::new(left),
-                name,
-            };
+        while matches!(
+            self.tokens.get(self.i).map(String::as_str),
+            Some(".") | Some("[")
+        ) {
+            if self.peek() == Some(".") {
+                self.take();
+                let name = self.identifier("field name")?;
+                left = Expr::Field {
+                    base: Box::new(left),
+                    name,
+                };
+            } else {
+                self.take();
+                let index = self.expr()?;
+                self.need("]")?;
+                left = Expr::Index {
+                    base: Box::new(left),
+                    index: Box::new(index),
+                };
+            }
         }
         Ok(left)
     }
@@ -727,6 +795,35 @@ impl Parser {
             let expression = self.expr()?;
             self.need(")")?;
             return Ok(expression);
+        }
+        if s == "[" {
+            let mut elements = vec![];
+            while self.peek() != Some("]") {
+                elements.push(self.expr()?);
+                if self.peek() == Some(",") {
+                    self.take();
+                } else {
+                    break;
+                }
+            }
+            self.need("]")?;
+            return Ok(Expr::List(elements));
+        }
+        if s == "{" {
+            let mut pairs = vec![];
+            while self.peek() != Some("}") {
+                let key = self.expr()?;
+                self.need(":")?;
+                let value = self.expr()?;
+                pairs.push((key, value));
+                if self.peek() == Some(",") {
+                    self.take();
+                } else {
+                    break;
+                }
+            }
+            self.need("}")?;
+            return Ok(Expr::Map(pairs));
         }
         if s == "true" {
             return Ok(Expr::Bool(true));
@@ -807,6 +904,13 @@ impl Parser {
             self.take();
             let member = self.identifier("module member")?;
             self.call(format!("{s}__{member}"))
+        } else if s == "bytes" && self.tokens.get(self.i).map(String::as_str) == Some("(") {
+            self.need("(")?;
+            let value = self
+                .take()
+                .ok_or_else(|| vec![Diagnostic::at("expected bytes string", self.location())])?;
+            self.need(")")?;
+            Ok(Expr::Bytes(value.trim_matches('"').to_owned()))
         } else if self.tokens.get(self.i).map(String::as_str) == Some("(") {
             self.call(s)
         } else {
