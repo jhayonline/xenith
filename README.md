@@ -40,7 +40,7 @@ struct Runner {
 }
 
 fn faster_of(a: Runner, b: Runner) -> Runner {
-    if a.minutes < b.minutes {
+    if (a.minutes < b.minutes) {
         return a
     } else {
         return b
@@ -133,7 +133,7 @@ to definition, references, rename, document symbols and completion. Any LSP capa
 let name: string = "Ada"
 let count: i32 = 3
 
-if count > 0 {
+if (count > 0) {
     echo("count is positive")
 } else {
     echo("count is zero")
