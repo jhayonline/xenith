@@ -85,6 +85,11 @@ fn validate_type(ty: &Type, layouts: &HashMap<String, StructLayout>, errors: &mu
                 });
             }
         }
+        Type::Tuple(elements) => {
+            for element in elements {
+                validate_type(element, layouts, errors);
+            }
+        }
         _ => {}
     }
 }
@@ -708,6 +713,12 @@ fn expr(
         Expr::Float(_) => Some(Type::Float),
         Expr::Bool(_) => Some(Type::Bool),
         Expr::Null => Some(Type::Null),
+        Expr::Tuple(elements) => Some(Type::Tuple(
+            elements
+                .iter()
+                .filter_map(|element| expr(element, names, signatures, layouts, errors))
+                .collect(),
+        )),
         Expr::String(_) => Some(Type::String),
         Expr::Bytes(_) => Some(Type::Bytes),
         Expr::List(elements) => {
@@ -948,6 +959,25 @@ fn expr(
         ) {
             (Some(Type::List(element)), Some(Type::I32)) => Some(*element),
             (Some(Type::Map(key, value)), Some(index)) if *key == index => Some(*value),
+            (Some(Type::Tuple(elements)), Some(Type::I32)) => {
+                let Expr::Int(index, _) = index.as_ref() else {
+                    errors.push(Diagnostic {
+                        message: "tuple index must be a constant integer".into(),
+                        span: None,
+                    });
+                    return None;
+                };
+                if *index < 0 {
+                    return None;
+                }
+                elements.get(*index as usize).cloned().or_else(|| {
+                    errors.push(Diagnostic {
+                        message: "tuple index out of bounds".into(),
+                        span: None,
+                    });
+                    None
+                })
+            }
             (Some(Type::Bytes), Some(Type::I32)) => Some(Type::I32),
             (Some(Type::List(_)), _) | (Some(Type::Bytes), _) => {
                 errors.push(Diagnostic {

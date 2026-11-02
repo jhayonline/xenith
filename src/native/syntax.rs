@@ -11,6 +11,7 @@ pub enum Type {
     Bytes,
     List(Box<Type>),
     Map(Box<Type>, Box<Type>),
+    Tuple(Vec<Type>),
     Named(String),
 }
 #[derive(Debug, Clone)]
@@ -101,6 +102,7 @@ pub enum Expr {
     Bytes(String),
     List(Vec<Expr>),
     Map(Vec<(Expr, Expr)>),
+    Tuple(Vec<Expr>),
     Name(String),
     Call {
         name: String,
@@ -364,6 +366,16 @@ impl Parser {
                 let value = self.ty()?;
                 self.need(">")?;
                 Ok(Type::Map(Box::new(key), Box::new(value)))
+            }
+            Some("tuple") => {
+                self.need("<")?;
+                let mut elements = vec![self.ty()?];
+                while self.peek() == Some(",") {
+                    self.take();
+                    elements.push(self.ty()?);
+                }
+                self.need(">")?;
+                Ok(Type::Tuple(elements))
             }
             Some(name) if is_identifier(name) => Ok(Type::Named(name.to_owned())),
             Some(name) => Err(vec![Diagnostic::at(
@@ -807,6 +819,15 @@ impl Parser {
         }
         if s == "(" {
             let expression = self.expr()?;
+            if self.peek() == Some(",") {
+                let mut elements = vec![expression];
+                while self.peek() == Some(",") {
+                    self.take();
+                    elements.push(self.expr()?);
+                }
+                self.need(")")?;
+                return Ok(Expr::Tuple(elements));
+            }
             self.need(")")?;
             return Ok(expression);
         }

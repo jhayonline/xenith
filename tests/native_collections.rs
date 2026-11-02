@@ -90,3 +90,11 @@ fn compiles_native_null_values_and_equality() {
     );
     assert_eq!(Command::new(executable).status().unwrap().code(), Some(42));
 }
+
+#[test]
+fn compiles_native_tuples_and_indexing() {
+    let (_directory, executable) = build_source(
+        "fn main() -> i32 { let pair: tuple<i32, i32> = (40, 2) return pair[1] + pair[0] }",
+    );
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(42));
+}

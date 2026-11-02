@@ -69,6 +69,10 @@ fn flat(ty: &Type, layouts: &HashMap<String, StructLayout>) -> Vec<cranelift_cod
         Type::Null => vec![types::I8],
         Type::String => vec![types::I64, types::I64],
         Type::Bytes | Type::List(_) | Type::Map(_, _) => vec![types::I64],
+        Type::Tuple(elements) => elements
+            .iter()
+            .flat_map(|element| flat(element, layouts))
+            .collect(),
         Type::Named(n) => layouts[n]
             .fields
             .iter()
@@ -821,6 +825,16 @@ fn lower(
             Type::Bool,
         ),
         Expr::Null => (vec![b.ins().iconst(types::I8, 0)], Type::Null),
+        Expr::Tuple(elements) => {
+            let mut values = Vec::new();
+            let mut types = Vec::new();
+            for element in elements {
+                let (element_values, element_type) = lower(b, element, v, ids, m, l);
+                values.extend(element_values);
+                types.push(element_type);
+            }
+            (values, Type::Tuple(types))
+        }
         Expr::String(value) => {
             let id = m
                 .declare_data(
@@ -1025,7 +1039,8 @@ fn lower(
         }
         Expr::Index { base, index } => {
             let (raw, collection_type) = lower(b, base, v, ids, m, l);
-            let index = lower(b, index, v, ids, m, l).0;
+            let index_expr = index.as_ref();
+            let index = lower(b, index_expr, v, ids, m, l).0;
             let (element_type, pointer) = match collection_type {
                 Type::List(element) => {
                     let offset = b.ins().sextend(types::I64, index[0]);
@@ -1065,6 +1080,26 @@ fn lower(
                         &[raw[0], index[0], index[1]],
                     )[0];
                     (*value, pointer)
+                }
+                Type::Tuple(elements) => {
+                    let Expr::Int(position, _) = index_expr else {
+                        unreachable!()
+                    };
+                    let position = usize::try_from(*position).unwrap_or(0);
+                    let mut offset = 0;
+                    let mut selected = None;
+                    for (current, element) in elements.iter().enumerate() {
+                        let width = flat(element, l).len();
+                        if current == position {
+                            selected = Some((element.clone(), offset));
+                        }
+                        offset += width;
+                    }
+                    let (element, offset) = selected.expect("checked tuple index");
+                    return (
+                        raw[offset..offset + flat(&element, l).len()].to_vec(),
+                        element,
+                    );
                 }
                 _ => unreachable!(),
             };
@@ -1213,6 +1248,12 @@ fn infer_lowered_type(
         Expr::Int(_, ty) => ty.clone(),
         Expr::Null => Type::Null,
         Expr::Float(_) => Type::Float,
+        Expr::Tuple(items) => Type::Tuple(
+            items
+                .iter()
+                .map(|item| infer_lowered_type(item, values, ids, layouts))
+                .collect(),
+        ),
         Expr::Bool(_) => Type::Bool,
         Expr::String(_) => Type::String,
         Expr::Bytes(_) => Type::Bytes,
