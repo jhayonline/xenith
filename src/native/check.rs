@@ -845,7 +845,7 @@ fn expr(
             result,
             body,
         } => {
-            let mut closure_names = HashMap::new();
+            let mut closure_names = names.clone();
             let mut duplicate = HashSet::new();
             for parameter in params {
                 if !duplicate.insert(parameter.name.clone()) {

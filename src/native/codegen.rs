@@ -35,8 +35,9 @@ pub fn emit_object(program: &TypedProgram, output: &Path) -> Result<(), NativeEr
             .map_err(|e| NativeError::not_implemented(e.to_string()))?,
     );
     let mut synthetic = Vec::new();
+    let mut closure_captures = HashMap::new();
     for f in &program.0.functions {
-        collect_closures(&f.body, &mut synthetic);
+        collect_closures(&f.body, &mut synthetic, &mut closure_captures);
     }
     let mut all_functions = program.0.functions.clone();
     all_functions.extend(synthetic);
@@ -56,7 +57,7 @@ pub fn emit_object(program: &TypedProgram, output: &Path) -> Result<(), NativeEr
         ids.insert(f.name.clone(), (id, f.result.clone()));
     }
     for f in &all_functions {
-        emit(&mut module, f, &ids, &program.2)?;
+        emit(&mut module, f, &ids, &program.2, &closure_captures)?;
     }
     fs::write(
         output,
@@ -74,30 +75,34 @@ fn closure_name(expression: &Expr) -> String {
     format!("__closure_{:x}", hasher.finish())
 }
 
-fn collect_closures(statements: &[Stmt], out: &mut Vec<Function>) {
+fn collect_closures(
+    statements: &[Stmt],
+    out: &mut Vec<Function>,
+    captures: &mut HashMap<String, Vec<String>>,
+) {
     for statement in statements {
         match statement {
             Stmt::Let { value, .. } | Stmt::Expr(value) | Stmt::Return(value) => {
-                collect_closure_expr(value, out)
+                collect_closure_expr(value, out, captures)
             }
-            Stmt::Assign { value, .. } => collect_closure_expr(value, out),
+            Stmt::Assign { value, .. } => collect_closure_expr(value, out, captures),
             Stmt::IndexAssign { base, index, value } => {
-                collect_closure_expr(base, out);
-                collect_closure_expr(index, out);
-                collect_closure_expr(value, out);
+                collect_closure_expr(base, out, captures);
+                collect_closure_expr(index, out, captures);
+                collect_closure_expr(value, out, captures);
             }
             Stmt::If {
                 condition,
                 then_body,
                 else_body,
             } => {
-                collect_closure_expr(condition, out);
-                collect_closures(then_body, out);
-                collect_closures(else_body, out);
+                collect_closure_expr(condition, out, captures);
+                collect_closures(then_body, out, captures);
+                collect_closures(else_body, out, captures);
             }
             Stmt::While { condition, body } => {
-                collect_closure_expr(condition, out);
-                collect_closures(body, out);
+                collect_closure_expr(condition, out, captures);
+                collect_closures(body, out, captures);
             }
             Stmt::For {
                 init,
@@ -105,21 +110,25 @@ fn collect_closures(statements: &[Stmt], out: &mut Vec<Function>) {
                 step,
                 body,
             } => {
-                collect_closures(std::slice::from_ref(init), out);
-                collect_closure_expr(condition, out);
-                collect_closures(std::slice::from_ref(step), out);
-                collect_closures(body, out);
+                collect_closures(std::slice::from_ref(init), out, captures);
+                collect_closure_expr(condition, out, captures);
+                collect_closures(std::slice::from_ref(step), out, captures);
+                collect_closures(body, out, captures);
             }
             Stmt::ForIn { iterable, body, .. } => {
-                collect_closure_expr(iterable, out);
-                collect_closures(body, out);
+                collect_closure_expr(iterable, out, captures);
+                collect_closures(body, out, captures);
             }
             Stmt::Stop | Stmt::Skip => {}
         }
     }
 }
 
-fn collect_closure_expr(expression: &Expr, out: &mut Vec<Function>) {
+fn collect_closure_expr(
+    expression: &Expr,
+    out: &mut Vec<Function>,
+    captures: &mut HashMap<String, Vec<String>>,
+) {
     match expression {
         Expr::Closure {
             params,
@@ -127,6 +136,14 @@ fn collect_closure_expr(expression: &Expr, out: &mut Vec<Function>) {
             body,
         } => {
             let name = closure_name(expression);
+            let mut names = HashSet::new();
+            collect_names(body, &mut names);
+            for parameter in params {
+                names.remove(&parameter.name);
+            }
+            let mut names: Vec<_> = names.into_iter().collect();
+            names.sort();
+            captures.insert(name.clone(), names);
             if !out.iter().any(|function: &Function| function.name == name) {
                 out.push(Function {
                     name,
@@ -136,46 +153,46 @@ fn collect_closure_expr(expression: &Expr, out: &mut Vec<Function>) {
                     body: vec![Stmt::Return((**body).clone())],
                 });
             }
-            collect_closure_expr(body, out);
+            collect_closure_expr(body, out, captures);
         }
         Expr::Call { arguments, .. } | Expr::Tuple(arguments) | Expr::List(arguments) => {
             for argument in arguments {
-                collect_closure_expr(argument, out);
+                collect_closure_expr(argument, out, captures);
             }
         }
         Expr::Map(pairs) => {
             for (key, value) in pairs {
-                collect_closure_expr(key, out);
-                collect_closure_expr(value, out);
+                collect_closure_expr(key, out, captures);
+                collect_closure_expr(value, out, captures);
             }
         }
         Expr::EnumVariant { arguments, .. } => {
             for argument in arguments {
-                collect_closure_expr(argument, out);
+                collect_closure_expr(argument, out, captures);
             }
         }
         Expr::Match { subject, arms } => {
-            collect_closure_expr(subject, out);
+            collect_closure_expr(subject, out, captures);
             for arm in arms {
-                collect_closure_expr(&arm.body, out);
+                collect_closure_expr(&arm.body, out, captures);
             }
         }
         Expr::StructLiteral { fields, .. } => {
             for (_, value) in fields {
-                collect_closure_expr(value, out);
+                collect_closure_expr(value, out, captures);
             }
         }
-        Expr::Field { base, .. } => collect_closure_expr(base, out),
+        Expr::Field { base, .. } => collect_closure_expr(base, out, captures),
         Expr::Index { base, index } => {
-            collect_closure_expr(base, out);
-            collect_closure_expr(index, out);
+            collect_closure_expr(base, out, captures);
+            collect_closure_expr(index, out, captures);
         }
-        Expr::Neg(value) | Expr::Not(value) => collect_closure_expr(value, out),
+        Expr::Neg(value) | Expr::Not(value) => collect_closure_expr(value, out, captures),
         Expr::Logical(left, _, right)
         | Expr::Compare(left, _, right)
         | Expr::Binary(left, _, right) => {
-            collect_closure_expr(left, out);
-            collect_closure_expr(right, out);
+            collect_closure_expr(left, out, captures);
+            collect_closure_expr(right, out, captures);
         }
         Expr::Interpolated(_)
         | Expr::Int(_, _)
@@ -185,6 +202,55 @@ fn collect_closure_expr(expression: &Expr, out: &mut Vec<Function>) {
         | Expr::String(_)
         | Expr::Bytes(_)
         | Expr::Name(_) => {}
+    }
+}
+
+fn collect_names(expression: &Expr, names: &mut HashSet<String>) {
+    match expression {
+        Expr::Name(name) => {
+            names.insert(name.clone());
+        }
+        Expr::Closure { body, .. } => collect_names(body, names),
+        Expr::Call { arguments, .. } | Expr::Tuple(arguments) | Expr::List(arguments) => {
+            for argument in arguments {
+                collect_names(argument, names);
+            }
+        }
+        Expr::Map(pairs) => {
+            for (key, value) in pairs {
+                collect_names(key, names);
+                collect_names(value, names);
+            }
+        }
+        Expr::EnumVariant { arguments, .. } => {
+            for argument in arguments {
+                collect_names(argument, names);
+            }
+        }
+        Expr::Match { subject, arms } => {
+            collect_names(subject, names);
+            for arm in arms {
+                collect_names(&arm.body, names);
+            }
+        }
+        Expr::StructLiteral { fields, .. } => {
+            for (_, value) in fields {
+                collect_names(value, names);
+            }
+        }
+        Expr::Field { base, .. } => collect_names(base, names),
+        Expr::Index { base, index } => {
+            collect_names(base, names);
+            collect_names(index, names);
+        }
+        Expr::Neg(value) | Expr::Not(value) => collect_names(value, names),
+        Expr::Logical(left, _, right)
+        | Expr::Compare(left, _, right)
+        | Expr::Binary(left, _, right) => {
+            collect_names(left, names);
+            collect_names(right, names);
+        }
+        _ => {}
     }
 }
 fn flat(ty: &Type, layouts: &HashMap<String, StructLayout>) -> Vec<cranelift_codegen::ir::Type> {
@@ -200,7 +266,7 @@ fn flat(ty: &Type, layouts: &HashMap<String, StructLayout>) -> Vec<cranelift_cod
             .iter()
             .flat_map(|element| flat(element, layouts))
             .collect(),
-        Type::Function(_, _) => vec![types::I64],
+        Type::Function(_, _) => vec![types::I64, types::I64],
         Type::Named(n) => layouts[n]
             .fields
             .iter()
@@ -236,6 +302,9 @@ fn signature(m: &ObjectModule, f: &Function, l: &HashMap<String, StructLayout>) 
             ArgumentPurpose::StructReturn,
         ));
     }
+    if f.name != "main" {
+        s.params.push(AbiParam::new(types::I64));
+    }
     for p in &f.params {
         s.params
             .extend(flat(&p.ty, l).into_iter().map(AbiParam::new));
@@ -251,6 +320,7 @@ fn emit(
     f: &Function,
     ids: &HashMap<String, (FuncId, Type)>,
     l: &HashMap<String, StructLayout>,
+    captures: &HashMap<String, Vec<String>>,
 ) -> Result<(), NativeError> {
     let mut c = m.make_context();
     c.func.signature = signature(m, f, l);
@@ -265,6 +335,32 @@ fn emit(
         let return_area = indirect_return(&f.result, l).then(|| incoming[0]);
         let mut at = usize::from(return_area.is_some());
         let mut vals = HashMap::new();
+        let env = if f.name != "main" {
+            let value = incoming[at];
+            at += 1;
+            if f.name.starts_with("__closure_") {
+                Some(value)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        if let Some(env) = env {
+            for (index, name) in captures.get(&f.name).into_iter().flatten().enumerate() {
+                let slot = b.ins().iconst(types::I64, index as i64);
+                let raw = runtime_call(
+                    &mut b,
+                    m,
+                    "xenith_closure_get",
+                    vec![AbiParam::new(types::I64), AbiParam::new(types::I64)],
+                    vec![AbiParam::new(types::I64)],
+                    &[env, slot],
+                )[0];
+                let value = b.ins().ireduce(types::I32, raw);
+                vals.insert(name.clone(), (vec![value], Type::I32));
+            }
+        }
         for p in &f.params {
             let n = flat(&p.ty, l).len();
             vals.insert(
@@ -1399,16 +1495,61 @@ fn lower(
                 return value.clone();
             }
             let callee = m.declare_func_in_func(ids[n].0, b.func);
+            let env = b.ins().iconst(types::I64, 0);
             (
-                vec![b.ins().func_addr(types::I64, callee)],
+                vec![b.ins().func_addr(types::I64, callee), env],
                 Type::Function(vec![], Box::new(ids[n].1.clone())),
             )
         }
-        Expr::Closure { params, result, .. } => {
+        Expr::Closure {
+            params,
+            result,
+            body,
+        } => {
             let name = closure_name(x);
             let callee = m.declare_func_in_func(ids[&name].0, b.func);
+            let mut capture_names = HashSet::new();
+            collect_names(body, &mut capture_names);
+            for parameter in params {
+                capture_names.remove(&parameter.name);
+            }
+            let mut capture_names: Vec<_> = capture_names
+                .into_iter()
+                .filter(|name| v.contains_key(name))
+                .collect();
+            capture_names.sort();
+            let capture_count = b.ins().iconst(types::I64, capture_names.len() as i64);
+            let env = runtime_call(
+                b,
+                m,
+                "xenith_closure_new",
+                vec![AbiParam::new(types::I64)],
+                vec![AbiParam::new(types::I64)],
+                &[capture_count],
+            )[0];
+            for (index, capture) in capture_names.iter().enumerate() {
+                let value = v[capture].0[0];
+                let stored = if v[capture].1 == Type::I32 {
+                    b.ins().uextend(types::I64, value)
+                } else {
+                    value
+                };
+                let slot = b.ins().iconst(types::I64, index as i64);
+                let _ = runtime_call(
+                    b,
+                    m,
+                    "xenith_closure_set",
+                    vec![
+                        AbiParam::new(types::I64),
+                        AbiParam::new(types::I64),
+                        AbiParam::new(types::I64),
+                    ],
+                    vec![],
+                    &[env, slot, stored],
+                );
+            }
             (
-                vec![b.ins().func_addr(types::I64, callee)],
+                vec![b.ins().func_addr(types::I64, callee), env],
                 Type::Function(
                     params
                         .iter()
@@ -1550,10 +1691,12 @@ fn lower(
             }
             if let Some((_, Type::Function(parameters, result))) = v.get(name) {
                 let mut args = Vec::new();
+                args.push(v[name].0[1]);
                 for argument in arguments {
                     args.extend(lower(b, argument, v, ids, m, l).0);
                 }
                 let mut signature = m.make_signature();
+                signature.params.push(AbiParam::new(types::I64));
                 for parameter in parameters {
                     signature
                         .params
@@ -1689,6 +1832,9 @@ fn lower(
             }
             for x in arguments {
                 a.extend(lower(b, x, v, ids, m, l).0)
+            }
+            if callee_name != "main" {
+                a.insert(0, b.ins().iconst(types::I64, 0));
             }
             let result_type = &ids[callee_name].1;
             let indirect = indirect_return(result_type, l);
@@ -1978,8 +2124,9 @@ fn lower_binding(
     match (annotation, value) {
         (Some(Type::Function(_, _)), Expr::Name(name)) if ids.contains_key(name) => {
             let callee = m.declare_func_in_func(ids[name].0, b.func);
+            let env = b.ins().iconst(types::I64, 0);
             (
-                vec![b.ins().func_addr(types::I64, callee)],
+                vec![b.ins().func_addr(types::I64, callee), env],
                 annotation.cloned().unwrap(),
             )
         }

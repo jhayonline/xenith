@@ -13,6 +13,9 @@ void xenith_echo(const unsigned char *data, int64_t length) {
     fwrite(data, 1, (size_t)length, stdout);
     fputc('\n', stdout);
 }
+void *xenith_closure_new(int64_t slots) { return calloc((size_t)slots + 1, sizeof(int64_t)); }
+void xenith_closure_set(void *raw, int64_t slot, int64_t value) { ((int64_t *)raw)[slot] = value; }
+int64_t xenith_closure_get(void *raw, int64_t slot) { return ((int64_t *)raw)[slot]; }
 void xenith_string_concat(const unsigned char *a, int64_t a_len, const unsigned char *b, int64_t b_len, unsigned char **out, int64_t *out_len) { *out_len = a_len + b_len; *out = malloc((size_t)*out_len); memcpy(*out, a, (size_t)a_len); memcpy(*out + a_len, b, (size_t)b_len); }
 int8_t xenith_string_equal(const unsigned char *a, int64_t a_len, const unsigned char *b, int64_t b_len) { return a_len == b_len && memcmp(a, b, (size_t)a_len) == 0; }
 typedef struct { int64_t length, width; unsigned char data[]; } XenithList;
