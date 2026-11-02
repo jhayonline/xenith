@@ -26,3 +26,16 @@ fn compiles_native_unit_enum_variant() {
     link_host(&object, &executable).unwrap();
     assert_eq!(Command::new(executable).status().unwrap().code(), Some(42));
 }
+
+#[test]
+fn compiles_native_payload_enum_variant() {
+    let source = "enum Shape { Circle(float), Empty } fn main() -> i32 { let shape: Shape = Shape::Circle(2.0) return 42 }";
+    let program = parse(Path::new("src/main.xen"), source).unwrap();
+    let typed = check(&program).unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let object = directory.path().join("main.o");
+    let executable = directory.path().join("main");
+    emit_object(&typed, &object).unwrap();
+    link_host(&object, &executable).unwrap();
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(42));
+}

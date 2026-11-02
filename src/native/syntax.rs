@@ -121,7 +121,7 @@ pub enum Expr {
     Map(Vec<(Expr, Expr)>),
     Tuple(Vec<Expr>),
     Name(String),
-    EnumVariant { enum_name: String, variant: String },
+    EnumVariant { enum_name: String, variant: String, arguments: Vec<Expr> },
     Call {
         name: String,
         arguments: Vec<Expr>,
@@ -1017,9 +1017,25 @@ impl Parser {
         if self.tokens.get(self.i).map(String::as_str) == Some("::") {
             self.take();
             let variant = self.identifier("enum variant name")?;
+            let arguments = if self.peek() == Some("(") {
+                self.take();
+                let mut arguments = Vec::new();
+                if self.peek() != Some(")") {
+                    arguments.push(self.expr()?);
+                    while self.peek() == Some(",") {
+                        self.take();
+                        arguments.push(self.expr()?);
+                    }
+                }
+                self.need(")")?;
+                arguments
+            } else {
+                Vec::new()
+            };
             Ok(Expr::EnumVariant {
                 enum_name: s,
                 variant,
+                arguments,
             })
         } else if self.tokens.get(self.i).map(String::as_str) == Some("{")
             && self.tokens.get(self.i + 2).map(String::as_str) == Some(":")

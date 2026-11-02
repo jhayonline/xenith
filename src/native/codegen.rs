@@ -905,14 +905,26 @@ fn lower(
             Type::Bool,
         ),
         Expr::Null => (vec![b.ins().iconst(types::I8, 0)], Type::Null),
-        Expr::EnumVariant { enum_name, variant } => {
+        Expr::EnumVariant { enum_name, variant, arguments } => {
             let layout = &l[enum_name];
             let tag = layout
                 .variants
                 .as_ref()
                 .and_then(|variants| variants.iter().position(|(name, _)| name == variant))
                 .expect("checked enum variant") as i64;
-            (vec![b.ins().iconst(types::I32, tag)], Type::Named(enum_name.clone()))
+            let mut values = vec![b.ins().iconst(types::I32, tag)];
+            for argument in arguments {
+                values.extend(lower(b, argument, v, ids, m, l).0);
+            }
+            let expected = flat(&Type::Named(enum_name.clone()), l);
+            for lane in expected.into_iter().skip(values.len()) {
+                values.push(if lane == types::F64 {
+                    b.ins().f64const(0.0)
+                } else {
+                    b.ins().iconst(lane, 0)
+                });
+            }
+            (values, Type::Named(enum_name.clone()))
         }
         Expr::Tuple(elements) => {
             let mut values = Vec::new();

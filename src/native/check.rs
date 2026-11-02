@@ -136,11 +136,24 @@ fn layouts(program: &Program, errors: &mut Vec<Diagnostic>) -> HashMap<String, S
             .iter()
             .map(|variant| (variant.name.clone(), variant.payload.clone()))
             .collect();
+        let max_payload = enumeration
+            .variants
+            .iter()
+            .max_by_key(|variant| variant.payload.len())
+            .map(|variant| variant.payload.clone())
+            .unwrap_or_default();
+        let mut fields = vec![("__tag".into(), Type::I32)];
+        fields.extend(
+            max_payload
+                .into_iter()
+                .enumerate()
+                .map(|(index, ty)| (format!("__payload{index}"), ty)),
+        );
         if layouts
             .insert(
                 enumeration.name.clone(),
                 StructLayout {
-                    fields: vec![("__tag".into(), Type::I32)],
+                    fields,
                     variants: Some(variants),
                 },
             )
@@ -836,7 +849,7 @@ fn expr(
                 _ => None,
             }
         }
-        Expr::EnumVariant { enum_name, variant } => {
+        Expr::EnumVariant { enum_name, variant, arguments } => {
             let Some(layout) = layouts.get(enum_name) else {
                 errors.push(Diagnostic {
                     message: format!("unknown enum `{enum_name}`"),
@@ -851,12 +864,20 @@ fn expr(
                 });
                 return None;
             };
-            if variants.iter().all(|(name, _)| name != variant) {
+            let Some((_, payload)) = variants.iter().find(|(name, _)| name == variant) else {
                 errors.push(Diagnostic {
                     message: format!("enum `{enum_name}` has no variant `{variant}`"),
                     span: None,
                 });
                 return None;
+            };
+            if arguments.len() != payload.len() {
+                errors.push(Diagnostic { message: format!("variant `{enum_name}::{variant}` expects {} payload values", payload.len()), span: None });
+            }
+            for (argument, expected) in arguments.iter().zip(payload) {
+                if expr(argument, names, signatures, layouts, errors) != Some(expected.clone()) {
+                    errors.push(Diagnostic { message: format!("variant `{enum_name}::{variant}` payload type mismatch"), span: None });
+                }
             }
             Some(Type::Named(enum_name.clone()))
         }
