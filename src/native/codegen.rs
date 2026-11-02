@@ -1159,6 +1159,38 @@ fn lower(
                     _ => unreachable!(),
                 };
             }
+            if name == "append" {
+                let (list, Type::List(element)) = lower(b, &arguments[0], v, ids, m, l) else {
+                    unreachable!()
+                };
+                let value = lower(b, &arguments[1], v, ids, m, l).0;
+                let (width, lanes) = return_layout(&element, l);
+                let slot = b.create_sized_stack_slot(StackSlotData::new(
+                    StackSlotKind::ExplicitSlot,
+                    width,
+                    3,
+                ));
+                let pointer = b
+                    .ins()
+                    .stack_addr(m.target_config().pointer_type(), slot, 0);
+                for (item, (_, offset)) in value.into_iter().zip(lanes) {
+                    b.ins().store(MemFlags::new(), item, pointer, offset);
+                }
+                let width_value = b.ins().iconst(types::I64, width as i64);
+                let result = runtime_call(
+                    b,
+                    m,
+                    "xenith_list_append",
+                    vec![
+                        AbiParam::new(types::I64),
+                        AbiParam::new(types::I64),
+                        AbiParam::new(types::I64),
+                    ],
+                    vec![AbiParam::new(types::I64)],
+                    &[list[0], width_value, pointer],
+                );
+                return (result, Type::List(element));
+            }
             let mut a = vec![];
             for x in arguments {
                 a.extend(lower(b, x, v, ids, m, l).0)

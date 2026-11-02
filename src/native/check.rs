@@ -867,39 +867,71 @@ fn expr(
                 }
                 return Some(Type::I32);
             }
-            let Some(signature) = signatures.get(name) else {
-                errors.push(Diagnostic {
-                    message: format!("unknown function `{name}`"),
-                    span: None,
-                });
-                for argument in arguments {
-                    expr(argument, names, signatures, layouts, errors);
-                }
-                return None;
-            };
-            if arguments.len() != signature.parameters.len() {
-                errors.push(Diagnostic {
-                    message: format!(
-                        "function `{name}` expects {} arguments",
-                        signature.parameters.len()
-                    ),
-                    span: None,
-                });
-            }
-            let argument_types: Vec<_> = arguments
-                .iter()
-                .map(|argument| expr(argument, names, signatures, layouts, errors))
-                .collect();
-            for (argument_type, parameter_type) in argument_types.iter().zip(&signature.parameters)
-            {
-                if *argument_type != Some(parameter_type.clone()) {
+            if name == "append" {
+                if arguments.len() != 2 {
                     errors.push(Diagnostic {
-                        message: format!("argument type does not match `{name}`"),
+                        message: "append expects a list and one value".into(),
+                        span: None,
+                    });
+                    return None;
+                }
+                let list_type = expr(&arguments[0], names, signatures, layouts, errors);
+                let value_type = expr(&arguments[1], names, signatures, layouts, errors);
+                match list_type {
+                    Some(Type::List(element)) if Some(*element.clone()) == value_type => {
+                        Some(Type::List(element))
+                    }
+                    Some(Type::List(_)) => {
+                        errors.push(Diagnostic {
+                            message: "append value type mismatch".into(),
+                            span: None,
+                        });
+                        None
+                    }
+                    _ => {
+                        errors.push(Diagnostic {
+                            message: "append expects a list".into(),
+                            span: None,
+                        });
+                        None
+                    }
+                }
+            } else {
+                let Some(signature) = signatures.get(name) else {
+                    errors.push(Diagnostic {
+                        message: format!("unknown function `{name}`"),
+                        span: None,
+                    });
+                    for argument in arguments {
+                        expr(argument, names, signatures, layouts, errors);
+                    }
+                    return None;
+                };
+                if arguments.len() != signature.parameters.len() {
+                    errors.push(Diagnostic {
+                        message: format!(
+                            "function `{name}` expects {} arguments",
+                            signature.parameters.len()
+                        ),
                         span: None,
                     });
                 }
+                let argument_types: Vec<_> = arguments
+                    .iter()
+                    .map(|argument| expr(argument, names, signatures, layouts, errors))
+                    .collect();
+                for (argument_type, parameter_type) in
+                    argument_types.iter().zip(&signature.parameters)
+                {
+                    if *argument_type != Some(parameter_type.clone()) {
+                        errors.push(Diagnostic {
+                            message: format!("argument type does not match `{name}`"),
+                            span: None,
+                        });
+                    }
+                }
+                Some(signature.result.clone())
             }
-            Some(signature.result.clone())
         }
         Expr::StructLiteral { name, fields } => {
             let Some(layout) = layouts.get(name) else {

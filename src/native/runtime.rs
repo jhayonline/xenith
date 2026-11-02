@@ -24,6 +24,7 @@ void *xenith_map_at(void *raw, const unsigned char *key, int64_t key_len) { Xeni
 void *xenith_bytes_new(const unsigned char *data, int64_t length) { XenithList *bytes = xenith_list_new(length, 1); memcpy(bytes->data, data, length); return bytes; }
 int32_t xenith_list_len(void *raw) { return (int32_t)((XenithList *)raw)->length; }
 int32_t xenith_map_len(void *raw) { return (int32_t)((XenithMap *)raw)->length; }
+void *xenith_list_append(void *raw, int64_t width, const void *value) { XenithList *list = raw; list = realloc(list, sizeof(XenithList) + (list->length + 1) * width); memcpy(list->data + list->length * width, value, width); list->length += 1; list->width = width; return list; }
 "#;
 
 pub fn write_source(directory: &Path) -> std::io::Result<PathBuf> {
