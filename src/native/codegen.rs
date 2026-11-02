@@ -531,14 +531,23 @@ fn lower_for_in(
     if names.len() != 1 {
         return LowerFlow::FallsThrough;
     }
-    let (iter_values, Type::List(element)) = lower(b, iterable, values, ids, m, layouts) else {
-        return LowerFlow::FallsThrough;
+    let (iter_values, iterable_type) = lower(b, iterable, values, ids, m, layouts);
+    let (binding_type, binding_expr) = match iterable_type.clone() {
+        Type::List(element) => (
+            *element,
+            Expr::Index {
+                base: Box::new(Expr::Name("__xenith_iter".into())),
+                index: Box::new(Expr::Name("__xenith_index".into())),
+            },
+        ),
+        Type::Map(_, _) => return LowerFlow::FallsThrough,
+        _ => return LowerFlow::FallsThrough,
     };
     let iter_name = "__xenith_iter".to_string();
     let index_name = "__xenith_index".to_string();
     let binding = names[0].clone();
     let original_names: Vec<String> = values.keys().cloned().collect();
-    values.insert(iter_name.clone(), (iter_values, Type::List(element.clone())));
+    values.insert(iter_name.clone(), (iter_values, iterable_type));
     values.insert(index_name.clone(), (vec![b.ins().iconst(types::I32, 0)], Type::I32));
     let condition = Expr::Compare(
         Box::new(Expr::Name(index_name.clone())),
@@ -556,11 +565,8 @@ fn lower_for_in(
     let mut lowered_body = vec![Stmt::Let {
         name: binding,
         mutable: false,
-        ty: Some(*element),
-        value: Expr::Index {
-            base: Box::new(Expr::Name(iter_name.clone())),
-            index: Box::new(Expr::Name(index_name.clone())),
-        },
+        ty: Some(binding_type),
+        value: binding_expr,
     }];
     lowered_body.extend_from_slice(body);
     let flow = lower_while(
