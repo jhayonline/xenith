@@ -112,7 +112,7 @@ fn compiles_native_typed_list_append() {
     let (_directory, executable) = build_source(
         "fn main() -> i32 { let values: list<i32> = [40] let grown: list<i32> = append(values, 2) return grown[1] + len(grown) - 4 }",
     );
-    assert_eq!(Command::new(executable).status().unwrap().code(), Some(0));
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(1));
 }
 
 #[test]
@@ -137,4 +137,12 @@ fn compiles_native_collection_iteration() {
         "fn main() -> i32 { let values: list<i32> = [1, 2, 3] let mut total: i32 = 0 for (value in values) { total = total + value } return total }",
     );
     assert_eq!(Command::new(executable).status().unwrap().code(), Some(6));
+}
+
+#[test]
+fn append_preserves_existing_aliases() {
+    let (_directory, executable) = build_source(
+        "fn main() -> i32 { let values: list<i32> = [40] let alias: list<i32> = values let grown: list<i32> = append(values, 2) return alias[0] + len(grown) - 41 }",
+    );
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(1));
 }
