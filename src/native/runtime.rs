@@ -26,6 +26,7 @@ int32_t xenith_list_len(void *raw) { return (int32_t)((XenithList *)raw)->length
 int32_t xenith_map_len(void *raw) { return (int32_t)((XenithMap *)raw)->length; }
 void *xenith_list_append(void *raw, int64_t width, const void *value) { XenithList *list = raw; list = realloc(list, sizeof(XenithList) + (list->length + 1) * width); memcpy(list->data + list->length * width, value, width); list->length += 1; list->width = width; return list; }
 int32_t xenith_map_remove(void *raw, const unsigned char *key, int64_t key_len) { XenithMap *map = raw; for (int64_t i = 0; i < map->length; i++) if (map->entries[i].key_len == key_len && !memcmp(map->entries[i].key, key, key_len)) { free(map->entries[i].value); for (int64_t j = i + 1; j < map->length; j++) map->entries[j - 1] = map->entries[j]; map->length -= 1; return 1; } return 0; }
+int8_t xenith_map_contains(void *raw, const unsigned char *key, int64_t key_len) { XenithMap *map = raw; for (int64_t i = 0; i < map->length; i++) if (map->entries[i].key_len == key_len && !memcmp(map->entries[i].key, key, key_len)) return 1; return 0; }
 "#;
 
 pub fn write_source(directory: &Path) -> std::io::Result<PathBuf> {

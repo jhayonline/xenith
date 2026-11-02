@@ -1208,6 +1208,23 @@ fn lower(
                 );
                 return (result, Type::I32);
             }
+            if name == "contains" {
+                let (map, _) = lower(b, &arguments[0], v, ids, m, l);
+                let key = lower(b, &arguments[1], v, ids, m, l).0;
+                let result = runtime_call(
+                    b,
+                    m,
+                    "xenith_map_contains",
+                    vec![
+                        AbiParam::new(types::I64),
+                        AbiParam::new(types::I64),
+                        AbiParam::new(types::I64),
+                    ],
+                    vec![AbiParam::new(types::I8)],
+                    &[map[0], key[0], key[1]],
+                );
+                return (result, Type::Bool);
+            }
             let mut a = vec![];
             for x in arguments {
                 a.extend(lower(b, x, v, ids, m, l).0)

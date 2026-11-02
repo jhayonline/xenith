@@ -921,6 +921,30 @@ fn expr(
                     }
                     return Some(Type::I32);
                 }
+                if name == "contains" {
+                    if arguments.len() != 2 {
+                        errors.push(Diagnostic {
+                            message: "contains expects a map and a string key".into(),
+                            span: None,
+                        });
+                        return Some(Type::Bool);
+                    }
+                    let map_type = expr(&arguments[0], names, signatures, layouts, errors);
+                    let key_type = expr(&arguments[1], names, signatures, layouts, errors);
+                    if !matches!(map_type, Some(Type::Map(_, _))) {
+                        errors.push(Diagnostic {
+                            message: "contains expects a map".into(),
+                            span: None,
+                        });
+                    }
+                    if key_type != Some(Type::String) {
+                        errors.push(Diagnostic {
+                            message: "contains key must be string".into(),
+                            span: None,
+                        });
+                    }
+                    return Some(Type::Bool);
+                }
                 let Some(signature) = signatures.get(name) else {
                     errors.push(Diagnostic {
                         message: format!("unknown function `{name}`"),

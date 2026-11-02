@@ -122,3 +122,11 @@ fn compiles_native_typed_map_remove() {
     );
     assert_eq!(Command::new(executable).status().unwrap().code(), Some(2));
 }
+
+#[test]
+fn compiles_native_typed_map_contains() {
+    let (_directory, executable) = build_source(
+        "fn main() -> i32 { let names: map<string, i32> = {\"a\": 1} if (contains(names, \"a\")) { return 7 } return 3 }",
+    );
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(7));
+}
