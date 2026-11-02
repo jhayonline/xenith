@@ -6,6 +6,19 @@ use xenith::native::{
 };
 
 #[test]
+fn rejects_mutable_closure_captures() {
+    let source = "fn main() -> i32 { let mut n: i32 = 1 let f: fn(i32) -> i32 = fn(x: i32) -> i32 => x + n return f(1) }";
+    let program = parse(Path::new("main.xen"), source).unwrap();
+    let errors = check(&program).expect_err("mutable captures should be rejected");
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message.contains("capture mutable binding `n`")),
+        "{errors:?}"
+    );
+}
+
+#[test]
 fn compiles_native_named_function_values_and_indirect_calls() {
     let source = "fn add(value: i32) -> i32 { return value + 2 } fn main() -> i32 { let f: fn(i32) -> i32 = add return f(40) }";
     let program = parse(Path::new("src/main.xen"), source).unwrap();

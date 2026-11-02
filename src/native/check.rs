@@ -857,6 +857,19 @@ fn expr(
                 closure_names.insert(parameter.name.clone(), (parameter.ty.clone(), false));
                 validate_type(&parameter.ty, layouts, errors);
             }
+            let mut captured = HashSet::new();
+            collect_expr_names(body, &mut captured);
+            for parameter in params {
+                captured.remove(&parameter.name);
+            }
+            for name in captured {
+                if names.get(&name).is_some_and(|(_, mutable)| *mutable) {
+                    errors.push(Diagnostic {
+                        message: format!("closures cannot capture mutable binding `{name}`"),
+                        span: None,
+                    });
+                }
+            }
             validate_type(result, layouts, errors);
             let body_type = expr(body, &closure_names, signatures, layouts, errors);
             if body_type != Some(result.clone()) {
@@ -1492,6 +1505,55 @@ fn root_name(expression: &Expr) -> Option<&str> {
         Expr::Name(name) => Some(name),
         Expr::Index { base, .. } => root_name(base),
         _ => None,
+    }
+}
+
+fn collect_expr_names(expression: &Expr, names: &mut HashSet<String>) {
+    match expression {
+        Expr::Name(name) => {
+            names.insert(name.clone());
+        }
+        Expr::Closure { body, .. } => collect_expr_names(body, names),
+        Expr::Call { arguments, .. } | Expr::Tuple(arguments) | Expr::List(arguments) => {
+            for argument in arguments {
+                collect_expr_names(argument, names);
+            }
+        }
+        Expr::Map(pairs) => {
+            for (key, value) in pairs {
+                collect_expr_names(key, names);
+                collect_expr_names(value, names);
+            }
+        }
+        Expr::EnumVariant { arguments, .. } => {
+            for argument in arguments {
+                collect_expr_names(argument, names);
+            }
+        }
+        Expr::Match { subject, arms } => {
+            collect_expr_names(subject, names);
+            for arm in arms {
+                collect_expr_names(&arm.body, names);
+            }
+        }
+        Expr::StructLiteral { fields, .. } => {
+            for (_, value) in fields {
+                collect_expr_names(value, names);
+            }
+        }
+        Expr::Field { base, .. } => collect_expr_names(base, names),
+        Expr::Index { base, index } => {
+            collect_expr_names(base, names);
+            collect_expr_names(index, names);
+        }
+        Expr::Neg(value) | Expr::Not(value) => collect_expr_names(value, names),
+        Expr::Logical(left, _, right)
+        | Expr::Compare(left, _, right)
+        | Expr::Binary(left, _, right) => {
+            collect_expr_names(left, names);
+            collect_expr_names(right, names);
+        }
+        _ => {}
     }
 }
 
