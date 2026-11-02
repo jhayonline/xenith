@@ -1191,6 +1191,23 @@ fn lower(
                 );
                 return (result, Type::List(element));
             }
+            if name == "remove" {
+                let (map, _) = lower(b, &arguments[0], v, ids, m, l);
+                let key = lower(b, &arguments[1], v, ids, m, l).0;
+                let result = runtime_call(
+                    b,
+                    m,
+                    "xenith_map_remove",
+                    vec![
+                        AbiParam::new(types::I64),
+                        AbiParam::new(types::I64),
+                        AbiParam::new(types::I64),
+                    ],
+                    vec![AbiParam::new(types::I32)],
+                    &[map[0], key[0], key[1]],
+                );
+                return (result, Type::I32);
+            }
             let mut a = vec![];
             for x in arguments {
                 a.extend(lower(b, x, v, ids, m, l).0)

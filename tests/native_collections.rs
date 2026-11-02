@@ -114,3 +114,11 @@ fn compiles_native_typed_list_append() {
     );
     assert_eq!(Command::new(executable).status().unwrap().code(), Some(0));
 }
+
+#[test]
+fn compiles_native_typed_map_remove() {
+    let (_directory, executable) = build_source(
+        "fn main() -> i32 { let names: map<string, i32> = {\"a\": 1, \"b\": 2} let removed: i32 = remove(names, \"a\") return removed + len(names) }",
+    );
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(2));
+}
