@@ -112,7 +112,7 @@ fn compiles_native_typed_list_append() {
     let (_directory, executable) = build_source(
         "fn main() -> i32 { let values: list<i32> = [40] let grown: list<i32> = append(values, 2) return grown[1] + len(grown) - 4 }",
     );
-    assert_eq!(Command::new(executable).status().unwrap().code(), Some(1));
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(0));
 }
 
 #[test]
