@@ -1130,6 +1130,35 @@ fn lower(
                 b.ins().call(callee, &argument);
                 return (vec![b.ins().iconst(types::I32, 0)], Type::I32);
             }
+            if name == "len" {
+                let (argument, argument_type) = lower(b, &arguments[0], v, ids, m, l);
+                return match argument_type {
+                    Type::String => (vec![b.ins().ireduce(types::I32, argument[1])], Type::I32),
+                    Type::Bytes | Type::List(_) => (
+                        runtime_call(
+                            b,
+                            m,
+                            "xenith_list_len",
+                            vec![AbiParam::new(types::I64)],
+                            vec![AbiParam::new(types::I32)],
+                            &[argument[0]],
+                        ),
+                        Type::I32,
+                    ),
+                    Type::Map(_, _) => (
+                        runtime_call(
+                            b,
+                            m,
+                            "xenith_map_len",
+                            vec![AbiParam::new(types::I64)],
+                            vec![AbiParam::new(types::I32)],
+                            &[argument[0]],
+                        ),
+                        Type::I32,
+                    ),
+                    _ => unreachable!(),
+                };
+            }
             let mut a = vec![];
             for x in arguments {
                 a.extend(lower(b, x, v, ids, m, l).0)

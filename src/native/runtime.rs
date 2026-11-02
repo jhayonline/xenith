@@ -22,6 +22,8 @@ void *xenith_map_new(int64_t length, int64_t width) { XenithMap *map = calloc(1,
 void xenith_map_put(void *raw, int64_t slot, const unsigned char *key, int64_t key_len, const void *value) { XenithMap *map = raw; XenithMapEntry *entry = &map->entries[slot]; entry->key = key; entry->key_len = key_len; entry->value = malloc(map->width); memcpy(entry->value, value, map->width); }
 void *xenith_map_at(void *raw, const unsigned char *key, int64_t key_len) { XenithMap *map = raw; for (int64_t i = 0; i < map->length; i++) if (map->entries[i].key_len == key_len && !memcmp(map->entries[i].key, key, key_len)) return map->entries[i].value; abort(); }
 void *xenith_bytes_new(const unsigned char *data, int64_t length) { XenithList *bytes = xenith_list_new(length, 1); memcpy(bytes->data, data, length); return bytes; }
+int32_t xenith_list_len(void *raw) { return (int32_t)((XenithList *)raw)->length; }
+int32_t xenith_map_len(void *raw) { return (int32_t)((XenithMap *)raw)->length; }
 "#;
 
 pub fn write_source(directory: &Path) -> std::io::Result<PathBuf> {

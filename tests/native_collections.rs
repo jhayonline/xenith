@@ -98,3 +98,11 @@ fn compiles_native_tuples_and_indexing() {
     );
     assert_eq!(Command::new(executable).status().unwrap().code(), Some(42));
 }
+
+#[test]
+fn compiles_native_collection_lengths() {
+    let (_directory, executable) = build_source(
+        "fn main() -> i32 { let values: list<i32> = [1, 2] let names: map<string, i32> = {\"a\": 1} let raw: bytes = bytes(\"ab\") return len(values) + len(names) + len(raw) + len(\"x\") - 3 }",
+    );
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(3));
+}

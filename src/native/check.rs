@@ -847,6 +847,26 @@ fn expr(
                 }
                 return Some(Type::I32);
             }
+            if name == "len" {
+                if arguments.len() != 1 {
+                    errors.push(Diagnostic {
+                        message: "len expects one argument".into(),
+                        span: None,
+                    });
+                    return Some(Type::I32);
+                }
+                let argument_type = expr(&arguments[0], names, signatures, layouts, errors);
+                if !matches!(
+                    argument_type,
+                    Some(Type::String | Type::Bytes | Type::List(_) | Type::Map(_, _))
+                ) {
+                    errors.push(Diagnostic {
+                        message: "len expects string, bytes, list, or map".into(),
+                        span: None,
+                    });
+                }
+                return Some(Type::I32);
+            }
             let Some(signature) = signatures.get(name) else {
                 errors.push(Diagnostic {
                     message: format!("unknown function `{name}`"),
