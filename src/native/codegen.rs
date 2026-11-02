@@ -5,8 +5,9 @@ use super::{
 };
 use cranelift_codegen::{
     ir::{
-        condcodes::IntCC, types, AbiParam, ArgumentPurpose, Block, InstBuilder, MemFlags,
-        Signature, StackSlotData, StackSlotKind, TrapCode, Type as ClifType, Value,
+        condcodes::{FloatCC, IntCC},
+        types, AbiParam, ArgumentPurpose, Block, InstBuilder, MemFlags, Signature, StackSlotData,
+        StackSlotKind, TrapCode, Type as ClifType, Value,
     },
     settings,
 };
@@ -63,6 +64,7 @@ fn flat(ty: &Type, layouts: &HashMap<String, StructLayout>) -> Vec<cranelift_cod
     match ty {
         Type::I32 => vec![types::I32],
         Type::I64 => vec![types::I64],
+        Type::Float => vec![types::F64],
         Type::Bool => vec![types::I8],
         Type::String => vec![types::I64, types::I64],
         Type::Bytes | Type::List(_) | Type::Map(_, _) => vec![types::I64],
@@ -812,6 +814,7 @@ fn lower(
 ) -> (Vec<Value>, Type) {
     match x {
         Expr::Int(n, t) => (vec![b.ins().iconst(flat(t, l)[0], *n)], t.clone()),
+        Expr::Float(value) => (vec![b.ins().f64const(*value)], Type::Float),
         Expr::Bool(value) => (
             vec![b.ins().iconst(types::I8, i64::from(*value))],
             Type::Bool,
@@ -952,6 +955,9 @@ fn lower(
         }
         Expr::Neg(value) => {
             let (values, ty) = lower(b, value, v, ids, m, l);
+            if ty == Type::Float {
+                return (vec![b.ins().fneg(values[0])], ty);
+            }
             let zero = b.ins().iconst(flat(&ty, l)[0], 0);
             let values = b.ins().ssub_overflow(zero, values[0]);
             (vec![checked_integer_operation(b, values)], ty)
@@ -1142,6 +1148,18 @@ fn lower(
             }
             let x = left[0];
             let y = right[0];
+            if ty == Type::Float {
+                let cc = match operator.as_str() {
+                    "<" => FloatCC::LessThan,
+                    ">" => FloatCC::GreaterThan,
+                    "<=" => FloatCC::LessThanOrEqual,
+                    ">=" => FloatCC::GreaterThanOrEqual,
+                    "==" => FloatCC::Equal,
+                    "!=" => FloatCC::NotEqual,
+                    _ => FloatCC::Equal,
+                };
+                return (vec![b.ins().fcmp(cc, x, y)], Type::Bool);
+            }
             let cc = match operator.as_str() {
                 "<" => IntCC::SignedLessThan,
                 ">" => IntCC::SignedGreaterThan,
@@ -1159,6 +1177,10 @@ fn lower(
             let y = lower(b, c, v, ids, m, l).0[0];
             (
                 vec![match o {
+                    '+' if ty == Type::Float => b.ins().fadd(x, y),
+                    '-' if ty == Type::Float => b.ins().fsub(x, y),
+                    '*' if ty == Type::Float => b.ins().fmul(x, y),
+                    '/' if ty == Type::Float => b.ins().fdiv(x, y),
                     '+' => {
                         let values = b.ins().sadd_overflow(x, y);
                         checked_integer_operation(b, values)
@@ -1187,6 +1209,7 @@ fn infer_lowered_type(
 ) -> Type {
     match expression {
         Expr::Int(_, ty) => ty.clone(),
+        Expr::Float(_) => Type::Float,
         Expr::Bool(_) => Type::Bool,
         Expr::String(_) => Type::String,
         Expr::Bytes(_) => Type::Bytes,

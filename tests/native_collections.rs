@@ -74,3 +74,11 @@ fn compiles_parenthesized_if_and_for_conditions() {
     );
     assert_eq!(Command::new(executable).status().unwrap().code(), Some(42));
 }
+
+#[test]
+fn compiles_native_floating_point_arithmetic() {
+    let (_directory, executable) = build_source(
+        "fn main() -> i32 { let value: float = 1.5 * 4.0 if (value > 5.0) { return 42 } else { return 0 } }",
+    );
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(42));
+}

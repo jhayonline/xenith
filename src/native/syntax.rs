@@ -4,6 +4,7 @@ use std::path::Path;
 pub enum Type {
     I32,
     I64,
+    Float,
     Bool,
     String,
     Bytes,
@@ -92,6 +93,7 @@ pub enum Stmt {
 #[derive(Debug, Clone)]
 pub enum Expr {
     Int(i64, Type),
+    Float(f64),
     Bool(bool),
     String(String),
     Bytes(String),
@@ -342,6 +344,7 @@ impl Parser {
         match self.take().as_deref() {
             Some("i32") => Ok(Type::I32),
             Some("i64") => Ok(Type::I64),
+            Some("float") => Ok(Type::Float),
             Some("bool") => Ok(Type::Bool),
             Some("string") => Ok(Type::String),
             Some("bytes") => Ok(Type::Bytes),
@@ -868,6 +871,21 @@ impl Parser {
                 }
                 return Ok(Expr::Int(value, ty));
             }
+        }
+        if self.peek() == Some(".")
+            && self
+                .tokens
+                .get(self.i + 1)
+                .is_some_and(|part| part.chars().all(|c| c.is_ascii_digit()))
+            && s.chars().all(|c| c.is_ascii_digit())
+        {
+            self.take();
+            let fraction = self.take().unwrap();
+            let literal = format!("{s}.{fraction}");
+            return literal
+                .parse::<f64>()
+                .map(Expr::Float)
+                .map_err(|_| vec![Diagnostic::at("invalid float literal", span)]);
         }
         if let Ok(n) = s.parse::<i64>() {
             if i32::try_from(n).is_err() {

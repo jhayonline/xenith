@@ -705,6 +705,7 @@ fn expr(
 ) -> Option<Type> {
     match expression {
         Expr::Int(_, ty) => Some(ty.clone()),
+        Expr::Float(_) => Some(Type::Float),
         Expr::Bool(_) => Some(Type::Bool),
         Expr::String(_) => Some(Type::String),
         Expr::Bytes(_) => Some(Type::Bytes),
@@ -764,7 +765,7 @@ fn expr(
         }
         Expr::Neg(value) => {
             let ty = expr(value, names, signatures, layouts, errors);
-            if !matches!(ty, Some(Type::I32 | Type::I64)) {
+            if !matches!(ty, Some(Type::I32 | Type::I64 | Type::Float)) {
                 errors.push(Diagnostic {
                     message: "unary `-` requires an integer".into(),
                     span: None,
@@ -978,7 +979,7 @@ fn expr(
                     span: None,
                 });
             } else if !matches!(operator.as_str(), "==" | "!=")
-                && !matches!(left, Some(Type::I32 | Type::I64))
+                && !matches!(left, Some(Type::I32 | Type::I64 | Type::Float))
             {
                 errors.push(Diagnostic {
                     message: "ordering comparisons require integer operands".into(),
@@ -995,7 +996,7 @@ fn expr(
                     message: "numeric operands must have same type".into(),
                     span: None,
                 });
-            } else if !matches!(left_type, Some(Type::I32 | Type::I64)) {
+            } else if !matches!(left_type, Some(Type::I32 | Type::I64 | Type::Float)) {
                 errors.push(Diagnostic {
                     message: "arithmetic operands require integers".into(),
                     span: None,
