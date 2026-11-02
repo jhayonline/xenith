@@ -66,3 +66,11 @@ fn rejects_invalid_collection_operations_statically() {
     );
     assert_error("fn main() -> i32 { let mut raw: bytes = bytes(\"x\") if true { raw[\"bad\"] = 1 } return 0 }", "bytes index must be i32");
 }
+
+#[test]
+fn compiles_parenthesized_if_and_for_conditions() {
+    let (_directory, executable) = build_source(
+        "fn main() -> i32 { let mut total: i32 = 0 if (1 < 2) { total = 40 } for (let mut i: i32 = 0; i < 1; i = i + 1) { total = total + 2 } return total }",
+    );
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(42));
+}
