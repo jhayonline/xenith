@@ -31,6 +31,10 @@ fn rejects_inhomogeneous_literals_and_writes() {
         "fn main() -> i32 { let mut values: list<i32> = [1, 2] values[0] = true return 0 }",
         "indexed assignment type mismatch",
     );
+    assert_error(
+        "fn main() -> i32 { let values: map<i32, i32> = {1: 2} return 0 }",
+        "map keys must be string",
+    );
 }
 
 #[test]

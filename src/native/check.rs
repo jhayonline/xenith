@@ -78,6 +78,12 @@ fn validate_type(ty: &Type, layouts: &HashMap<String, StructLayout>, errors: &mu
         Type::Map(key, value) => {
             validate_type(key, layouts, errors);
             validate_type(value, layouts, errors);
+            if **key != Type::String {
+                errors.push(Diagnostic {
+                    message: "map keys must be string".into(),
+                    span: None,
+                });
+            }
         }
         _ => {}
     }
@@ -734,6 +740,12 @@ fn expr(
             if keys.iter().any(|ty| *ty != key) || values.iter().any(|ty| *ty != value) {
                 errors.push(Diagnostic {
                     message: "map keys and values must each have the same type".into(),
+                    span: None,
+                });
+            }
+            if key != Some(Type::String) {
+                errors.push(Diagnostic {
+                    message: "map keys must be string".into(),
                     span: None,
                 });
             }
