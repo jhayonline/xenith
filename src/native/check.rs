@@ -881,6 +881,44 @@ fn expr(
             }
             Some(Type::Named(enum_name.clone()))
         }
+        Expr::Match { subject, arms } => {
+            let subject_type = expr(subject, names, signatures, layouts, errors);
+            let Some(Type::Named(enum_name)) = subject_type else {
+                errors.push(Diagnostic { message: "match subject must be an enum".into(), span: None });
+                return None;
+            };
+            let Some(layout) = layouts.get(&enum_name) else { return None };
+            let Some(variants) = &layout.variants else { return None };
+            let mut seen = HashSet::new();
+            let mut result: Option<Type> = None;
+            for arm in arms {
+                let mut arm_names = names.clone();
+                if let Some(variant) = &arm.variant {
+                    let Some((_, payload)) = variants.iter().find(|(name, _)| name == variant) else {
+                        errors.push(Diagnostic { message: format!("enum `{enum_name}` has no variant `{variant}`"), span: None });
+                        continue;
+                    };
+                    seen.insert(variant.clone());
+                    if let Some(binding) = &arm.binding {
+                        if payload.len() != 1 {
+                            errors.push(Diagnostic { message: "variant binding requires exactly one payload".into(), span: None });
+                        } else {
+                            arm_names.insert(binding.clone(), (payload[0].clone(), false));
+                        }
+                    }
+                }
+                let arm_type = expr(&arm.body, &arm_names, signatures, layouts, errors);
+                if let Some(previous) = &result {
+                    if Some(previous.clone()) != arm_type {
+                        errors.push(Diagnostic { message: "match arms must have the same type".into(), span: None });
+                    }
+                } else { result = arm_type; }
+            }
+            if !arms.iter().any(|arm| arm.variant.is_none()) && variants.iter().any(|(name, _)| !seen.contains(name)) {
+                errors.push(Diagnostic { message: format!("match on `{enum_name}` is not exhaustive"), span: None });
+            }
+            result
+        }
         Expr::Neg(value) => {
             let ty = expr(value, names, signatures, layouts, errors);
             if !matches!(ty, Some(Type::I32 | Type::I64 | Type::Float)) {

@@ -39,3 +39,16 @@ fn compiles_native_payload_enum_variant() {
     link_host(&object, &executable).unwrap();
     assert_eq!(Command::new(executable).status().unwrap().code(), Some(42));
 }
+
+#[test]
+fn compiles_native_enum_match() {
+    let source = "enum Color { Red, Green } fn main() -> i32 { let color: Color = Color::Green return match color { Color::Red => 1 Color::Green => 42 } }";
+    let program = parse(Path::new("src/main.xen"), source).unwrap();
+    let typed = check(&program).unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let object = directory.path().join("main.o");
+    let executable = directory.path().join("main");
+    emit_object(&typed, &object).unwrap();
+    link_host(&object, &executable).unwrap();
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(42));
+}

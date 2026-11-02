@@ -926,6 +926,43 @@ fn lower(
             }
             (values, Type::Named(enum_name.clone()))
         }
+        Expr::Match { subject, arms } => {
+            let (subject_values, Type::Named(enum_name)) = lower(b, subject, v, ids, m, l) else { unreachable!() };
+            let merge = b.create_block();
+            let mut arm_blocks = Vec::new();
+            let result_type = infer_lowered_type(&arms[0].body, v, ids, l);
+            for ty in flat(&result_type, l) { b.append_block_param(merge, ty); }
+            for _ in arms { arm_blocks.push(b.create_block()); }
+            let test_blocks: Vec<_> = (0..arms.len()).map(|_| b.create_block()).collect();
+            b.ins().jump(test_blocks[0], &[]);
+            for (index, arm) in arms.iter().enumerate() {
+                let current_test = test_blocks[index];
+                b.switch_to_block(current_test);
+                let target = arm_blocks[index];
+                if let Some(variant) = &arm.variant {
+                    let tag = l[&enum_name].variants.as_ref().unwrap().iter().position(|(name, _)| name == variant).unwrap() as i64;
+                    if index + 1 == arms.len() {
+                        b.ins().jump(target, &[]);
+                    } else {
+                        let matches = b.ins().icmp_imm(IntCC::Equal, subject_values[0], tag);
+                        let next = test_blocks[index + 1];
+                        b.ins().brif(matches, target, &[], next, &[]);
+                    }
+                } else { b.ins().jump(target, &[]); }
+                b.seal_block(current_test);
+            }
+            for (index, arm) in arms.iter().enumerate() {
+                b.switch_to_block(arm_blocks[index]);
+                let mut arm_values = v.clone();
+                if let Some(binding) = &arm.binding { arm_values.insert(binding.clone(), (subject_values[1..].to_vec(), infer_lowered_type(&arm.body, v, ids, l))); }
+                let body = lower(b, &arm.body, &arm_values, ids, m, l).0;
+                b.ins().jump(merge, &body);
+                b.seal_block(arm_blocks[index]);
+            }
+            b.seal_block(merge);
+            b.switch_to_block(merge);
+            (b.block_params(merge).to_vec(), result_type)
+        }
         Expr::Tuple(elements) => {
             let mut values = Vec::new();
             let mut types = Vec::new();
@@ -1454,6 +1491,7 @@ fn infer_lowered_type(
         Expr::String(_) => Type::String,
         Expr::Bytes(_) => Type::Bytes,
         Expr::EnumVariant { enum_name, .. } => Type::Named(enum_name.clone()),
+        Expr::Match { arms, .. } => infer_lowered_type(&arms[0].body, values, ids, layouts),
         Expr::Name(name) => values[name].1.clone(),
         Expr::List(items) => Type::List(Box::new(infer_lowered_type(
             &items[0], values, ids, layouts,

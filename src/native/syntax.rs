@@ -122,6 +122,7 @@ pub enum Expr {
     Tuple(Vec<Expr>),
     Name(String),
     EnumVariant { enum_name: String, variant: String, arguments: Vec<Expr> },
+    Match { subject: Box<Expr>, arms: Vec<MatchArm> },
     Call {
         name: String,
         arguments: Vec<Expr>,
@@ -143,6 +144,13 @@ pub enum Expr {
     Logical(Box<Expr>, String, Box<Expr>),
     Compare(Box<Expr>, String, Box<Expr>),
     Binary(Box<Expr>, char, Box<Expr>),
+}
+#[derive(Debug, Clone)]
+pub struct MatchArm {
+    pub enum_name: Option<String>,
+    pub variant: Option<String>,
+    pub binding: Option<String>,
+    pub body: Box<Expr>,
 }
 #[derive(Debug, Clone)]
 pub struct Diagnostic {
@@ -278,6 +286,12 @@ fn lex(source: &str) -> Vec<Token> {
                 text: "::".into(),
                 span: Span::new(out[index].span.start, out[index + 1].span.end),
             });
+            index += 2;
+        } else if out[index].text == "="
+            && out[index].span.end == out.get(index + 1).map(|token| token.span.start).unwrap_or_default()
+            && out.get(index + 1).map(|token| token.text.as_str()) == Some(">")
+        {
+            merged.push(Token { text: "=>".into(), span: Span::new(out[index].span.start, out[index + 1].span.end) });
             index += 2;
         } else if matches!(out[index].text.as_str(), "<" | ">" | "!" | "=")
             && out[index].span.end
@@ -922,6 +936,33 @@ impl Parser {
             }
             self.need("]")?;
             return Ok(Expr::List(elements));
+        }
+        if s == "match" {
+            let subject = self.expr()?;
+            self.need("{")?;
+            let mut arms = Vec::new();
+            while self.peek() != Some("}") {
+                let (enum_name, variant, binding) = if self.peek() == Some("_") {
+                    self.take();
+                    (None, None, None)
+                } else {
+                    let enum_name = self.identifier("enum name")?;
+                    self.need("::")?;
+                    let variant = self.identifier("enum variant name")?;
+                    let binding = if self.peek() == Some("(") {
+                        self.take();
+                        let name = self.identifier("variant binding")?;
+                        self.need(")")?;
+                        Some(name)
+                    } else { None };
+                    (Some(enum_name), Some(variant), binding)
+                };
+                self.need("=>")?;
+                let body = self.expr()?;
+                arms.push(MatchArm { enum_name, variant, binding, body: Box::new(body) });
+            }
+            self.need("}")?;
+            return Ok(Expr::Match { subject: Box::new(subject), arms });
         }
         if s == "{" {
             let mut pairs = vec![];
