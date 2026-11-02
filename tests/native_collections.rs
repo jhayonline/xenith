@@ -82,3 +82,11 @@ fn compiles_native_floating_point_arithmetic() {
     );
     assert_eq!(Command::new(executable).status().unwrap().code(), Some(42));
 }
+
+#[test]
+fn compiles_native_null_values_and_equality() {
+    let (_directory, executable) = build_source(
+        "fn main() -> i32 { let value: null = null if (value == null) { return 42 } else { return 0 } }",
+    );
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(42));
+}

@@ -6,6 +6,7 @@ pub enum Type {
     I64,
     Float,
     Bool,
+    Null,
     String,
     Bytes,
     List(Box<Type>),
@@ -95,6 +96,7 @@ pub enum Expr {
     Int(i64, Type),
     Float(f64),
     Bool(bool),
+    Null,
     String(String),
     Bytes(String),
     List(Vec<Expr>),
@@ -346,6 +348,7 @@ impl Parser {
             Some("i64") => Ok(Type::I64),
             Some("float") => Ok(Type::Float),
             Some("bool") => Ok(Type::Bool),
+            Some("null") => Ok(Type::Null),
             Some("string") => Ok(Type::String),
             Some("bytes") => Ok(Type::Bytes),
             Some("list") => {
@@ -841,6 +844,9 @@ impl Parser {
         }
         if s == "false" {
             return Ok(Expr::Bool(false));
+        }
+        if s == "null" {
+            return Ok(Expr::Null);
         }
         if s.starts_with('"') && s.ends_with('"') && s.len() >= 2 {
             return Ok(Expr::String(s[1..s.len() - 1].to_owned()));

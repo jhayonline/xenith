@@ -707,6 +707,7 @@ fn expr(
         Expr::Int(_, ty) => Some(ty.clone()),
         Expr::Float(_) => Some(Type::Float),
         Expr::Bool(_) => Some(Type::Bool),
+        Expr::Null => Some(Type::Null),
         Expr::String(_) => Some(Type::String),
         Expr::Bytes(_) => Some(Type::Bytes),
         Expr::List(elements) => {

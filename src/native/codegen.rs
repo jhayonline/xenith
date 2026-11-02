@@ -66,6 +66,7 @@ fn flat(ty: &Type, layouts: &HashMap<String, StructLayout>) -> Vec<cranelift_cod
         Type::I64 => vec![types::I64],
         Type::Float => vec![types::F64],
         Type::Bool => vec![types::I8],
+        Type::Null => vec![types::I8],
         Type::String => vec![types::I64, types::I64],
         Type::Bytes | Type::List(_) | Type::Map(_, _) => vec![types::I64],
         Type::Named(n) => layouts[n]
@@ -819,6 +820,7 @@ fn lower(
             vec![b.ins().iconst(types::I8, i64::from(*value))],
             Type::Bool,
         ),
+        Expr::Null => (vec![b.ins().iconst(types::I8, 0)], Type::Null),
         Expr::String(value) => {
             let id = m
                 .declare_data(
@@ -1209,6 +1211,7 @@ fn infer_lowered_type(
 ) -> Type {
     match expression {
         Expr::Int(_, ty) => ty.clone(),
+        Expr::Null => Type::Null,
         Expr::Float(_) => Type::Float,
         Expr::Bool(_) => Type::Bool,
         Expr::String(_) => Type::String,
