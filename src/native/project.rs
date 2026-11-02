@@ -48,6 +48,7 @@ fn load_module(
     let parsed = syntax::parse(&path, &source)
         .map_err(|e| NativeError::diagnostics(path.clone(), source.clone(), e))?;
     let mut structs = Vec::new();
+    let mut enums = Vec::new();
     let mut functions = Vec::new();
     let mut imported_names = HashSet::new();
     for import in &parsed.imports {
@@ -86,14 +87,23 @@ fn load_module(
                 .iter()
                 .find(|s| s.name == name.original && s.exported)
                 .cloned();
-            match (function, structure) {
-                (Some(mut f), None) => {
+            let enumeration = dependency
+                .enums
+                .iter()
+                .find(|e| e.name == name.original && e.exported)
+                .cloned();
+            match (function, structure, enumeration) {
+                (Some(mut f), None, None) => {
                     f.name = name.local.clone();
                     functions.push(f)
                 }
-                (None, Some(mut s)) => {
+                (None, Some(mut s), None) => {
                     s.name = name.local.clone();
                     structs.push(s)
+                }
+                (None, None, Some(mut e)) => {
+                    e.name = name.local.clone();
+                    enums.push(e)
                 }
                 _ => {
                     return Err(NativeError::diagnostics(
@@ -113,9 +123,11 @@ fn load_module(
     }
     if root {
         structs.extend(parsed.structs);
+        enums.extend(parsed.enums);
         functions.extend(parsed.functions);
     } else {
         structs.extend(parsed.structs.into_iter().filter(|item| item.exported));
+        enums.extend(parsed.enums.into_iter().filter(|item| item.exported));
         functions.extend(parsed.functions.into_iter().filter(|item| item.exported));
     }
     visiting.remove(&path);
@@ -125,6 +137,7 @@ fn load_module(
     Ok(Program {
         imports: vec![],
         structs,
+        enums,
         functions,
     })
 }

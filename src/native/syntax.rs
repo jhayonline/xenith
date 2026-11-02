@@ -18,7 +18,19 @@ pub enum Type {
 pub struct Program {
     pub imports: Vec<Import>,
     pub structs: Vec<Struct>,
+    pub enums: Vec<Enum>,
     pub functions: Vec<Function>,
+}
+#[derive(Debug, Clone)]
+pub struct Enum {
+    pub name: String,
+    pub exported: bool,
+    pub variants: Vec<EnumVariant>,
+}
+#[derive(Debug, Clone)]
+pub struct EnumVariant {
+    pub name: String,
+    pub payload: Vec<Type>,
 }
 #[derive(Debug, Clone)]
 pub struct Import {
@@ -388,6 +400,7 @@ impl Parser {
     fn program(&mut self) -> Result<Program, Vec<Diagnostic>> {
         let mut functions = vec![];
         let mut structs = vec![];
+        let mut enums = vec![];
         let mut imports = vec![];
         let mut errors = vec![];
         while self.i < self.tokens.len() {
@@ -486,6 +499,37 @@ impl Parser {
                 });
                 continue;
             }
+            if self.tokens.get(self.i).map(String::as_str) == Some("enum") {
+                self.take();
+                let name = self.identifier("enum name")?;
+                self.need("{")?;
+                let mut variants = vec![];
+                while self.peek() != Some("}") && self.peek().is_some() {
+                    let variant_name = self.identifier("enum variant name")?;
+                    let payload = if self.peek() == Some("(") {
+                        self.take();
+                        let mut payload = vec![];
+                        if self.peek() != Some(")") {
+                            payload.push(self.ty()?);
+                            while self.peek() == Some(",") {
+                                self.take();
+                                payload.push(self.ty()?);
+                            }
+                        }
+                        self.need(")")?;
+                        payload
+                    } else {
+                        vec![]
+                    };
+                    variants.push(EnumVariant { name: variant_name, payload });
+                    if self.peek() == Some(",") {
+                        self.take();
+                    }
+                }
+                self.need("}")?;
+                enums.push(Enum { name, exported, variants });
+                continue;
+            }
             if self.peek() != Some("fn") {
                 if errors.is_empty() {
                     errors.push(Diagnostic::at("expected `fn`", self.location()));
@@ -536,6 +580,7 @@ impl Parser {
             Ok(Program {
                 imports,
                 structs,
+                enums,
                 functions,
             })
         } else {
