@@ -9,6 +9,7 @@ pub struct FunctionSignature {
 #[derive(Debug, Clone)]
 pub struct StructLayout {
     pub fields: Vec<(String, Type)>,
+    pub variants: Option<Vec<(String, Vec<Type>)>>,
 }
 
 #[derive(Debug, Clone)]
@@ -114,11 +115,39 @@ fn layouts(program: &Program, errors: &mut Vec<Diagnostic>) -> HashMap<String, S
             });
         }
         if layouts
-            .insert(structure.name.clone(), StructLayout { fields })
+            .insert(
+                structure.name.clone(),
+                StructLayout {
+                    fields,
+                    variants: None,
+                },
+            )
             .is_some()
         {
             errors.push(Diagnostic {
                 message: format!("duplicate struct `{}`", structure.name),
+                span: None,
+            });
+        }
+    }
+    for enumeration in &program.enums {
+        let variants = enumeration
+            .variants
+            .iter()
+            .map(|variant| (variant.name.clone(), variant.payload.clone()))
+            .collect();
+        if layouts
+            .insert(
+                enumeration.name.clone(),
+                StructLayout {
+                    fields: vec![("__tag".into(), Type::I32)],
+                    variants: Some(variants),
+                },
+            )
+            .is_some()
+        {
+            errors.push(Diagnostic {
+                message: format!("duplicate type `{}`", enumeration.name),
                 span: None,
             });
         }
@@ -774,6 +803,30 @@ fn expr(
                 (Some(key), Some(value)) => Some(Type::Map(Box::new(key), Box::new(value))),
                 _ => None,
             }
+        }
+        Expr::EnumVariant { enum_name, variant } => {
+            let Some(layout) = layouts.get(enum_name) else {
+                errors.push(Diagnostic {
+                    message: format!("unknown enum `{enum_name}`"),
+                    span: None,
+                });
+                return None;
+            };
+            let Some(variants) = &layout.variants else {
+                errors.push(Diagnostic {
+                    message: format!("`{enum_name}` is not an enum"),
+                    span: None,
+                });
+                return None;
+            };
+            if variants.iter().all(|(name, _)| name != variant) {
+                errors.push(Diagnostic {
+                    message: format!("enum `{enum_name}` has no variant `{variant}`"),
+                    span: None,
+                });
+                return None;
+            }
+            Some(Type::Named(enum_name.clone()))
         }
         Expr::Neg(value) => {
             let ty = expr(value, names, signatures, layouts, errors);

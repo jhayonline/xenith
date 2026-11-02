@@ -116,6 +116,7 @@ pub enum Expr {
     Map(Vec<(Expr, Expr)>),
     Tuple(Vec<Expr>),
     Name(String),
+    EnumVariant { enum_name: String, variant: String },
     Call {
         name: String,
         arguments: Vec<Expr>,
@@ -260,7 +261,20 @@ fn lex(source: &str) -> Vec<Token> {
     let mut merged = Vec::new();
     let mut index = 0;
     while index < out.len() {
-        if matches!(out[index].text.as_str(), "<" | ">" | "!" | "=")
+        if out[index].text == ":"
+            && out[index].span.end
+                == out
+                    .get(index + 1)
+                    .map(|token| token.span.start)
+                    .unwrap_or_default()
+            && out.get(index + 1).map(|token| token.text.as_str()) == Some(":")
+        {
+            merged.push(Token {
+                text: "::".into(),
+                span: Span::new(out[index].span.start, out[index + 1].span.end),
+            });
+            index += 2;
+        } else if matches!(out[index].text.as_str(), "<" | ">" | "!" | "=")
             && out[index].span.end
                 == out
                     .get(index + 1)
@@ -980,7 +994,14 @@ impl Parser {
         if !is_identifier(&s) {
             return Err(vec![Diagnostic::at("invalid identifier", span)]);
         }
-        if self.tokens.get(self.i).map(String::as_str) == Some("{")
+        if self.tokens.get(self.i).map(String::as_str) == Some("::") {
+            self.take();
+            let variant = self.identifier("enum variant name")?;
+            Ok(Expr::EnumVariant {
+                enum_name: s,
+                variant,
+            })
+        } else if self.tokens.get(self.i).map(String::as_str) == Some("{")
             && self.tokens.get(self.i + 2).map(String::as_str) == Some(":")
         {
             self.take();
