@@ -540,7 +540,10 @@ fn lower_for_in(
                 index: Box::new(Expr::Name("__xenith_index".into())),
             },
         ),
-        Type::Map(_, _) => return LowerFlow::FallsThrough,
+        Type::Map(_, _) => (
+            Type::String,
+            Expr::Call { name: "__xenith_map_key".into(), arguments: vec![Expr::Name("__xenith_iter".into()), Expr::Name("__xenith_index".into())] },
+        ),
         _ => return LowerFlow::FallsThrough,
     };
     let iter_name = "__xenith_iter".to_string();
@@ -1095,7 +1098,9 @@ fn lower(
                 vec![AbiParam::new(types::I64)],
                 &[length, width_value],
             )[0];
-            for (slot, (key, value)) in pairs.iter().enumerate() {
+            let mut entries = pairs.clone();
+            entries.sort_by_key(|(key, _)| match key { Expr::String(value) => value.clone(), _ => String::new() });
+            for (slot, (key, value)) in entries.iter().enumerate() {
                 let key = lower(b, key, v, ids, m, l).0;
                 let slot = b.ins().iconst(types::I64, slot as i64);
                 let buffer = b.create_sized_stack_slot(StackSlotData::new(
@@ -1279,6 +1284,14 @@ fn lower(
             (values, element_type)
         }
         Expr::Call { name, arguments } => {
+            if name == "__xenith_map_key" {
+                let (map, _) = lower(b, &arguments[0], v, ids, m, l);
+                let index_value = lower(b, &arguments[1], v, ids, m, l).0[0];
+                let index = b.ins().sextend(types::I64, index_value);
+                let pointer = runtime_call(b, m, "xenith_map_key_at", vec![AbiParam::new(types::I64), AbiParam::new(types::I64)], vec![AbiParam::new(types::I64)], &[map[0], index])[0];
+                let length = runtime_call(b, m, "xenith_map_key_len_at", vec![AbiParam::new(types::I64), AbiParam::new(types::I64)], vec![AbiParam::new(types::I64)], &[map[0], index])[0];
+                return (vec![pointer, length], Type::String);
+            }
             if name == "echo" {
                 let argument = lower(b, &arguments[0], v, ids, m, l).0;
                 let mut signature = m.make_signature();
@@ -1450,6 +1463,19 @@ fn lower(
                 } else {
                     equal
                 };
+                return (vec![value], Type::Bool);
+            }
+            if ty == Type::String {
+                let equal = runtime_call(
+                    b, m, "xenith_string_equal",
+                    vec![AbiParam::new(types::I64); 4],
+                    vec![AbiParam::new(types::I8)],
+                    &[left[0], left[1], right[0], right[1]],
+                )[0];
+                let value = if operator == "!=" {
+                    let zero = b.ins().iconst(types::I8, 0);
+                    b.ins().icmp(IntCC::Equal, equal, zero)
+                } else { equal };
                 return (vec![value], Type::Bool);
             }
             let x = left[0];

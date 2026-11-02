@@ -14,6 +14,7 @@ void xenith_echo(const unsigned char *data, int64_t length) {
     fputc('\n', stdout);
 }
 void xenith_string_concat(const unsigned char *a, int64_t a_len, const unsigned char *b, int64_t b_len, unsigned char **out, int64_t *out_len) { *out_len = a_len + b_len; *out = malloc((size_t)*out_len); memcpy(*out, a, (size_t)a_len); memcpy(*out + a_len, b, (size_t)b_len); }
+int8_t xenith_string_equal(const unsigned char *a, int64_t a_len, const unsigned char *b, int64_t b_len) { return a_len == b_len && memcmp(a, b, (size_t)a_len) == 0; }
 typedef struct { int64_t length, width; unsigned char data[]; } XenithList;
 typedef struct { const unsigned char *key; int64_t key_len; unsigned char *value; } XenithMapEntry;
 typedef struct { int64_t length, width; XenithMapEntry entries[]; } XenithMap;
@@ -25,6 +26,8 @@ void *xenith_map_at(void *raw, const unsigned char *key, int64_t key_len) { Xeni
 void *xenith_bytes_new(const unsigned char *data, int64_t length) { XenithList *bytes = xenith_list_new(length, 1); memcpy(bytes->data, data, length); return bytes; }
 int32_t xenith_list_len(void *raw) { return (int32_t)((XenithList *)raw)->length; }
 int32_t xenith_map_len(void *raw) { return (int32_t)((XenithMap *)raw)->length; }
+const unsigned char *xenith_map_key_at(void *raw, int64_t index) { XenithMap *map = raw; if (index < 0 || index >= map->length) abort(); return map->entries[index].key; }
+int64_t xenith_map_key_len_at(void *raw, int64_t index) { XenithMap *map = raw; if (index < 0 || index >= map->length) abort(); return map->entries[index].key_len; }
 void *xenith_list_append(void *raw, int64_t width, const void *value) { XenithList *old = raw; XenithList *list = xenith_list_new(old->length + 1, width); memcpy(list->data, old->data, old->length * width); memcpy(list->data + old->length * width, value, width); return list; }
 int32_t xenith_map_remove(void *raw, const unsigned char *key, int64_t key_len) { XenithMap *map = raw; for (int64_t i = 0; i < map->length; i++) if (map->entries[i].key_len == key_len && !memcmp(map->entries[i].key, key, key_len)) { free(map->entries[i].value); for (int64_t j = i + 1; j < map->length; j++) map->entries[j - 1] = map->entries[j]; map->length -= 1; return 1; } return 0; }
 int8_t xenith_map_contains(void *raw, const unsigned char *key, int64_t key_len) { XenithMap *map = raw; for (int64_t i = 0; i < map->length; i++) if (map->entries[i].key_len == key_len && !memcmp(map->entries[i].key, key, key_len)) return 1; return 0; }

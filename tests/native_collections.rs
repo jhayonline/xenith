@@ -140,6 +140,22 @@ fn compiles_native_collection_iteration() {
 }
 
 #[test]
+fn compiles_native_map_iteration_empty_body() {
+    let (_directory, executable) = build_source(
+        "fn main() -> i32 { let names: map<string, i32> = {\"b\": 1, \"a\": 2} let mut total: i32 = 0 for (key in names) { total = total + len(key) } return total }",
+    );
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(2));
+}
+
+#[test]
+fn native_map_iteration_is_lexical_by_key() {
+    let (_directory, executable) = build_source(
+        "fn main() -> i32 { let names: map<string, i32> = {\"b\": 1, \"a\": 2} for (key in names) { if (key == \"a\") { return 42 } return 7 } return 0 }",
+    );
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(42));
+}
+
+#[test]
 fn append_preserves_existing_aliases() {
     let (_directory, executable) = build_source(
         "fn main() -> i32 { let values: list<i32> = [40] let alias: list<i32> = values let grown: list<i32> = append(values, 2) return alias[0] + len(grown) - 41 }",
