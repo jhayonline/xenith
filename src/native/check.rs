@@ -242,6 +242,24 @@ fn check_function(
     let mut returned = false;
     for statement in &function.body {
         match statement {
+            Stmt::ForIn { names: bindings, iterable, body } => {
+                let iterable_type = expr(iterable, &names, signatures, layouts, errors);
+                let mut loop_names = names.clone();
+                match (bindings.as_slice(), iterable_type) {
+                    ([binding], Some(Type::List(element))) => {
+                        loop_names.insert(binding.clone(), (*element, false));
+                    }
+                    ([binding], Some(Type::Map(key, _))) => {
+                        loop_names.insert(binding.clone(), (*key, false));
+                    }
+                    ([key, value], Some(Type::Map(key_ty, value_ty))) => {
+                        loop_names.insert(key.clone(), (*key_ty, false));
+                        loop_names.insert(value.clone(), (*value_ty, false));
+                    }
+                    _ => errors.push(Diagnostic { message: "for-in expects a list or map with one or two bindings".into(), span: None }),
+                }
+                let _ = check_block(body, &loop_names, function, signatures, layouts, errors, 1);
+            }
             Stmt::For {
                 init,
                 condition,
@@ -487,6 +505,20 @@ fn check_block(
             break;
         }
         match statement {
+            Stmt::ForIn { names: bindings, iterable, body } => {
+                let iterable_type = expr(iterable, &names, signatures, layouts, errors);
+                let mut loop_names = names.clone();
+                match (bindings.as_slice(), iterable_type) {
+                    ([binding], Some(Type::List(element))) => { loop_names.insert(binding.clone(), (*element, false)); }
+                    ([binding], Some(Type::Map(key, _))) => { loop_names.insert(binding.clone(), (*key, false)); }
+                    ([key, value], Some(Type::Map(key_ty, value_ty))) => {
+                        loop_names.insert(key.clone(), (*key_ty, false));
+                        loop_names.insert(value.clone(), (*value_ty, false));
+                    }
+                    _ => errors.push(Diagnostic { message: "for-in expects a list or map with one or two bindings".into(), span: None }),
+                }
+                let _ = check_block(body, &loop_names, function, signatures, layouts, errors, loop_depth + 1);
+            }
             Stmt::For {
                 init,
                 condition,

@@ -81,6 +81,11 @@ pub enum Stmt {
         step: Box<Stmt>,
         body: Vec<Stmt>,
     },
+    ForIn {
+        names: Vec<String>,
+        iterable: Expr,
+        body: Vec<Stmt>,
+    },
     If {
         condition: Expr,
         then_body: Vec<Stmt>,
@@ -669,6 +674,21 @@ impl Parser {
             Some("for") => {
                 self.take();
                 self.need("(")?;
+                if self.peek().is_some_and(is_identifier)
+                    && self.tokens.get(self.i + 1).map(String::as_str) == Some("in")
+                {
+                    let first = self.identifier("iteration binding")?;
+                    self.take();
+                    let mut names = vec![first];
+                    if self.peek() == Some(",") {
+                        self.take();
+                        names.push(self.identifier("iteration binding")?);
+                    }
+                    let iterable = self.expr()?;
+                    self.need(")")?;
+                    let body = self.block()?;
+                    return Ok(Stmt::ForIn { names, iterable, body });
+                }
                 let init = self.stmt()?;
                 self.need(";")?;
                 let condition = self.condition()?;

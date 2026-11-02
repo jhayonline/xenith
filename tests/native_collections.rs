@@ -130,3 +130,11 @@ fn compiles_native_typed_map_contains() {
     );
     assert_eq!(Command::new(executable).status().unwrap().code(), Some(7));
 }
+
+#[test]
+fn compiles_native_collection_iteration() {
+    let (_directory, executable) = build_source(
+        "fn main() -> i32 { let values: list<i32> = [1, 2, 3] let mut total: i32 = 0 for (value in values) { total = total + value } return total }",
+    );
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(6));
+}

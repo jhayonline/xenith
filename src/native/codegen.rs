@@ -190,6 +190,9 @@ fn emit(
                         body,
                     );
                 }
+                Stmt::ForIn { names, iterable, body } => {
+                    let _ = lower_for_in(&mut b, names, iterable, body, &mut vals, ids, m, l, return_area, &mut loops, &HashSet::new());
+                }
                 Stmt::If {
                     condition,
                     then_body,
@@ -455,6 +458,12 @@ fn lower_branch(
                     return flow;
                 }
             }
+            Stmt::ForIn { names, iterable, body } => {
+                let flow = lower_for_in(b, names, iterable, body, values, ids, m, layouts, return_area, loops, shadowed);
+                if flow != LowerFlow::FallsThrough {
+                    return flow;
+                }
+            }
             Stmt::For {
                 init,
                 condition,
@@ -504,6 +513,77 @@ fn lower_branch(
         }
     }
     LowerFlow::FallsThrough
+}
+
+fn lower_for_in(
+    b: &mut FunctionBuilder,
+    names: &[String],
+    iterable: &Expr,
+    body: &[Stmt],
+    values: &mut Values,
+    ids: &HashMap<String, (FuncId, Type)>,
+    m: &mut ObjectModule,
+    layouts: &HashMap<String, StructLayout>,
+    return_area: Option<Value>,
+    loops: &mut Vec<LoopTarget>,
+    shadowed: &HashSet<String>,
+) -> LowerFlow {
+    if names.len() != 1 {
+        return LowerFlow::FallsThrough;
+    }
+    let (iter_values, Type::List(element)) = lower(b, iterable, values, ids, m, layouts) else {
+        return LowerFlow::FallsThrough;
+    };
+    let iter_name = "__xenith_iter".to_string();
+    let index_name = "__xenith_index".to_string();
+    let binding = names[0].clone();
+    let original_names: Vec<String> = values.keys().cloned().collect();
+    values.insert(iter_name.clone(), (iter_values, Type::List(element.clone())));
+    values.insert(index_name.clone(), (vec![b.ins().iconst(types::I32, 0)], Type::I32));
+    let condition = Expr::Compare(
+        Box::new(Expr::Name(index_name.clone())),
+        "<".into(),
+        Box::new(Expr::Call { name: "len".into(), arguments: vec![Expr::Name(iter_name.clone())] }),
+    );
+    let step = Stmt::Assign {
+        name: index_name.clone(),
+        value: Expr::Binary(
+            Box::new(Expr::Name(index_name.clone())),
+            '+',
+            Box::new(Expr::Int(1, Type::I32)),
+        ),
+    };
+    let mut lowered_body = vec![Stmt::Let {
+        name: binding,
+        mutable: false,
+        ty: Some(*element),
+        value: Expr::Index {
+            base: Box::new(Expr::Name(iter_name.clone())),
+            index: Box::new(Expr::Name(index_name.clone())),
+        },
+    }];
+    lowered_body.extend_from_slice(body);
+    let flow = lower_while(
+        b,
+        &condition,
+        &lowered_body,
+        values,
+        ids,
+        m,
+        layouts,
+        return_area,
+        loops,
+        shadowed,
+        Some(&step),
+    );
+    values.remove(&iter_name);
+    values.remove(&index_name);
+    for name in original_names {
+        if let Some(value) = values.get(&name).cloned() {
+            values.insert(name, value);
+        }
+    }
+    flow
 }
 
 fn lower_for(
