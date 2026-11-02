@@ -1,7 +1,7 @@
 use super::{
     check::{StructLayout, TypedProgram},
     error::NativeError,
-    syntax::{Expr, Function, Stmt, Type},
+    syntax::{Expr, Function, InterpolationPart, Stmt, Type},
 };
 use cranelift_codegen::{
     ir::{
@@ -979,6 +979,26 @@ fn lower(
             }
             (values, Type::Tuple(types))
         }
+        Expr::Interpolated(parts) => {
+            let mut current = lower(b, &Expr::String(String::new()), v, ids, m, l).0;
+            for part in parts {
+                let next = match part {
+                    InterpolationPart::Text(text) => lower(b, &Expr::String(text.clone()), v, ids, m, l).0,
+                    InterpolationPart::Name(name) => lower(b, &Expr::Name(name.clone()), v, ids, m, l).0,
+                };
+                let ptr_slot = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let len_slot = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let ptr_out = b.ins().stack_addr(types::I64, ptr_slot, 0);
+                let len_out = b.ins().stack_addr(types::I64, len_slot, 0);
+                runtime_call(
+                    b, m, "xenith_string_concat",
+                    vec![AbiParam::new(types::I64); 6], vec![],
+                    &[current[0], current[1], next[0], next[1], ptr_out, len_out],
+                );
+                current = vec![b.ins().load(types::I64, MemFlags::new(), ptr_out, 0), b.ins().load(types::I64, MemFlags::new(), len_out, 0)];
+            }
+            (current, Type::String)
+        }
         Expr::String(value) => {
             let id = m
                 .declare_data(
@@ -1505,6 +1525,7 @@ fn infer_lowered_type(
         ),
         Expr::Bool(_) => Type::Bool,
         Expr::String(_) => Type::String,
+        Expr::Interpolated(_) => Type::String,
         Expr::Bytes(_) => Type::Bytes,
         Expr::EnumVariant { enum_name, .. } => Type::Named(enum_name.clone()),
         Expr::Match { arms, .. } => infer_lowered_type(&arms[0].body, values, ids, layouts),

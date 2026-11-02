@@ -794,6 +794,16 @@ fn expr(
                 .collect(),
         )),
         Expr::String(_) => Some(Type::String),
+        Expr::Interpolated(parts) => {
+            for part in parts {
+                if let InterpolationPart::Name(name) = part {
+                    if names.get(name).map(|(ty, _)| ty) != Some(&Type::String) {
+                        errors.push(Diagnostic { message: format!("interpolation `{name}` requires a string"), span: None });
+                    }
+                }
+            }
+            Some(Type::String)
+        }
         Expr::Bytes(_) => Some(Type::Bytes),
         Expr::List(elements) => {
             let inferred: Vec<_> = elements

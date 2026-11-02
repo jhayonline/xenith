@@ -116,6 +116,7 @@ pub enum Expr {
     Bool(bool),
     Null,
     String(String),
+    Interpolated(Vec<InterpolationPart>),
     Bytes(String),
     List(Vec<Expr>),
     Map(Vec<(Expr, Expr)>),
@@ -144,6 +145,11 @@ pub enum Expr {
     Logical(Box<Expr>, String, Box<Expr>),
     Compare(Box<Expr>, String, Box<Expr>),
     Binary(Box<Expr>, char, Box<Expr>),
+}
+#[derive(Debug, Clone)]
+pub enum InterpolationPart {
+    Text(String),
+    Name(String),
 }
 #[derive(Debug, Clone)]
 pub struct MatchArm {
@@ -998,7 +1004,23 @@ impl Parser {
             return Ok(Expr::Null);
         }
         if s.starts_with('"') && s.ends_with('"') && s.len() >= 2 {
-            return Ok(Expr::String(s[1..s.len() - 1].to_owned()));
+            let value = s[1..s.len() - 1].to_owned();
+            if value.contains('{') {
+                let mut parts = Vec::new();
+                let mut rest = value.as_str();
+                while let Some(start) = rest.find('{') {
+                    if start > 0 { parts.push(InterpolationPart::Text(rest[..start].into())); }
+                    let Some(end) = rest[start + 1..].find('}') else { return Err(vec![Diagnostic::at("unclosed interpolation", span)]); };
+                    let end = start + 1 + end;
+                    let name = &rest[start + 1..end];
+                    if !is_identifier(name) { return Err(vec![Diagnostic::at("interpolation expects an identifier", span)]); }
+                    parts.push(InterpolationPart::Name(name.into()));
+                    rest = &rest[end + 1..];
+                }
+                if !rest.is_empty() { parts.push(InterpolationPart::Text(rest.into())); }
+                return Ok(Expr::Interpolated(parts));
+            }
+            return Ok(Expr::String(value));
         }
         if let Some(literal) = non_decimal_integer_literal(&s, span) {
             return literal;
