@@ -44,3 +44,25 @@ fn executes_list_map_and_bytes_access_and_mutation() {
     );
     assert_eq!(Command::new(executable).status().unwrap().code(), Some(42));
 }
+
+#[test]
+fn accepts_explicitly_typed_empty_collections() {
+    let (_directory, executable) = build_source(
+        "fn main() -> i32 { let xs: list<i32> = [] let names: map<string, i32> = {} return 42 }",
+    );
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(42));
+}
+
+#[test]
+fn rejects_invalid_collection_operations_statically() {
+    assert!(parse(
+        Path::new("main.xen"),
+        "fn main() -> i32 { let raw: bytes = bytes(123) return 0 }"
+    )
+    .is_err());
+    assert_error(
+        "fn main() -> i32 { let outer = [[1]] outer[0][0] = 2 return 0 }",
+        "immutable binding `outer`",
+    );
+    assert_error("fn main() -> i32 { let mut raw: bytes = bytes(\"x\") if true { raw[\"bad\"] = 1 } return 0 }", "bytes index must be i32");
+}

@@ -304,7 +304,7 @@ fn check_function(
                 if let Some(ty) = ty {
                     validate_type(ty, layouts, errors);
                 }
-                let value_type = expr(value, &names, signatures, layouts, errors);
+                let value_type = typed_literal(value, ty, &names, signatures, layouts, errors);
                 if let (Some(annotation), Some(inferred)) = (ty, value_type.clone()) {
                     if *annotation != inferred {
                         errors.push(Diagnostic {
@@ -345,7 +345,7 @@ fn check_function(
             }
             Stmt::IndexAssign { base, index, value } => {
                 let base_type = expr(base, &names, signatures, layouts, errors);
-                if let Expr::Name(name) = base {
+                if let Some(name) = root_name(base) {
                     if !names.get(name).is_some_and(|(_, mutable)| *mutable) {
                         errors.push(Diagnostic {
                             message: format!("immutable binding `{name}`"),
@@ -528,7 +528,7 @@ fn check_block(
                 if let Some(ty) = ty {
                     validate_type(ty, layouts, errors);
                 }
-                let value_type = expr(value, &names, signatures, layouts, errors);
+                let value_type = typed_literal(value, ty, &names, signatures, layouts, errors);
                 if let (Some(annotation), Some(inferred)) = (ty, value_type.clone()) {
                     if *annotation != inferred {
                         errors.push(Diagnostic {
@@ -566,7 +566,7 @@ fn check_block(
             },
             Stmt::IndexAssign { base, index, value } => {
                 let base_type = expr(base, &names, signatures, layouts, errors);
-                if let Expr::Name(name) = base {
+                if let Some(name) = root_name(base) {
                     if !names.get(name).is_some_and(|(_, mutable)| *mutable) {
                         errors.push(Diagnostic {
                             message: format!("immutable binding `{name}`"),
@@ -595,7 +595,15 @@ fn check_block(
                         }
                         Some(*value)
                     }
-                    Some(Type::Bytes) => Some(Type::I32),
+                    Some(Type::Bytes) => {
+                        if index_type != Some(Type::I32) {
+                            errors.push(Diagnostic {
+                                message: "bytes index must be i32".into(),
+                                span: None,
+                            });
+                        }
+                        Some(Type::I32)
+                    }
                     _ => None,
                 };
                 if expected != value_type {
@@ -1005,6 +1013,33 @@ fn expr(
             }
             left_type
         }
+    }
+}
+
+fn typed_literal(
+    value: &Expr,
+    annotation: &Option<Type>,
+    names: &HashMap<String, (Type, bool)>,
+    signatures: &HashMap<String, FunctionSignature>,
+    layouts: &HashMap<String, StructLayout>,
+    errors: &mut Vec<Diagnostic>,
+) -> Option<Type> {
+    match (annotation, value) {
+        (Some(Type::List(element)), Expr::List(elements)) if elements.is_empty() => {
+            Some(Type::List(element.clone()))
+        }
+        (Some(Type::Map(key, value)), Expr::Map(pairs)) if pairs.is_empty() => {
+            Some(Type::Map(key.clone(), value.clone()))
+        }
+        _ => expr(value, names, signatures, layouts, errors),
+    }
+}
+
+fn root_name(expression: &Expr) -> Option<&str> {
+    match expression {
+        Expr::Name(name) => Some(name),
+        Expr::Index { base, .. } => root_name(base),
+        _ => None,
     }
 }
 

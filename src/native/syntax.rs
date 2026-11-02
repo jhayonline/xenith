@@ -917,6 +917,12 @@ impl Parser {
             let value = self
                 .take()
                 .ok_or_else(|| vec![Diagnostic::at("expected bytes string", self.location())])?;
+            if !(value.starts_with('"') && value.ends_with('"')) {
+                return Err(vec![Diagnostic::at(
+                    "bytes expects a string literal",
+                    self.previous_location(),
+                )]);
+            }
             self.need(")")?;
             Ok(Expr::Bytes(value.trim_matches('"').to_owned()))
         } else if self.tokens.get(self.i).map(String::as_str) == Some("(") {

@@ -205,7 +205,13 @@ fn emit(
                         break;
                     }
                 }
-                Stmt::Let { name, value, .. } | Stmt::Assign { name, value } => {
+                Stmt::Let {
+                    name, ty, value, ..
+                } => {
+                    let v = lower_binding(&mut b, value, ty.as_ref(), &vals, ids, m, l);
+                    vals.insert(name.clone(), v);
+                }
+                Stmt::Assign { name, value } => {
                     let v = lower(&mut b, value, &vals, ids, m, l);
                     vals.insert(name.clone(), v);
                 }
@@ -397,8 +403,10 @@ fn lower_branch(
                 b.ins().jump(target.continue_to, &args);
                 return LowerFlow::LoopJump;
             }
-            Stmt::Let { name, value, .. } => {
-                let value = lower(b, value, values, ids, m, layouts);
+            Stmt::Let {
+                name, ty, value, ..
+            } => {
+                let value = lower_binding(b, value, ty.as_ref(), values, ids, m, layouts);
                 values.insert(name.clone(), value);
                 shadowed.insert(name.clone());
                 for target in &mut *loops {
@@ -1305,6 +1313,54 @@ fn lower_index_assignment(
         .zip(return_layout(&element_type, layouts).1)
     {
         b.ins().store(MemFlags::new(), item, pointer, offset);
+    }
+}
+
+fn lower_binding(
+    b: &mut FunctionBuilder,
+    value: &Expr,
+    annotation: Option<&Type>,
+    values: &Values,
+    ids: &HashMap<String, (FuncId, Type)>,
+    m: &mut ObjectModule,
+    layouts: &HashMap<String, StructLayout>,
+) -> (Vec<Value>, Type) {
+    match (annotation, value) {
+        (Some(Type::List(element)), Expr::List(elements)) if elements.is_empty() => {
+            let zero = b.ins().iconst(types::I64, 0);
+            let width = b
+                .ins()
+                .iconst(types::I64, return_layout(element, layouts).0 as i64);
+            (
+                runtime_call(
+                    b,
+                    m,
+                    "xenith_list_new",
+                    vec![AbiParam::new(types::I64), AbiParam::new(types::I64)],
+                    vec![AbiParam::new(types::I64)],
+                    &[zero, width],
+                ),
+                Type::List(element.clone()),
+            )
+        }
+        (Some(Type::Map(key, value_type)), Expr::Map(pairs)) if pairs.is_empty() => {
+            let zero = b.ins().iconst(types::I64, 0);
+            let width = b
+                .ins()
+                .iconst(types::I64, return_layout(value_type, layouts).0 as i64);
+            (
+                runtime_call(
+                    b,
+                    m,
+                    "xenith_map_new",
+                    vec![AbiParam::new(types::I64), AbiParam::new(types::I64)],
+                    vec![AbiParam::new(types::I64)],
+                    &[zero, width],
+                ),
+                Type::Map(key.clone(), value_type.clone()),
+            )
+        }
+        _ => lower(b, value, values, ids, m, layouts),
     }
 }
 
