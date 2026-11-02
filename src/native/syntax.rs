@@ -5,6 +5,7 @@ pub enum Type {
     I32,
     I64,
     Bool,
+    String,
     Named(String),
 }
 #[derive(Debug, Clone)]
@@ -78,11 +79,13 @@ pub enum Stmt {
         value: Expr,
     },
     Return(Expr),
+    Expr(Expr),
 }
 #[derive(Debug, Clone)]
 pub enum Expr {
     Int(i64, Type),
     Bool(bool),
+    String(String),
     Name(String),
     Call {
         name: String,
@@ -140,7 +143,16 @@ fn lex(source: &str) -> Vec<Token> {
     let mut word = String::new();
     let mut word_start = 0;
     let mut in_comment = false;
+    let mut in_string = false;
     for (index, c) in source.char_indices() {
+        if in_string {
+            word.push(c);
+            if c == '"' {
+                out.push(Token { text: std::mem::take(&mut word), span: Span::new(word_start, index + c.len_utf8()) });
+                in_string = false;
+            }
+            continue;
+        }
         if in_comment {
             if c == '\n' {
                 in_comment = false;
@@ -148,7 +160,14 @@ fn lex(source: &str) -> Vec<Token> {
                 continue;
             }
         }
-        if c == '#' {
+        if c == '"' {
+            if !word.is_empty() {
+                out.push(Token { text: std::mem::take(&mut word), span: Span::new(word_start, index) });
+            }
+            word_start = index;
+            word.push(c);
+            in_string = true;
+        } else if c == '#' {
             if !word.is_empty() {
                 out.push(Token {
                     text: std::mem::take(&mut word),
@@ -293,6 +312,7 @@ impl Parser {
             Some("i32") => Ok(Type::I32),
             Some("i64") => Ok(Type::I64),
             Some("bool") => Ok(Type::Bool),
+            Some("string") => Ok(Type::String),
             Some(name) if is_identifier(name) => Ok(Type::Named(name.to_owned())),
             Some(name) => Err(vec![Diagnostic::at(
                 format!("invalid type name `{name}`"),
@@ -588,6 +608,9 @@ impl Parser {
                 Ok(Stmt::Return(self.expr()?))
             }
             Some(_) => {
+                if self.tokens.get(self.i + 1).map(String::as_str) != Some("=") {
+                    return Ok(Stmt::Expr(self.expr()?));
+                }
                 let name = self.identifier("assignment target")?;
                 self.need("=")?;
                 Ok(Stmt::Assign {
@@ -710,6 +733,9 @@ impl Parser {
         }
         if s == "false" {
             return Ok(Expr::Bool(false));
+        }
+        if s.starts_with('"') && s.ends_with('"') && s.len() >= 2 {
+            return Ok(Expr::String(s[1..s.len() - 1].to_owned()));
         }
         if let Some(literal) = non_decimal_integer_literal(&s, span) {
             return literal;
@@ -859,5 +885,6 @@ fn is_identifier(name: &str) -> bool {
                 | "i32"
                 | "i64"
                 | "bool"
+                | "string"
         )
 }

@@ -11,14 +11,17 @@ use cranelift_codegen::{
     settings,
 };
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
-use cranelift_module::{default_libcall_names, FuncId, Linkage, Module};
+use cranelift_module::{default_libcall_names, DataDescription, FuncId, Linkage, Module};
 use cranelift_object::{ObjectBuilder, ObjectModule};
 use std::{
     collections::{HashMap, HashSet},
     fs,
     path::Path,
     process::Command,
+    sync::atomic::{AtomicUsize, Ordering},
 };
+
+static STRING_ID: AtomicUsize = AtomicUsize::new(0);
 
 pub fn emit_object(program: &TypedProgram, output: &Path) -> Result<(), NativeError> {
     let isa = cranelift_native::builder()
@@ -61,6 +64,7 @@ fn flat(ty: &Type, layouts: &HashMap<String, StructLayout>) -> Vec<cranelift_cod
         Type::I32 => vec![types::I32],
         Type::I64 => vec![types::I64],
         Type::Bool => vec![types::I8],
+        Type::String => vec![types::I64, types::I64],
         Type::Named(n) => layouts[n]
             .fields
             .iter()
@@ -204,6 +208,7 @@ fn emit(
                     let v = lower(&mut b, value, &vals, ids, m, l);
                     vals.insert(name.clone(), v);
                 }
+                Stmt::Expr(value) => { let _ = lower(&mut b, value, &vals, ids, m, l); }
                 Stmt::Return(v) => {
                     emit_return(&mut b, v, &vals, ids, m, l, return_area);
                     break;
@@ -401,6 +406,7 @@ fn lower_branch(
                 }
                 values.insert(name.clone(), value);
             }
+            Stmt::Expr(value) => { let _ = lower(b, value, values, ids, m, layouts); }
             Stmt::If {
                 condition,
                 then_body,
@@ -791,6 +797,21 @@ fn lower(
             vec![b.ins().iconst(types::I8, i64::from(*value))],
             Type::Bool,
         ),
+        Expr::String(value) => {
+            let id = m.declare_data(
+                &format!("xenith_string_{}", STRING_ID.fetch_add(1, Ordering::Relaxed)),
+                Linkage::Local,
+                true,
+                false,
+            ).map_err(|e| NativeError::not_implemented(e.to_string())).expect("string declaration");
+            let mut data = DataDescription::new();
+            data.define(value.as_bytes().to_vec().into_boxed_slice());
+            m.define_data(id, &data).map_err(|e| NativeError::not_implemented(e.to_string())).expect("string definition");
+            let global = m.declare_data_in_func(id, b.func);
+            let pointer = b.ins().symbol_value(m.target_config().pointer_type(), global);
+            let length = b.ins().iconst(types::I64, value.len() as i64);
+            (vec![pointer, length], Type::String)
+        }
         Expr::Neg(value) => {
             let (values, ty) = lower(b, value, v, ids, m, l);
             let zero = b.ins().iconst(flat(&ty, l)[0], 0);
@@ -857,6 +878,17 @@ fn lower(
             unreachable!()
         }
         Expr::Call { name, arguments } => {
+            if name == "echo" {
+                let argument = lower(b, &arguments[0], v, ids, m, l).0;
+                let mut signature = m.make_signature();
+                signature.params.push(AbiParam::new(m.target_config().pointer_type()));
+                signature.params.push(AbiParam::new(types::I64));
+                let echo = m.declare_function("xenith_echo", Linkage::Import, &signature)
+                    .map_err(|e| NativeError::not_implemented(e.to_string())).expect("echo declaration");
+                let callee = m.declare_func_in_func(echo, b.func);
+                b.ins().call(callee, &argument);
+                return (vec![b.ins().iconst(types::I32, 0)], Type::I32);
+            }
             let mut a = vec![];
             for x in arguments {
                 a.extend(lower(b, x, v, ids, m, l).0)
@@ -955,8 +987,10 @@ fn checked_integer_operation(b: &mut FunctionBuilder, (value, overflow): (Value,
 }
 
 pub fn link_host(object: &Path, executable: &Path) -> Result<(), NativeError> {
+    let runtime = super::runtime::write_source(object.parent().unwrap()).map_err(NativeError::io)?;
     let out = Command::new("cc")
         .arg(object)
+        .arg(runtime)
         .arg("-o")
         .arg(executable)
         .output()

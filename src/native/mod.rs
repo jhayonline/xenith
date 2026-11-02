@@ -3,6 +3,7 @@ pub mod check;
 pub mod codegen;
 pub mod error;
 pub mod project;
+pub mod runtime;
 pub mod syntax;
 pub use error::NativeError;
 use std::{collections::HashMap, fs, path::PathBuf, process::Command};

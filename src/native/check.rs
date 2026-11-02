@@ -343,6 +343,7 @@ fn check_function(
                     });
                 }
             }
+            Stmt::Expr(value) => { let _ = expr(value, &names, signatures, layouts, errors); }
             Stmt::Stop => {
                 errors.push(Diagnostic {
                     message: "stop outside a loop".into(),
@@ -507,6 +508,7 @@ fn check_block(
                     });
                 }
             }
+            Stmt::Expr(value) => { let _ = expr(value, &names, signatures, layouts, errors); }
             Stmt::If {
                 condition,
                 then_body,
@@ -586,6 +588,7 @@ fn expr(
     match expression {
         Expr::Int(_, ty) => Some(ty.clone()),
         Expr::Bool(_) => Some(Type::Bool),
+        Expr::String(_) => Some(Type::String),
         Expr::Neg(value) => {
             let ty = expr(value, names, signatures, layouts, errors);
             if !matches!(ty, Some(Type::I32 | Type::I64)) {
@@ -647,6 +650,12 @@ fn expr(
                 None
             }),
         Expr::Call { name, arguments } => {
+            if name == "echo" {
+                if arguments.len() != 1 || expr(&arguments[0], names, signatures, layouts, errors) != Some(Type::String) {
+                    errors.push(Diagnostic { message: "echo expects one string".into(), span: None });
+                }
+                return Some(Type::I32);
+            }
             let Some(signature) = signatures.get(name) else {
                 errors.push(Diagnostic {
                     message: format!("unknown function `{name}`"),

@@ -138,6 +138,16 @@ fn native_program_accepts_semicolon_separated_statements() {
 }
 
 #[test]
+fn native_program_prints_strings_from_discarded_calls() {
+    let artifact = build_source(
+        "fn announce() -> i32 { echo(\"from call\") return 7 } fn main() -> i32 { announce() echo(\"from main\") return 0 }",
+    );
+    let output = Command::new(artifact.executable).output().unwrap();
+    assert!(output.status.success());
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), "from call\nfrom main\n");
+}
+
+#[test]
 fn parser_diagnostic_points_to_the_unexpected_token() {
     let source = "fn main() -> i32 { return ) }";
     let errors = parse(Path::new("main.xen"), source).expect_err("source should not parse");
