@@ -17,3 +17,19 @@ fn compiles_native_named_function_values_and_indirect_calls() {
     link_host(&object, &executable).unwrap();
     assert_eq!(Command::new(executable).status().unwrap().code(), Some(42));
 }
+
+#[test]
+fn compiles_native_anonymous_non_capturing_closures() {
+    let source =
+        "fn main() -> i32 { let f: fn(i32) -> i32 = fn(x: i32) -> i32 => x + 1 return f(41) }";
+    let dir = tempfile::tempdir().unwrap();
+    let source_path = dir.path().join("main.xen");
+    std::fs::write(&source_path, source).unwrap();
+    let program = parse(&source_path, source).unwrap();
+    let checked = check(&program).unwrap();
+    let object = dir.path().join("main.o");
+    emit_object(&checked, &object).unwrap();
+    let executable = dir.path().join("main");
+    link_host(&object, &executable).unwrap();
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(42));
+}

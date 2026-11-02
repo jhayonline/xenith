@@ -5,19 +5,19 @@ use super::{
 };
 use cranelift_codegen::{
     ir::{
-        AbiParam, ArgumentPurpose, Block, InstBuilder, MemFlags, Signature, StackSlotData,
-        StackSlotKind, TrapCode, Type as ClifType, Value,
         condcodes::{FloatCC, IntCC},
-        types,
+        types, AbiParam, ArgumentPurpose, Block, InstBuilder, MemFlags, Signature, StackSlotData,
+        StackSlotKind, TrapCode, Type as ClifType, Value,
     },
     settings,
 };
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
-use cranelift_module::{DataDescription, FuncId, Linkage, Module, default_libcall_names};
+use cranelift_module::{default_libcall_names, DataDescription, FuncId, Linkage, Module};
 use cranelift_object::{ObjectBuilder, ObjectModule};
 use std::{
     collections::{HashMap, HashSet},
     fs,
+    hash::{Hash, Hasher},
     path::Path,
     process::Command,
     sync::atomic::{AtomicUsize, Ordering},
@@ -34,8 +34,14 @@ pub fn emit_object(program: &TypedProgram, output: &Path) -> Result<(), NativeEr
         ObjectBuilder::new(isa, "xenith", default_libcall_names())
             .map_err(|e| NativeError::not_implemented(e.to_string()))?,
     );
-    let mut ids = HashMap::new();
+    let mut synthetic = Vec::new();
     for f in &program.0.functions {
+        collect_closures(&f.body, &mut synthetic);
+    }
+    let mut all_functions = program.0.functions.clone();
+    all_functions.extend(synthetic);
+    let mut ids = HashMap::new();
+    for f in &all_functions {
         let id = module
             .declare_function(
                 &f.name,
@@ -49,7 +55,7 @@ pub fn emit_object(program: &TypedProgram, output: &Path) -> Result<(), NativeEr
             .map_err(|e| NativeError::not_implemented(e.to_string()))?;
         ids.insert(f.name.clone(), (id, f.result.clone()));
     }
-    for f in &program.0.functions {
+    for f in &all_functions {
         emit(&mut module, f, &ids, &program.2)?;
     }
     fs::write(
@@ -60,6 +66,126 @@ pub fn emit_object(program: &TypedProgram, output: &Path) -> Result<(), NativeEr
             .map_err(|e| NativeError::not_implemented(e.to_string()))?,
     )
     .map_err(NativeError::io)
+}
+
+fn closure_name(expression: &Expr) -> String {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    format!("{:?}", expression).hash(&mut hasher);
+    format!("__closure_{:x}", hasher.finish())
+}
+
+fn collect_closures(statements: &[Stmt], out: &mut Vec<Function>) {
+    for statement in statements {
+        match statement {
+            Stmt::Let { value, .. } | Stmt::Expr(value) | Stmt::Return(value) => {
+                collect_closure_expr(value, out)
+            }
+            Stmt::Assign { value, .. } => collect_closure_expr(value, out),
+            Stmt::IndexAssign { base, index, value } => {
+                collect_closure_expr(base, out);
+                collect_closure_expr(index, out);
+                collect_closure_expr(value, out);
+            }
+            Stmt::If {
+                condition,
+                then_body,
+                else_body,
+            } => {
+                collect_closure_expr(condition, out);
+                collect_closures(then_body, out);
+                collect_closures(else_body, out);
+            }
+            Stmt::While { condition, body } => {
+                collect_closure_expr(condition, out);
+                collect_closures(body, out);
+            }
+            Stmt::For {
+                init,
+                condition,
+                step,
+                body,
+            } => {
+                collect_closures(std::slice::from_ref(init), out);
+                collect_closure_expr(condition, out);
+                collect_closures(std::slice::from_ref(step), out);
+                collect_closures(body, out);
+            }
+            Stmt::ForIn { iterable, body, .. } => {
+                collect_closure_expr(iterable, out);
+                collect_closures(body, out);
+            }
+            Stmt::Stop | Stmt::Skip => {}
+        }
+    }
+}
+
+fn collect_closure_expr(expression: &Expr, out: &mut Vec<Function>) {
+    match expression {
+        Expr::Closure {
+            params,
+            result,
+            body,
+        } => {
+            let name = closure_name(expression);
+            if !out.iter().any(|function: &Function| function.name == name) {
+                out.push(Function {
+                    name,
+                    exported: false,
+                    params: params.clone(),
+                    result: result.clone(),
+                    body: vec![Stmt::Return((**body).clone())],
+                });
+            }
+            collect_closure_expr(body, out);
+        }
+        Expr::Call { arguments, .. } | Expr::Tuple(arguments) | Expr::List(arguments) => {
+            for argument in arguments {
+                collect_closure_expr(argument, out);
+            }
+        }
+        Expr::Map(pairs) => {
+            for (key, value) in pairs {
+                collect_closure_expr(key, out);
+                collect_closure_expr(value, out);
+            }
+        }
+        Expr::EnumVariant { arguments, .. } => {
+            for argument in arguments {
+                collect_closure_expr(argument, out);
+            }
+        }
+        Expr::Match { subject, arms } => {
+            collect_closure_expr(subject, out);
+            for arm in arms {
+                collect_closure_expr(&arm.body, out);
+            }
+        }
+        Expr::StructLiteral { fields, .. } => {
+            for (_, value) in fields {
+                collect_closure_expr(value, out);
+            }
+        }
+        Expr::Field { base, .. } => collect_closure_expr(base, out),
+        Expr::Index { base, index } => {
+            collect_closure_expr(base, out);
+            collect_closure_expr(index, out);
+        }
+        Expr::Neg(value) | Expr::Not(value) => collect_closure_expr(value, out),
+        Expr::Logical(left, _, right)
+        | Expr::Compare(left, _, right)
+        | Expr::Binary(left, _, right) => {
+            collect_closure_expr(left, out);
+            collect_closure_expr(right, out);
+        }
+        Expr::Interpolated(_)
+        | Expr::Int(_, _)
+        | Expr::Float(_)
+        | Expr::Bool(_)
+        | Expr::Null
+        | Expr::String(_)
+        | Expr::Bytes(_)
+        | Expr::Name(_) => {}
+    }
 }
 fn flat(ty: &Type, layouts: &HashMap<String, StructLayout>) -> Vec<cranelift_codegen::ir::Type> {
     match ty {
@@ -1278,6 +1404,20 @@ fn lower(
                 Type::Function(vec![], Box::new(ids[n].1.clone())),
             )
         }
+        Expr::Closure { params, result, .. } => {
+            let name = closure_name(x);
+            let callee = m.declare_func_in_func(ids[&name].0, b.func);
+            (
+                vec![b.ins().func_addr(types::I64, callee)],
+                Type::Function(
+                    params
+                        .iter()
+                        .map(|parameter| parameter.ty.clone())
+                        .collect(),
+                    Box::new(result.clone()),
+                ),
+            )
+        }
         Expr::StructLiteral { name, fields } => {
             let mut out = vec![];
             for (field, _) in &l[name].fields {
@@ -1691,6 +1831,13 @@ fn infer_lowered_type(
         Expr::String(_) => Type::String,
         Expr::Interpolated(_) => Type::String,
         Expr::Bytes(_) => Type::Bytes,
+        Expr::Closure { params, result, .. } => Type::Function(
+            params
+                .iter()
+                .map(|parameter| parameter.ty.clone())
+                .collect(),
+            Box::new(result.clone()),
+        ),
         Expr::EnumVariant { enum_name, .. } => Type::Named(enum_name.clone()),
         Expr::Match { arms, .. } => infer_lowered_type(&arms[0].body, values, ids, layouts),
         Expr::Name(name) => values[name].1.clone(),

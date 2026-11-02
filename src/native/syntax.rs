@@ -123,6 +123,11 @@ pub enum Expr {
     Map(Vec<(Expr, Expr)>),
     Tuple(Vec<Expr>),
     Name(String),
+    Closure {
+        params: Vec<Parameter>,
+        result: Type,
+        body: Box<Expr>,
+    },
     EnumVariant {
         enum_name: String,
         variant: String,
@@ -959,6 +964,31 @@ impl Parser {
         }
         if s == "!" {
             return Ok(Expr::Not(Box::new(self.atom()?)));
+        }
+        if s == "fn" {
+            self.need("(")?;
+            let mut params = Vec::new();
+            while self.peek() != Some(")") {
+                let name = self.identifier("parameter name")?;
+                self.need(":")?;
+                let ty = self.ty()?;
+                params.push(Parameter { name, ty });
+                if self.peek() == Some(",") {
+                    self.take();
+                } else {
+                    break;
+                }
+            }
+            self.need(")")?;
+            self.need("->")?;
+            let result = self.ty()?;
+            self.need("=>")?;
+            let body = self.expr()?;
+            return Ok(Expr::Closure {
+                params,
+                result,
+                body: Box::new(body),
+            });
         }
         if s == "-" {
             return Ok(Expr::Neg(Box::new(self.atom()?)));

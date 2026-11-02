@@ -840,6 +840,39 @@ fn expr(
             Some(Type::String)
         }
         Expr::Bytes(_) => Some(Type::Bytes),
+        Expr::Closure {
+            params,
+            result,
+            body,
+        } => {
+            let mut closure_names = HashMap::new();
+            let mut duplicate = HashSet::new();
+            for parameter in params {
+                if !duplicate.insert(parameter.name.clone()) {
+                    errors.push(Diagnostic {
+                        message: format!("duplicate closure parameter `{}`", parameter.name),
+                        span: None,
+                    });
+                }
+                closure_names.insert(parameter.name.clone(), (parameter.ty.clone(), false));
+                validate_type(&parameter.ty, layouts, errors);
+            }
+            validate_type(result, layouts, errors);
+            let body_type = expr(body, &closure_names, signatures, layouts, errors);
+            if body_type != Some(result.clone()) {
+                errors.push(Diagnostic {
+                    message: "closure body does not match its result type".into(),
+                    span: None,
+                });
+            }
+            Some(Type::Function(
+                params
+                    .iter()
+                    .map(|parameter| parameter.ty.clone())
+                    .collect(),
+                Box::new(result.clone()),
+            ))
+        }
         Expr::List(elements) => {
             let inferred: Vec<_> = elements
                 .iter()
