@@ -91,6 +91,12 @@ fn validate_type(ty: &Type, layouts: &HashMap<String, StructLayout>, errors: &mu
                 validate_type(element, layouts, errors);
             }
         }
+        Type::Function(parameters, result) => {
+            for parameter in parameters {
+                validate_type(parameter, layouts, errors);
+            }
+            validate_type(result, layouts, errors);
+        }
         _ => {}
     }
 }
@@ -255,7 +261,11 @@ fn check_function(
     let mut returned = false;
     for statement in &function.body {
         match statement {
-            Stmt::ForIn { names: bindings, iterable, body } => {
+            Stmt::ForIn {
+                names: bindings,
+                iterable,
+                body,
+            } => {
                 let iterable_type = expr(iterable, &names, signatures, layouts, errors);
                 let mut loop_names = names.clone();
                 match (bindings.as_slice(), iterable_type) {
@@ -269,7 +279,10 @@ fn check_function(
                         loop_names.insert(key.clone(), (*key_ty, false));
                         loop_names.insert(value.clone(), (*value_ty, false));
                     }
-                    _ => errors.push(Diagnostic { message: "for-in expects a list or map with one or two bindings".into(), span: None }),
+                    _ => errors.push(Diagnostic {
+                        message: "for-in expects a list or map with one or two bindings".into(),
+                        span: None,
+                    }),
                 }
                 let _ = check_block(body, &loop_names, function, signatures, layouts, errors, 1);
             }
@@ -518,19 +531,38 @@ fn check_block(
             break;
         }
         match statement {
-            Stmt::ForIn { names: bindings, iterable, body } => {
+            Stmt::ForIn {
+                names: bindings,
+                iterable,
+                body,
+            } => {
                 let iterable_type = expr(iterable, &names, signatures, layouts, errors);
                 let mut loop_names = names.clone();
                 match (bindings.as_slice(), iterable_type) {
-                    ([binding], Some(Type::List(element))) => { loop_names.insert(binding.clone(), (*element, false)); }
-                    ([binding], Some(Type::Map(key, _))) => { loop_names.insert(binding.clone(), (*key, false)); }
+                    ([binding], Some(Type::List(element))) => {
+                        loop_names.insert(binding.clone(), (*element, false));
+                    }
+                    ([binding], Some(Type::Map(key, _))) => {
+                        loop_names.insert(binding.clone(), (*key, false));
+                    }
                     ([key, value], Some(Type::Map(key_ty, value_ty))) => {
                         loop_names.insert(key.clone(), (*key_ty, false));
                         loop_names.insert(value.clone(), (*value_ty, false));
                     }
-                    _ => errors.push(Diagnostic { message: "for-in expects a list or map with one or two bindings".into(), span: None }),
+                    _ => errors.push(Diagnostic {
+                        message: "for-in expects a list or map with one or two bindings".into(),
+                        span: None,
+                    }),
                 }
-                let _ = check_block(body, &loop_names, function, signatures, layouts, errors, loop_depth + 1);
+                let _ = check_block(
+                    body,
+                    &loop_names,
+                    function,
+                    signatures,
+                    layouts,
+                    errors,
+                    loop_depth + 1,
+                );
             }
             Stmt::For {
                 init,
@@ -798,7 +830,10 @@ fn expr(
             for part in parts {
                 if let InterpolationPart::Name(name) = part {
                     if names.get(name).map(|(ty, _)| ty) != Some(&Type::String) {
-                        errors.push(Diagnostic { message: format!("interpolation `{name}` requires a string"), span: None });
+                        errors.push(Diagnostic {
+                            message: format!("interpolation `{name}` requires a string"),
+                            span: None,
+                        });
                     }
                 }
             }
@@ -859,7 +894,11 @@ fn expr(
                 _ => None,
             }
         }
-        Expr::EnumVariant { enum_name, variant, arguments } => {
+        Expr::EnumVariant {
+            enum_name,
+            variant,
+            arguments,
+        } => {
             let Some(layout) = layouts.get(enum_name) else {
                 errors.push(Diagnostic {
                     message: format!("unknown enum `{enum_name}`"),
@@ -882,11 +921,20 @@ fn expr(
                 return None;
             };
             if arguments.len() != payload.len() {
-                errors.push(Diagnostic { message: format!("variant `{enum_name}::{variant}` expects {} payload values", payload.len()), span: None });
+                errors.push(Diagnostic {
+                    message: format!(
+                        "variant `{enum_name}::{variant}` expects {} payload values",
+                        payload.len()
+                    ),
+                    span: None,
+                });
             }
             for (argument, expected) in arguments.iter().zip(payload) {
                 if expr(argument, names, signatures, layouts, errors) != Some(expected.clone()) {
-                    errors.push(Diagnostic { message: format!("variant `{enum_name}::{variant}` payload type mismatch"), span: None });
+                    errors.push(Diagnostic {
+                        message: format!("variant `{enum_name}::{variant}` payload type mismatch"),
+                        span: None,
+                    });
                 }
             }
             Some(Type::Named(enum_name.clone()))
@@ -894,24 +942,38 @@ fn expr(
         Expr::Match { subject, arms } => {
             let subject_type = expr(subject, names, signatures, layouts, errors);
             let Some(Type::Named(enum_name)) = subject_type else {
-                errors.push(Diagnostic { message: "match subject must be an enum".into(), span: None });
+                errors.push(Diagnostic {
+                    message: "match subject must be an enum".into(),
+                    span: None,
+                });
                 return None;
             };
-            let Some(layout) = layouts.get(&enum_name) else { return None };
-            let Some(variants) = &layout.variants else { return None };
+            let Some(layout) = layouts.get(&enum_name) else {
+                return None;
+            };
+            let Some(variants) = &layout.variants else {
+                return None;
+            };
             let mut seen = HashSet::new();
             let mut result: Option<Type> = None;
             for arm in arms {
                 let mut arm_names = names.clone();
                 if let Some(variant) = &arm.variant {
-                    let Some((_, payload)) = variants.iter().find(|(name, _)| name == variant) else {
-                        errors.push(Diagnostic { message: format!("enum `{enum_name}` has no variant `{variant}`"), span: None });
+                    let Some((_, payload)) = variants.iter().find(|(name, _)| name == variant)
+                    else {
+                        errors.push(Diagnostic {
+                            message: format!("enum `{enum_name}` has no variant `{variant}`"),
+                            span: None,
+                        });
                         continue;
                     };
                     seen.insert(variant.clone());
                     if let Some(binding) = &arm.binding {
                         if payload.len() != 1 {
-                            errors.push(Diagnostic { message: "variant binding requires exactly one payload".into(), span: None });
+                            errors.push(Diagnostic {
+                                message: "variant binding requires exactly one payload".into(),
+                                span: None,
+                            });
                         } else {
                             arm_names.insert(binding.clone(), (payload[0].clone(), false));
                         }
@@ -920,12 +982,22 @@ fn expr(
                 let arm_type = expr(&arm.body, &arm_names, signatures, layouts, errors);
                 if let Some(previous) = &result {
                     if Some(previous.clone()) != arm_type {
-                        errors.push(Diagnostic { message: "match arms must have the same type".into(), span: None });
+                        errors.push(Diagnostic {
+                            message: "match arms must have the same type".into(),
+                            span: None,
+                        });
                     }
-                } else { result = arm_type; }
+                } else {
+                    result = arm_type;
+                }
             }
-            if !arms.iter().any(|arm| arm.variant.is_none()) && variants.iter().any(|(name, _)| !seen.contains(name)) {
-                errors.push(Diagnostic { message: format!("match on `{enum_name}` is not exhaustive"), span: None });
+            if !arms.iter().any(|arm| arm.variant.is_none())
+                && variants.iter().any(|(name, _)| !seen.contains(name))
+            {
+                errors.push(Diagnostic {
+                    message: format!("match on `{enum_name}` is not exhaustive"),
+                    span: None,
+                });
             }
             result
         }
@@ -983,6 +1055,14 @@ fn expr(
             .get(name)
             .map(|binding| binding.0.clone())
             .or_else(|| {
+                signatures.get(name).map(|signature| {
+                    Type::Function(
+                        signature.parameters.clone(),
+                        Box::new(signature.result.clone()),
+                    )
+                })
+            })
+            .or_else(|| {
                 errors.push(Diagnostic {
                     message: format!("unknown name `{name}`"),
                     span: None,
@@ -990,6 +1070,27 @@ fn expr(
                 None
             }),
         Expr::Call { name, arguments } => {
+            if let Some((Type::Function(parameters, result), _)) = names.get(name) {
+                if arguments.len() != parameters.len() {
+                    errors.push(Diagnostic {
+                        message: format!(
+                            "function value `{name}` expects {} arguments",
+                            parameters.len()
+                        ),
+                        span: None,
+                    });
+                }
+                for (argument, expected) in arguments.iter().zip(parameters) {
+                    if expr(argument, names, signatures, layouts, errors) != Some(expected.clone())
+                    {
+                        errors.push(Diagnostic {
+                            message: format!("function value `{name}` argument type mismatch"),
+                            span: None,
+                        });
+                    }
+                }
+                return Some((**result).clone());
+            }
             if name == "echo" {
                 if arguments.len() != 1
                     || expr(&arguments[0], names, signatures, layouts, errors) != Some(Type::String)
@@ -1101,14 +1202,33 @@ fn expr(
                 }
                 let Some(signature) = signatures.get(name) else {
                     if let Some((receiver, method)) = name.split_once("__") {
-                        if let (Some((receiver_type, _)), Some(method_signature)) = (names.get(receiver), signatures.get(method)) {
+                        if let (Some((receiver_type, _)), Some(method_signature)) =
+                            (names.get(receiver), signatures.get(method))
+                        {
                             let mut argument_types = vec![Some(receiver_type.clone())];
-                            argument_types.extend(arguments.iter().map(|argument| expr(argument, names, signatures, layouts, errors)));
+                            argument_types.extend(arguments.iter().map(|argument| {
+                                expr(argument, names, signatures, layouts, errors)
+                            }));
                             if argument_types.len() != method_signature.parameters.len() {
-                                errors.push(Diagnostic { message: format!("method `{method}` expects {} arguments including receiver", method_signature.parameters.len()), span: None });
+                                errors.push(Diagnostic {
+                                    message: format!(
+                                        "method `{method}` expects {} arguments including receiver",
+                                        method_signature.parameters.len()
+                                    ),
+                                    span: None,
+                                });
                             }
-                            for (actual, expected) in argument_types.iter().zip(&method_signature.parameters) {
-                                if *actual != Some(expected.clone()) { errors.push(Diagnostic { message: format!("method `{method}` argument type mismatch"), span: None }); }
+                            for (actual, expected) in
+                                argument_types.iter().zip(&method_signature.parameters)
+                            {
+                                if *actual != Some(expected.clone()) {
+                                    errors.push(Diagnostic {
+                                        message: format!(
+                                            "method `{method}` argument type mismatch"
+                                        ),
+                                        span: None,
+                                    });
+                                }
                             }
                             return Some(method_signature.result.clone());
                         }

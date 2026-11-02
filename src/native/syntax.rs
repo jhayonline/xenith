@@ -12,6 +12,7 @@ pub enum Type {
     List(Box<Type>),
     Map(Box<Type>, Box<Type>),
     Tuple(Vec<Type>),
+    Function(Vec<Type>, Box<Type>),
     Named(String),
 }
 #[derive(Debug, Clone)]
@@ -122,8 +123,15 @@ pub enum Expr {
     Map(Vec<(Expr, Expr)>),
     Tuple(Vec<Expr>),
     Name(String),
-    EnumVariant { enum_name: String, variant: String, arguments: Vec<Expr> },
-    Match { subject: Box<Expr>, arms: Vec<MatchArm> },
+    EnumVariant {
+        enum_name: String,
+        variant: String,
+        arguments: Vec<Expr>,
+    },
+    Match {
+        subject: Box<Expr>,
+        arms: Vec<MatchArm>,
+    },
     Call {
         name: String,
         arguments: Vec<Expr>,
@@ -294,10 +302,17 @@ fn lex(source: &str) -> Vec<Token> {
             });
             index += 2;
         } else if out[index].text == "="
-            && out[index].span.end == out.get(index + 1).map(|token| token.span.start).unwrap_or_default()
+            && out[index].span.end
+                == out
+                    .get(index + 1)
+                    .map(|token| token.span.start)
+                    .unwrap_or_default()
             && out.get(index + 1).map(|token| token.text.as_str()) == Some(">")
         {
-            merged.push(Token { text: "=>".into(), span: Span::new(out[index].span.start, out[index + 1].span.end) });
+            merged.push(Token {
+                text: "=>".into(),
+                span: Span::new(out[index].span.start, out[index + 1].span.end),
+            });
             index += 2;
         } else if matches!(out[index].text.as_str(), "<" | ">" | "!" | "=")
             && out[index].span.end
@@ -427,6 +442,20 @@ impl Parser {
                 }
                 self.need(">")?;
                 Ok(Type::Tuple(elements))
+            }
+            Some("fn") => {
+                self.need("(")?;
+                let mut parameters = Vec::new();
+                if self.peek() != Some(")") {
+                    parameters.push(self.ty()?);
+                    while self.peek() == Some(",") {
+                        self.take();
+                        parameters.push(self.ty()?);
+                    }
+                }
+                self.need(")")?;
+                self.need("->")?;
+                Ok(Type::Function(parameters, Box::new(self.ty()?)))
             }
             Some(name) if is_identifier(name) => Ok(Type::Named(name.to_owned())),
             Some(name) => Err(vec![Diagnostic::at(
@@ -560,13 +589,20 @@ impl Parser {
                     } else {
                         vec![]
                     };
-                    variants.push(EnumVariant { name: variant_name, payload });
+                    variants.push(EnumVariant {
+                        name: variant_name,
+                        payload,
+                    });
                     if self.peek() == Some(",") {
                         self.take();
                     }
                 }
                 self.need("}")?;
-                enums.push(Enum { name, exported, variants });
+                enums.push(Enum {
+                    name,
+                    exported,
+                    variants,
+                });
                 continue;
             }
             if self.peek() != Some("fn") {
@@ -707,7 +743,11 @@ impl Parser {
                     let iterable = self.expr()?;
                     self.need(")")?;
                     let body = self.block()?;
-                    return Ok(Stmt::ForIn { names, iterable, body });
+                    return Ok(Stmt::ForIn {
+                        names,
+                        iterable,
+                        body,
+                    });
                 }
                 let init = self.stmt()?;
                 self.need(";")?;
@@ -880,12 +920,19 @@ impl Parser {
                     let mut arguments = vec![left];
                     while self.peek() != Some(")") {
                         arguments.push(self.expr()?);
-                        if self.peek() == Some(",") { self.take(); } else { break; }
+                        if self.peek() == Some(",") {
+                            self.take();
+                        } else {
+                            break;
+                        }
                     }
                     self.need(")")?;
                     left = Expr::Call { name, arguments };
                 } else {
-                    left = Expr::Field { base: Box::new(left), name };
+                    left = Expr::Field {
+                        base: Box::new(left),
+                        name,
+                    };
                 }
             } else {
                 self.take();
@@ -968,15 +1015,25 @@ impl Parser {
                         let name = self.identifier("variant binding")?;
                         self.need(")")?;
                         Some(name)
-                    } else { None };
+                    } else {
+                        None
+                    };
                     (Some(enum_name), Some(variant), binding)
                 };
                 self.need("=>")?;
                 let body = self.expr()?;
-                arms.push(MatchArm { enum_name, variant, binding, body: Box::new(body) });
+                arms.push(MatchArm {
+                    enum_name,
+                    variant,
+                    binding,
+                    body: Box::new(body),
+                });
             }
             self.need("}")?;
-            return Ok(Expr::Match { subject: Box::new(subject), arms });
+            return Ok(Expr::Match {
+                subject: Box::new(subject),
+                arms,
+            });
         }
         if s == "{" {
             let mut pairs = vec![];
@@ -1009,15 +1066,26 @@ impl Parser {
                 let mut parts = Vec::new();
                 let mut rest = value.as_str();
                 while let Some(start) = rest.find('{') {
-                    if start > 0 { parts.push(InterpolationPart::Text(rest[..start].into())); }
-                    let Some(end) = rest[start + 1..].find('}') else { return Err(vec![Diagnostic::at("unclosed interpolation", span)]); };
+                    if start > 0 {
+                        parts.push(InterpolationPart::Text(rest[..start].into()));
+                    }
+                    let Some(end) = rest[start + 1..].find('}') else {
+                        return Err(vec![Diagnostic::at("unclosed interpolation", span)]);
+                    };
                     let end = start + 1 + end;
                     let name = &rest[start + 1..end];
-                    if !is_identifier(name) { return Err(vec![Diagnostic::at("interpolation expects an identifier", span)]); }
+                    if !is_identifier(name) {
+                        return Err(vec![Diagnostic::at(
+                            "interpolation expects an identifier",
+                            span,
+                        )]);
+                    }
                     parts.push(InterpolationPart::Name(name.into()));
                     rest = &rest[end + 1..];
                 }
-                if !rest.is_empty() { parts.push(InterpolationPart::Text(rest.into())); }
+                if !rest.is_empty() {
+                    parts.push(InterpolationPart::Text(rest.into()));
+                }
                 return Ok(Expr::Interpolated(parts));
             }
             return Ok(Expr::String(value));

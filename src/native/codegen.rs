@@ -5,14 +5,15 @@ use super::{
 };
 use cranelift_codegen::{
     ir::{
-        condcodes::{FloatCC, IntCC},
-        types, AbiParam, ArgumentPurpose, Block, InstBuilder, MemFlags, Signature, StackSlotData,
+        AbiParam, ArgumentPurpose, Block, InstBuilder, MemFlags, Signature, StackSlotData,
         StackSlotKind, TrapCode, Type as ClifType, Value,
+        condcodes::{FloatCC, IntCC},
+        types,
     },
     settings,
 };
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
-use cranelift_module::{default_libcall_names, DataDescription, FuncId, Linkage, Module};
+use cranelift_module::{DataDescription, FuncId, Linkage, Module, default_libcall_names};
 use cranelift_object::{ObjectBuilder, ObjectModule};
 use std::{
     collections::{HashMap, HashSet},
@@ -73,6 +74,7 @@ fn flat(ty: &Type, layouts: &HashMap<String, StructLayout>) -> Vec<cranelift_cod
             .iter()
             .flat_map(|element| flat(element, layouts))
             .collect(),
+        Type::Function(_, _) => vec![types::I64],
         Type::Named(n) => layouts[n]
             .fields
             .iter()
@@ -190,8 +192,24 @@ fn emit(
                         body,
                     );
                 }
-                Stmt::ForIn { names, iterable, body } => {
-                    let _ = lower_for_in(&mut b, names, iterable, body, &mut vals, ids, m, l, return_area, &mut loops, &HashSet::new());
+                Stmt::ForIn {
+                    names,
+                    iterable,
+                    body,
+                } => {
+                    let _ = lower_for_in(
+                        &mut b,
+                        names,
+                        iterable,
+                        body,
+                        &mut vals,
+                        ids,
+                        m,
+                        l,
+                        return_area,
+                        &mut loops,
+                        &HashSet::new(),
+                    );
                 }
                 Stmt::If {
                     condition,
@@ -458,8 +476,24 @@ fn lower_branch(
                     return flow;
                 }
             }
-            Stmt::ForIn { names, iterable, body } => {
-                let flow = lower_for_in(b, names, iterable, body, values, ids, m, layouts, return_area, loops, shadowed);
+            Stmt::ForIn {
+                names,
+                iterable,
+                body,
+            } => {
+                let flow = lower_for_in(
+                    b,
+                    names,
+                    iterable,
+                    body,
+                    values,
+                    ids,
+                    m,
+                    layouts,
+                    return_area,
+                    loops,
+                    shadowed,
+                );
                 if flow != LowerFlow::FallsThrough {
                     return flow;
                 }
@@ -542,7 +576,13 @@ fn lower_for_in(
         ),
         Type::Map(_, _) => (
             Type::String,
-            Expr::Call { name: "__xenith_map_key".into(), arguments: vec![Expr::Name("__xenith_iter".into()), Expr::Name("__xenith_index".into())] },
+            Expr::Call {
+                name: "__xenith_map_key".into(),
+                arguments: vec![
+                    Expr::Name("__xenith_iter".into()),
+                    Expr::Name("__xenith_index".into()),
+                ],
+            },
         ),
         _ => return LowerFlow::FallsThrough,
     };
@@ -551,11 +591,17 @@ fn lower_for_in(
     let binding = names[0].clone();
     let original_names: Vec<String> = values.keys().cloned().collect();
     values.insert(iter_name.clone(), (iter_values, iterable_type));
-    values.insert(index_name.clone(), (vec![b.ins().iconst(types::I32, 0)], Type::I32));
+    values.insert(
+        index_name.clone(),
+        (vec![b.ins().iconst(types::I32, 0)], Type::I32),
+    );
     let condition = Expr::Compare(
         Box::new(Expr::Name(index_name.clone())),
         "<".into(),
-        Box::new(Expr::Call { name: "len".into(), arguments: vec![Expr::Name(iter_name.clone())] }),
+        Box::new(Expr::Call {
+            name: "len".into(),
+            arguments: vec![Expr::Name(iter_name.clone())],
+        }),
     );
     let step = Stmt::Assign {
         name: index_name.clone(),
@@ -914,7 +960,11 @@ fn lower(
             Type::Bool,
         ),
         Expr::Null => (vec![b.ins().iconst(types::I8, 0)], Type::Null),
-        Expr::EnumVariant { enum_name, variant, arguments } => {
+        Expr::EnumVariant {
+            enum_name,
+            variant,
+            arguments,
+        } => {
             let layout = &l[enum_name];
             let tag = layout
                 .variants
@@ -936,12 +986,18 @@ fn lower(
             (values, Type::Named(enum_name.clone()))
         }
         Expr::Match { subject, arms } => {
-            let (subject_values, Type::Named(enum_name)) = lower(b, subject, v, ids, m, l) else { unreachable!() };
+            let (subject_values, Type::Named(enum_name)) = lower(b, subject, v, ids, m, l) else {
+                unreachable!()
+            };
             let merge = b.create_block();
             let mut arm_blocks = Vec::new();
             let result_type = infer_lowered_type(&arms[0].body, v, ids, l);
-            for ty in flat(&result_type, l) { b.append_block_param(merge, ty); }
-            for _ in arms { arm_blocks.push(b.create_block()); }
+            for ty in flat(&result_type, l) {
+                b.append_block_param(merge, ty);
+            }
+            for _ in arms {
+                arm_blocks.push(b.create_block());
+            }
             let test_blocks: Vec<_> = (0..arms.len()).map(|_| b.create_block()).collect();
             b.ins().jump(test_blocks[0], &[]);
             for (index, arm) in arms.iter().enumerate() {
@@ -949,7 +1005,13 @@ fn lower(
                 b.switch_to_block(current_test);
                 let target = arm_blocks[index];
                 if let Some(variant) = &arm.variant {
-                    let tag = l[&enum_name].variants.as_ref().unwrap().iter().position(|(name, _)| name == variant).unwrap() as i64;
+                    let tag = l[&enum_name]
+                        .variants
+                        .as_ref()
+                        .unwrap()
+                        .iter()
+                        .position(|(name, _)| name == variant)
+                        .unwrap() as i64;
                     if index + 1 == arms.len() {
                         b.ins().jump(target, &[]);
                     } else {
@@ -957,13 +1019,23 @@ fn lower(
                         let next = test_blocks[index + 1];
                         b.ins().brif(matches, target, &[], next, &[]);
                     }
-                } else { b.ins().jump(target, &[]); }
+                } else {
+                    b.ins().jump(target, &[]);
+                }
                 b.seal_block(current_test);
             }
             for (index, arm) in arms.iter().enumerate() {
                 b.switch_to_block(arm_blocks[index]);
                 let mut arm_values = v.clone();
-                if let Some(binding) = &arm.binding { arm_values.insert(binding.clone(), (subject_values[1..].to_vec(), infer_lowered_type(&arm.body, v, ids, l))); }
+                if let Some(binding) = &arm.binding {
+                    arm_values.insert(
+                        binding.clone(),
+                        (
+                            subject_values[1..].to_vec(),
+                            infer_lowered_type(&arm.body, v, ids, l),
+                        ),
+                    );
+                }
                 let body = lower(b, &arm.body, &arm_values, ids, m, l).0;
                 b.ins().jump(merge, &body);
                 b.seal_block(arm_blocks[index]);
@@ -986,19 +1058,37 @@ fn lower(
             let mut current = lower(b, &Expr::String(String::new()), v, ids, m, l).0;
             for part in parts {
                 let next = match part {
-                    InterpolationPart::Text(text) => lower(b, &Expr::String(text.clone()), v, ids, m, l).0,
-                    InterpolationPart::Name(name) => lower(b, &Expr::Name(name.clone()), v, ids, m, l).0,
+                    InterpolationPart::Text(text) => {
+                        lower(b, &Expr::String(text.clone()), v, ids, m, l).0
+                    }
+                    InterpolationPart::Name(name) => {
+                        lower(b, &Expr::Name(name.clone()), v, ids, m, l).0
+                    }
                 };
-                let ptr_slot = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
-                let len_slot = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let ptr_slot = b.create_sized_stack_slot(StackSlotData::new(
+                    StackSlotKind::ExplicitSlot,
+                    8,
+                    3,
+                ));
+                let len_slot = b.create_sized_stack_slot(StackSlotData::new(
+                    StackSlotKind::ExplicitSlot,
+                    8,
+                    3,
+                ));
                 let ptr_out = b.ins().stack_addr(types::I64, ptr_slot, 0);
                 let len_out = b.ins().stack_addr(types::I64, len_slot, 0);
                 runtime_call(
-                    b, m, "xenith_string_concat",
-                    vec![AbiParam::new(types::I64); 6], vec![],
+                    b,
+                    m,
+                    "xenith_string_concat",
+                    vec![AbiParam::new(types::I64); 6],
+                    vec![],
                     &[current[0], current[1], next[0], next[1], ptr_out, len_out],
                 );
-                current = vec![b.ins().load(types::I64, MemFlags::new(), ptr_out, 0), b.ins().load(types::I64, MemFlags::new(), len_out, 0)];
+                current = vec![
+                    b.ins().load(types::I64, MemFlags::new(), ptr_out, 0),
+                    b.ins().load(types::I64, MemFlags::new(), len_out, 0),
+                ];
             }
             (current, Type::String)
         }
@@ -1099,7 +1189,10 @@ fn lower(
                 &[length, width_value],
             )[0];
             let mut entries = pairs.clone();
-            entries.sort_by_key(|(key, _)| match key { Expr::String(value) => value.clone(), _ => String::new() });
+            entries.sort_by_key(|(key, _)| match key {
+                Expr::String(value) => value.clone(),
+                _ => String::new(),
+            });
             for (slot, (key, value)) in entries.iter().enumerate() {
                 let key = lower(b, key, v, ids, m, l).0;
                 let slot = b.ins().iconst(types::I64, slot as i64);
@@ -1175,7 +1268,16 @@ fn lower(
             b.switch_to_block(merge);
             (vec![b.block_params(merge)[0]], Type::Bool)
         }
-        Expr::Name(n) => v[n].clone(),
+        Expr::Name(n) => {
+            if let Some(value) = v.get(n) {
+                return value.clone();
+            }
+            let callee = m.declare_func_in_func(ids[n].0, b.func);
+            (
+                vec![b.ins().func_addr(types::I64, callee)],
+                Type::Function(vec![], Box::new(ids[n].1.clone())),
+            )
+        }
         Expr::StructLiteral { name, fields } => {
             let mut out = vec![];
             for (field, _) in &l[name].fields {
@@ -1288,9 +1390,41 @@ fn lower(
                 let (map, _) = lower(b, &arguments[0], v, ids, m, l);
                 let index_value = lower(b, &arguments[1], v, ids, m, l).0[0];
                 let index = b.ins().sextend(types::I64, index_value);
-                let pointer = runtime_call(b, m, "xenith_map_key_at", vec![AbiParam::new(types::I64), AbiParam::new(types::I64)], vec![AbiParam::new(types::I64)], &[map[0], index])[0];
-                let length = runtime_call(b, m, "xenith_map_key_len_at", vec![AbiParam::new(types::I64), AbiParam::new(types::I64)], vec![AbiParam::new(types::I64)], &[map[0], index])[0];
+                let pointer = runtime_call(
+                    b,
+                    m,
+                    "xenith_map_key_at",
+                    vec![AbiParam::new(types::I64), AbiParam::new(types::I64)],
+                    vec![AbiParam::new(types::I64)],
+                    &[map[0], index],
+                )[0];
+                let length = runtime_call(
+                    b,
+                    m,
+                    "xenith_map_key_len_at",
+                    vec![AbiParam::new(types::I64), AbiParam::new(types::I64)],
+                    vec![AbiParam::new(types::I64)],
+                    &[map[0], index],
+                )[0];
                 return (vec![pointer, length], Type::String);
+            }
+            if let Some((_, Type::Function(parameters, result))) = v.get(name) {
+                let mut args = Vec::new();
+                for argument in arguments {
+                    args.extend(lower(b, argument, v, ids, m, l).0);
+                }
+                let mut signature = m.make_signature();
+                for parameter in parameters {
+                    signature
+                        .params
+                        .extend(flat(parameter, l).into_iter().map(AbiParam::new));
+                }
+                signature
+                    .returns
+                    .extend(flat(result, l).into_iter().map(AbiParam::new));
+                let sig_ref = b.func.dfg.signatures.push(signature);
+                let call = b.ins().call_indirect(sig_ref, v[name].0[0], &args);
+                return (b.inst_results(call).to_vec(), (**result).clone());
             }
             if name == "echo" {
                 let argument = lower(b, &arguments[0], v, ids, m, l).0;
@@ -1467,7 +1601,9 @@ fn lower(
             }
             if ty == Type::String {
                 let equal = runtime_call(
-                    b, m, "xenith_string_equal",
+                    b,
+                    m,
+                    "xenith_string_equal",
                     vec![AbiParam::new(types::I64); 4],
                     vec![AbiParam::new(types::I8)],
                     &[left[0], left[1], right[0], right[1]],
@@ -1475,7 +1611,9 @@ fn lower(
                 let value = if operator == "!=" {
                     let zero = b.ins().iconst(types::I8, 0);
                     b.ins().icmp(IntCC::Equal, equal, zero)
-                } else { equal };
+                } else {
+                    equal
+                };
                 return (vec![value], Type::Bool);
             }
             let x = left[0];
@@ -1691,6 +1829,13 @@ fn lower_binding(
     layouts: &HashMap<String, StructLayout>,
 ) -> (Vec<Value>, Type) {
     match (annotation, value) {
+        (Some(Type::Function(_, _)), Expr::Name(name)) if ids.contains_key(name) => {
+            let callee = m.declare_func_in_func(ids[name].0, b.func);
+            (
+                vec![b.ins().func_addr(types::I64, callee)],
+                annotation.cloned().unwrap(),
+            )
+        }
         (Some(Type::List(element)), Expr::List(elements)) if elements.is_empty() => {
             let zero = b.ins().iconst(types::I64, 0);
             let width = b
