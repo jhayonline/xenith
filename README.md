@@ -13,9 +13,11 @@ xenith run
 
 Every executable project has `xenith.toml` and `src/main.xen`. The current
 native bootstrap supports `fn main() -> i32`, integer expressions, local
-bindings, explicit `let mut`, and `return`; it emits a host-native executable
-under `target/host/debug/`. The legacy interpreter and VM remain in this
-repository during migration but are not used by these project commands.
+bindings, explicit `let mut`, typed heap-backed `list<T>`, `map<string, T>`, and
+`bytes` values, collection literals, indexing, mutation, and `return`; it emits
+a host-native executable under `target/host/debug/`. The legacy interpreter and
+VM remain in this repository during migration but are not used by these project
+commands.
 
 Native projects may split exported declarations into files under `src/`:
 
@@ -157,7 +159,8 @@ let ages: map<string, int> = {"ada": 36}
 ages["alan"] = 41
 ages.remove("ada")
 
-let raw: bytes = "hello" as bytes             # raw bytes, no encoding assumed
+let raw: bytes = bytes("hello")               # raw bytes, no encoding assumed
+let first: int = raw[0]
 
 let (quotient, remainder) = (17 / 5, 17 % 5)   # tuples
 
