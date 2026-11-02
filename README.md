@@ -36,25 +36,29 @@ no runtime surprises, and numbers that behave the way you expect.
 ```xenith
 struct Runner {
     name: string,
-    minutes: int
+    minutes: i32
 }
 
-method faster_of(a: Runner, b: Runner) -> Runner {
-    when a.minutes < b.minutes {
-        release a
+fn faster_of(a: Runner, b: Runner) -> Runner {
+    if a.minutes < b.minutes {
+        return a
+    } else {
+        return b
     }
-    release b
 }
 
-let ada: Runner = Runner { name: "Ada", minutes: 31 }
-let alan: Runner = Runner { name: "Alan", minutes: 28 }
+fn main() -> i32 {
+    let ada: Runner = Runner { name: "Ada", minutes: 31 }
+    let alan: Runner = Runner { name: "Alan", minutes: 28 }
 
-let winner: Runner = faster_of(ada, alan)
-echo("{winner.name} won in {winner.minutes} minutes")
+    let winner: Runner = faster_of(ada, alan)
+    echo("The faster runner is selected")
+    return winner.minutes
+}
 ```
 
 ```
-Alan won in 28 minutes
+28
 ```
 
 ## What it takes from where
@@ -66,9 +70,9 @@ of the rest.
 interfaces. Behaviour is free functions that take the data, so everything that
 touches a type is a name you can search for.
 
-**From Rust and Zig**, arithmetic that refuses to lie. `int` is a real 64 bit
-integer, `float` is a real double, the two never mix without you saying so, and
-integer overflow is an error rather than a silent wrap.
+**From Rust and Zig**, arithmetic that refuses to lie. `i64` is a real 64 bit
+integer and `i32` is a real 32 bit integer; the two never mix without you saying
+so, and integer overflow is an error rather than a silent wrap.
 
 **From C**, the shape. Braces, semicolon separated `for` loops, familiar operator
 precedence, nothing clever.
@@ -126,64 +130,27 @@ to definition, references, rename, document symbols and completion. Any LSP capa
 ```xenith
 # Comments start with a hash.
 
-let name: string = "Ada"        # the type is optional when it is obvious
-let age = 36
-const let LIMIT: int = 100      # cannot be reassigned
+let name: string = "Ada"
+let count: i32 = 3
 
-# int and float never mix without an explicit conversion.
-let count: int = 7
-let total: float = (count as float) * 1.5
-
-echo("{name} is {age}")         # strings interpolate
-
-when age >= 18 {                # if / else if / else
-    echo("adult")
-} or when age >= 13 {
-    echo("teenager")
-} otherwise {
-    echo("child")
+if count > 0 {
+    echo("count is positive")
+} else {
+    echo("count is zero")
 }
 
-let label: string = age >= 18 ? "adult" : "minor"
+for (let i: i32 = 0; i < count; i = i + 1) {
+    echo("loop iteration")
+}
 
-for (let i: int = 0; i < 3; i++) { echo("{i}") }
-for item in [1, 2, 3] { echo("{item}") }
-for key, value in {"a": 1} { echo("{key}={value}") }
-while count > 0 { count = count - 1 }
-
-let numbers: list<int> = [1, 2, 3]
-numbers.append(4)
+let mut numbers: list<i32> = [1, 2, 3]
 numbers[0] = 99
 
-let ages: map<string, int> = {"ada": 36}
+let mut ages: map<string, i32> = {"ada": 36}
 ages["alan"] = 41
-ages.remove("ada")
 
-let raw: bytes = bytes("hello")               # raw bytes, no encoding assumed
-let first: int = raw[0]
-
-let (quotient, remainder) = (17 / 5, 17 % 5)   # tuples
-
-method add(a: int, b: int) -> int {
-    release a + b
-}
-
-method square(n: int) -> int => n * n          # single expression form
-
-enum Shape {                                   # one of several, each able to
-    Circle(float),                             # carry values of its own
-    Rect(float, float),
-    Empty
-}
-
-let label: string = match Shape::Circle(2.0) { # an expression, and checked for
-    Shape::Circle(r) when r > 10.0 => "big"    # completeness
-    Shape::Circle(r) => "circle of {r}"
-    Shape::Rect(w, h) => "{w} by {h}"
-    Shape::Empty => "nothing"
-}
-
-type Celsius = float                           # alias an existing type
+let raw: bytes = bytes("hello")
+let first: i32 = raw[0]
 ```
 
 ## Where it stands
