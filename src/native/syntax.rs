@@ -654,6 +654,14 @@ impl Parser {
                 Ok(Stmt::Return(self.expr()?))
             }
             Some(_) => {
+                if self.tokens.get(self.i + 1).map(String::as_str) == Some("=") {
+                    let name = self.identifier("assignment target")?;
+                    self.need("=")?;
+                    return Ok(Stmt::Assign {
+                        name,
+                        value: self.expr()?,
+                    });
+                }
                 let target = self.expr()?;
                 if self.peek() != Some("=") {
                     return Ok(Stmt::Expr(target));
