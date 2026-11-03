@@ -169,4 +169,5 @@ fn native_uncaught_errors_print_a_diagnostic() {
     assert!(stderr.contains("XEN300"), "missing error code: {stderr}");
     assert!(stderr.contains("Panic"), "missing error name: {stderr}");
     assert!(stderr.contains("boom"), "missing error message: {stderr}");
+    assert!(stderr.contains("help:"), "missing help suggestion: {stderr}");
 }
