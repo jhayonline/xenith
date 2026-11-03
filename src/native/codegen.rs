@@ -145,7 +145,7 @@ fn collect_closures(
                 collect_closure_expr(iterable, out, captures, &scope);
                 collect_closures(body, out, captures, &scope);
             }
-            Stmt::Panic(value) => collect_closure_expr(value, out, captures, &scope),
+            Stmt::Panic { value, .. } => collect_closure_expr(value, out, captures, &scope),
             Stmt::TryCatch { body, catch_body, .. } => {
                 collect_closures(body, out, captures, &scope);
                 collect_closures(catch_body, out, captures, &scope);
@@ -225,14 +225,14 @@ fn collect_closure_expr(
             }
         }
         Expr::Field { base, .. } => collect_closure_expr(base, out, captures, scope),
-        Expr::Index { base, index } => {
+        Expr::Index { base, index, .. } => {
             collect_closure_expr(base, out, captures, scope);
             collect_closure_expr(index, out, captures, scope);
         }
         Expr::Neg(value) | Expr::Not(value) => collect_closure_expr(value, out, captures, scope),
         Expr::Logical(left, _, right)
         | Expr::Compare(left, _, right)
-        | Expr::Binary(left, _, right) => {
+        | Expr::Binary(left, _, right, _) => {
             collect_closure_expr(left, out, captures, scope);
             collect_closure_expr(right, out, captures, scope);
         }
@@ -281,14 +281,14 @@ fn collect_names(expression: &Expr, names: &mut HashSet<String>) {
             }
         }
         Expr::Field { base, .. } => collect_names(base, names),
-        Expr::Index { base, index } => {
+        Expr::Index { base, index, .. } => {
             collect_names(base, names);
             collect_names(index, names);
         }
         Expr::Neg(value) | Expr::Not(value) => collect_names(value, names),
         Expr::Logical(left, _, right)
         | Expr::Compare(left, _, right)
-        | Expr::Binary(left, _, right) => {
+        | Expr::Binary(left, _, right, _) => {
             collect_names(left, names);
             collect_names(right, names);
         }
@@ -554,8 +554,8 @@ fn emit(
                 Stmt::Expr(value) => {
                     let _ = lower(&mut b, value, &vals, ids, m, l);
                 }
-                Stmt::Panic(value) => {
-                    emit_panic(&mut b, value, &vals, ids, m, l);
+                Stmt::Panic { value, span } => {
+                    emit_panic(&mut b, value, &vals, ids, m, l, *span);
                 }
                 Stmt::TryCatch { body, binding, catch_body } => {
                     let _ = lower_try_catch(
@@ -735,7 +735,10 @@ fn emit_panic(
     ids: &HashMap<String, (FuncId, Type)>,
     m: &mut ObjectModule,
     layouts: &HashMap<String, StructLayout>,
+    span: Span,
 ) {
+    let location = b.ins().iconst(types::I64, span.start as i64);
+    let _ = runtime_call(b, m, "xenith_error_set_offset", vec![AbiParam::new(types::I64)], vec![], &[location]);
     let (message, _) = lower(b, value, values, ids, m, layouts);
     let code = lower(b, &Expr::String("XEN300".into()), values, ids, m, layouts).0;
     let name = lower(b, &Expr::String("Panic".into()), values, ids, m, layouts).0;
@@ -970,8 +973,8 @@ fn lower_branch(
             Stmt::Expr(value) => {
                 let _ = lower(b, value, values, ids, m, layouts);
             }
-            Stmt::Panic(value) => {
-                emit_panic(b, value, values, ids, m, layouts);
+            Stmt::Panic { value, span } => {
+                emit_panic(b, value, values, ids, m, layouts, *span);
             }
             Stmt::TryCatch { body, binding, catch_body } => {
                 let flow = lower_try_catch(
@@ -1108,6 +1111,7 @@ fn lower_for_in(
             Expr::Index {
                 base: Box::new(Expr::Name("__xenith_iter".into())),
                 index: Box::new(Expr::Name("__xenith_index".into())),
+                span: Span::new(0, 0),
             },
         ),
         Type::Map(_, _) => (
@@ -1145,6 +1149,7 @@ fn lower_for_in(
             Box::new(Expr::Name(index_name.clone())),
             '+',
             Box::new(Expr::Int(1, Type::I32)),
+            Span::new(0, 0),
         ),
     };
     let mut lowered_body = vec![Stmt::Let {
@@ -1913,7 +1918,9 @@ fn lower(
             }
             unreachable!()
         }
-        Expr::Index { base, index } => {
+        Expr::Index { base, index, span } => {
+            let location = b.ins().iconst(types::I64, span.start as i64);
+            let _ = runtime_call(b, m, "xenith_error_set_offset", vec![AbiParam::new(types::I64)], vec![], &[location]);
             let (raw, collection_type) = lower(b, base, v, ids, m, l);
             let index_expr = index.as_ref();
             let index = lower(b, index_expr, v, ids, m, l).0;
@@ -2251,10 +2258,12 @@ fn lower(
             };
             (vec![b.ins().icmp(cc, x, y)], Type::Bool)
         }
-        Expr::Binary(a, o, c) => {
+        Expr::Binary(a, o, c, span) => {
             let (left, ty) = lower(b, a, v, ids, m, l);
             let x = left[0];
             let y = lower(b, c, v, ids, m, l).0[0];
+            let location = b.ins().iconst(types::I64, span.start as i64);
+            let _ = runtime_call(b, m, "xenith_error_set_offset", vec![AbiParam::new(types::I64)], vec![], &[location]);
             (
                 vec![match o {
                     '+' if ty == Type::Float => b.ins().fadd(x, y),
@@ -2364,7 +2373,7 @@ fn infer_lowered_type(
         }
         Expr::Neg(value) | Expr::Not(value) => infer_lowered_type(value, values, ids, layouts),
         Expr::Logical(_, _, _) | Expr::Compare(_, _, _) => Type::Bool,
-        Expr::Binary(left, _, _) => infer_lowered_type(left, values, ids, layouts),
+        Expr::Binary(left, _, _, _) => infer_lowered_type(left, values, ids, layouts),
     }
 }
 

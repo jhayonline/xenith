@@ -507,7 +507,7 @@ fn check_function(
                     });
                 }
             }
-            Stmt::Panic(value) => {
+            Stmt::Panic { value, .. } => {
                 if expr(value, &names, signatures, layouts, errors) != Some(Type::String) {
                     errors.push(Diagnostic {
                         message: "panic expects one string message".into(),
@@ -779,7 +779,7 @@ fn check_block(
                     });
                 }
             }
-            Stmt::Panic(value) => {
+            Stmt::Panic { value, .. } => {
                 if expr(value, &names, signatures, layouts, errors) != Some(Type::String) {
                     errors.push(Diagnostic {
                         message: "panic expects one string message".into(),
@@ -1455,7 +1455,7 @@ fn expr(
                 None
             }
         },
-        Expr::Index { base, index } => match (
+        Expr::Index { base, index, .. } => match (
             expr(base, names, signatures, layouts, errors),
             expr(index, names, signatures, layouts, errors),
         ) {
@@ -1521,7 +1521,7 @@ fn expr(
             }
             Some(Type::Bool)
         }
-        Expr::Binary(left, operator, right) => {
+        Expr::Binary(left, operator, right, _) => {
             let left_type = expr(left, names, signatures, layouts, errors);
             let right_type = expr(right, names, signatures, layouts, errors);
             if left_type != right_type {
@@ -1611,14 +1611,14 @@ fn collect_expr_names(expression: &Expr, names: &mut HashSet<String>) {
             }
         }
         Expr::Field { base, .. } => collect_expr_names(base, names),
-        Expr::Index { base, index } => {
+        Expr::Index { base, index, .. } => {
             collect_expr_names(base, names);
             collect_expr_names(index, names);
         }
         Expr::Neg(value) | Expr::Not(value) => collect_expr_names(value, names),
         Expr::Logical(left, _, right)
         | Expr::Compare(left, _, right)
-        | Expr::Binary(left, _, right) => {
+        | Expr::Binary(left, _, right, _) => {
             collect_expr_names(left, names);
             collect_expr_names(right, names);
         }

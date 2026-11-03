@@ -109,7 +109,7 @@ pub enum Stmt {
         value: Expr,
     },
     Return(Expr),
-    Panic(Expr),
+    Panic { value: Expr, span: Span },
     TryCatch {
         body: Vec<Stmt>,
         binding: String,
@@ -159,12 +159,13 @@ pub enum Expr {
     Index {
         base: Box<Expr>,
         index: Box<Expr>,
+        span: Span,
     },
     Neg(Box<Expr>),
     Not(Box<Expr>),
     Logical(Box<Expr>, String, Box<Expr>),
     Compare(Box<Expr>, String, Box<Expr>),
-    Binary(Box<Expr>, char, Box<Expr>),
+    Binary(Box<Expr>, char, Box<Expr>, Span),
 }
 #[derive(Debug, Clone)]
 pub enum InterpolationPart {
@@ -738,8 +739,9 @@ impl Parser {
                 Ok(Stmt::TryCatch { body, binding, catch_body })
             }
             Some("panic") => {
+                let span = self.location();
                 self.take();
-                Ok(Stmt::Panic(self.expr()?))
+                Ok(Stmt::Panic { value: self.expr()?, span })
             }
             Some("stop") => {
                 self.take();
@@ -855,7 +857,7 @@ impl Parser {
                 let value = self.expr()?;
                 match target {
                     Expr::Name(name) => Ok(Stmt::Assign { name, value }),
-                    Expr::Index { base, index } => Ok(Stmt::IndexAssign {
+                    Expr::Index { base, index, .. } => Ok(Stmt::IndexAssign {
                         base: *base,
                         index: *index,
                         value,
@@ -915,9 +917,10 @@ impl Parser {
             self.tokens.get(self.i).map(String::as_str),
             Some("+") | Some("-")
         ) {
+            let span = self.location();
             let op = self.take().unwrap().chars().next().unwrap();
             let right = self.multiplicative()?;
-            left = Expr::Binary(Box::new(left), op, Box::new(right));
+            left = Expr::Binary(Box::new(left), op, Box::new(right), span);
         }
         Ok(left)
     }
@@ -928,10 +931,11 @@ impl Parser {
             self.tokens.get(self.i).map(String::as_str),
             Some("*") | Some("/")
         ) {
+            let span = self.location();
             let op = self.take().unwrap().chars().next().unwrap();
             let atom = self.atom()?;
             let right = self.postfix(atom)?;
-            left = Expr::Binary(Box::new(left), op, Box::new(right));
+            left = Expr::Binary(Box::new(left), op, Box::new(right), span);
         }
         Ok(left)
     }
@@ -963,12 +967,14 @@ impl Parser {
                     };
                 }
             } else {
+                let span = self.location();
                 self.take();
                 let index = self.expr()?;
                 self.need("]")?;
                 left = Expr::Index {
                     base: Box::new(left),
                     index: Box::new(index),
+                    span,
                 };
             }
         }

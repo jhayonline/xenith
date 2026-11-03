@@ -124,6 +124,24 @@ fn native_catch_handles_division_by_zero() {
 }
 
 #[test]
+fn native_division_error_uses_operation_offset() {
+    let source = r#"fn main() -> i32 {
+        let denominator: i32 = 0
+        try { return 10 / denominator } catch (error) {
+            if (error.offset > 50i64) { return 42 } else { return 1 }
+        }
+    }"#;
+    let program = parse(Path::new("main.xen"), source).unwrap();
+    let typed = check(&program).unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let object = directory.path().join("main.o");
+    let executable = directory.path().join("main");
+    emit_object(&typed, &object).unwrap();
+    link_host(&object, &executable).unwrap();
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(42));
+}
+
+#[test]
 fn native_catch_handles_collection_bounds() {
     let source = r#"fn main() -> i32 {
         let items: list<i32> = [1]
