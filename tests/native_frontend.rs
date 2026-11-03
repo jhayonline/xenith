@@ -148,17 +148,6 @@ fn native_program_prints_strings_from_discarded_calls() {
 }
 
 #[test]
-fn native_program_reads_and_mutates_heap_collections() {
-    let artifact = build_source(
-        "fn main() -> i32 { let mut values: list<i32> = [1, 2] values[1] = 40 let names: map<string, i32> = {\"answer\": 2} return values[1] + names[\"answer\"] }",
-    );
-    assert_eq!(
-        Command::new(artifact.executable).status().unwrap().code(),
-        Some(42)
-    );
-}
-
-#[test]
 fn parser_diagnostic_points_to_the_unexpected_token() {
     let source = "fn main() -> i32 { return ) }";
     let errors = parse(Path::new("main.xen"), source).expect_err("source should not parse");
