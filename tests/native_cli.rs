@@ -82,6 +82,21 @@ fn native_project_builds_an_imported_struct() {
 }
 
 #[test]
+fn native_project_builds_namespace_imported_struct_and_enum() {
+    let dir = fixture_project("grab * as types from \"types\"\nfn main() -> i32 { let pair = types.Pair { value: 9 } return match types::Color::Red { types::Color::Red => pair.value types::Color::Blue => 0 } }");
+    let project = dir.path().join("app");
+    std::fs::write(
+        project.join("src/types.xen"),
+        "export struct Pair { value: i32 } export enum Color { Red, Blue }",
+    )
+    .unwrap();
+    assert_eq!(
+        xenith(&project).arg("run").status().unwrap().code(),
+        Some(9)
+    );
+}
+
+#[test]
 fn native_build_rebuilds_after_an_imported_module_changes() {
     let dir =
         fixture_project("grab { answer } from \"helper\"\nfn main() -> i32 { return answer() }");

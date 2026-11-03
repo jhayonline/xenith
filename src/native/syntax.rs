@@ -1037,8 +1037,15 @@ impl Parser {
                     self.take();
                     (None, None, None)
                 } else {
-                    let enum_name = self.identifier("enum name")?;
+                    let mut enum_name = self.identifier("enum name")?;
                     self.need("::")?;
+                    if self.peek() != Some("=>")
+                        && self.tokens.get(self.i + 1).map(String::as_str) == Some("::")
+                    {
+                        let namespace_enum = self.identifier("enum name")?;
+                        self.need("::")?;
+                        enum_name = format!("{enum_name}__{namespace_enum}");
+                    }
                     let variant = self.identifier("enum variant name")?;
                     let binding = if self.peek() == Some("(") {
                         self.take();
@@ -1183,7 +1190,55 @@ impl Parser {
         if !is_identifier(&s) {
             return Err(vec![Diagnostic::at("invalid identifier", span)]);
         }
-        if self.tokens.get(self.i).map(String::as_str) == Some("::") {
+        if self.tokens.get(self.i).map(String::as_str) == Some(".")
+            && self.tokens.get(self.i + 2).map(String::as_str) == Some("{")
+        {
+            self.take();
+            let member = self.identifier("struct name")?;
+            self.need("{")?;
+            let mut fields = vec![];
+            while self.peek() != Some("}") {
+                let field = self.identifier("field name")?;
+                self.need(":")?;
+                let value = self.expr()?;
+                fields.push((field, value));
+                if self.peek() == Some(",") {
+                    self.take();
+                }
+            }
+            self.need("}")?;
+            Ok(Expr::StructLiteral {
+                name: format!("{s}__{member}"),
+                fields,
+            })
+        } else if self.tokens.get(self.i).map(String::as_str) == Some("::")
+            && self.tokens.get(self.i + 2).map(String::as_str) == Some("::")
+        {
+            self.take();
+            let enumeration = self.identifier("enum name")?;
+            self.need("::")?;
+            let variant = self.identifier("enum variant name")?;
+            let arguments = if self.peek() == Some("(") {
+                self.take();
+                let mut arguments = Vec::new();
+                if self.peek() != Some(")") {
+                    arguments.push(self.expr()?);
+                    while self.peek() == Some(",") {
+                        self.take();
+                        arguments.push(self.expr()?);
+                    }
+                }
+                self.need(")")?;
+                arguments
+            } else {
+                Vec::new()
+            };
+            Ok(Expr::EnumVariant {
+                enum_name: format!("{s}__{enumeration}"),
+                variant,
+                arguments,
+            })
+        } else if self.tokens.get(self.i).map(String::as_str) == Some("::") {
             self.take();
             let variant = self.identifier("enum variant name")?;
             let arguments = if self.peek() == Some("(") {

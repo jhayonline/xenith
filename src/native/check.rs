@@ -65,6 +65,13 @@ pub fn check(program: &Program) -> Result<TypedProgram, Vec<Diagnostic>> {
     if errors.is_empty() {
         Ok(TypedProgram(program.clone(), signatures, layouts))
     } else {
+        errors.sort_by(|left, right| {
+            left.span
+                .map(|span| span.start)
+                .unwrap_or(usize::MAX)
+                .cmp(&right.span.map(|span| span.start).unwrap_or(usize::MAX))
+                .then_with(|| left.message.cmp(&right.message))
+        });
         Err(errors)
     }
 }

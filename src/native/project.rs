@@ -64,6 +64,16 @@ fn load_module(
                 function.name = format!("{namespace}__{}", function.name);
                 functions.push(function);
             }
+            for structure in dependency.structs.iter().filter(|item| item.exported) {
+                let mut structure = structure.clone();
+                structure.name = format!("{namespace}__{}", structure.name);
+                structs.push(structure);
+            }
+            for enumeration in dependency.enums.iter().filter(|item| item.exported) {
+                let mut enumeration = enumeration.clone();
+                enumeration.name = format!("{namespace}__{}", enumeration.name);
+                enums.push(enumeration);
+            }
             continue;
         }
         for name in &import.names {
