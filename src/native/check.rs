@@ -116,6 +116,7 @@ fn layouts(program: &Program, errors: &mut Vec<Diagnostic>) -> HashMap<String, S
                 ("message".into(), Type::String),
                 ("code".into(), Type::String),
                 ("name".into(), Type::String),
+                ("hint".into(), Type::String),
             ],
             variants: None,
         },

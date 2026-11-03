@@ -782,6 +782,7 @@ fn lower_try_catch(
             ("xenith_error_message", "xenith_error_message_len"),
             ("xenith_error_code", "xenith_error_code_len"),
             ("xenith_error_name", "xenith_error_name_len"),
+            ("xenith_error_hint", "xenith_error_hint_len"),
         ] {
             error_lanes.push(runtime_call(b, m, field.0, vec![], vec![AbiParam::new(types::I64)], &[])[0]);
             error_lanes.push(runtime_call(b, m, field.1, vec![], vec![AbiParam::new(types::I64)], &[])[0]);
@@ -835,6 +836,7 @@ fn lower_try_catch(
         ("xenith_error_message", "xenith_error_message_len"),
         ("xenith_error_code", "xenith_error_code_len"),
         ("xenith_error_name", "xenith_error_name_len"),
+        ("xenith_error_hint", "xenith_error_hint_len"),
     ] {
         error_lanes.push(
             runtime_call(
