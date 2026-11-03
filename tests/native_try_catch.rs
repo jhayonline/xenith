@@ -149,3 +149,24 @@ fn native_runtime_reports_allocation_failures_without_aborting() {
     assert!(status.success());
     assert!(Command::new(executable).status().unwrap().success());
 }
+
+#[test]
+fn native_uncaught_errors_print_a_diagnostic() {
+    let source = r#"fn main() -> i32 {
+        panic("boom")
+        return 0
+    }"#;
+    let program = parse(Path::new("main.xen"), source).unwrap();
+    let typed = check(&program).unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let object = directory.path().join("main.o");
+    let executable = directory.path().join("main");
+    emit_object(&typed, &object).unwrap();
+    link_host(&object, &executable).unwrap();
+    let output = Command::new(executable).output().unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("XEN300"), "missing error code: {stderr}");
+    assert!(stderr.contains("Panic"), "missing error name: {stderr}");
+    assert!(stderr.contains("boom"), "missing error message: {stderr}");
+}
