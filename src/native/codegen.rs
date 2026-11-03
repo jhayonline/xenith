@@ -2164,6 +2164,24 @@ fn lower(
                 let _ = runtime_call(b, m, "xenith_fs_remove", vec![AbiParam::new(types::I64); 4], vec![], &args);
                 return (vec![b.ins().load(types::I64, MemFlags::new(), args[2], 0), b.ins().load(types::I64, MemFlags::new(), args[3], 0)], Type::String);
             }
+            if name == "fs_create_dir" || name == "fs_remove_dir" {
+                let path = lower(b, &arguments[0], v, ids, m, l).0;
+                let error_ptr = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let error_len = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let args = [path[0], path[1], b.ins().stack_addr(types::I64, error_ptr, 0), b.ins().stack_addr(types::I64, error_len, 0)];
+                let runtime_name = if name == "fs_create_dir" { "xenith_fs_create_dir" } else { "xenith_fs_remove_dir" };
+                let _ = runtime_call(b, m, runtime_name, vec![AbiParam::new(types::I64); 4], vec![], &args);
+                return (vec![b.ins().load(types::I64, MemFlags::new(), args[2], 0), b.ins().load(types::I64, MemFlags::new(), args[3], 0)], Type::String);
+            }
+            if name == "fs_list" {
+                let path = lower(b, &arguments[0], v, ids, m, l).0;
+                let data_ptr = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let error_ptr = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let error_len = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let args = [path[0], path[1], b.ins().stack_addr(types::I64, data_ptr, 0), b.ins().stack_addr(types::I64, error_ptr, 0), b.ins().stack_addr(types::I64, error_len, 0)];
+                let _ = runtime_call(b, m, "xenith_fs_list", vec![AbiParam::new(types::I64); 5], vec![], &args);
+                return (vec![b.ins().load(types::I64, MemFlags::new(), args[2], 0), b.ins().load(types::I64, MemFlags::new(), args[3], 0), b.ins().load(types::I64, MemFlags::new(), args[4], 0)], Type::Tuple(vec![Type::List(Box::new(Type::String)), Type::String]));
+            }
             if name == "fs_exists" || name == "fs_is_file" || name == "fs_is_dir" {
                 let path = lower(b, &arguments[0], v, ids, m, l).0;
                 let runtime_name = match name.as_str() { "fs_exists" => "xenith_fs_exists", "fs_is_file" => "xenith_fs_is_file", _ => "xenith_fs_is_dir" };

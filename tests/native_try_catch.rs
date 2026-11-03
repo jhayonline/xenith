@@ -328,6 +328,24 @@ fn native_environment_builtins_round_trip() {
 }
 
 #[test]
+fn native_filesystem_directory_operations_work() {
+    let directory = tempfile::tempdir().unwrap();
+    let child = directory.path().join("nested");
+    let file = child.join("entry.txt");
+    let source = format!(
+        "fn main() -> i32 {{ let made = fs_create_dir(\"{}\") let wrote = fs_write(\"{}\", \"x\") let listed = fs_list(\"{}\") let removed = fs_remove(\"{}\") let removed_dir = fs_remove_dir(\"{}\") if (len(made) == 0 && len(wrote) == 0 && len(listed[1]) == 0 && len(listed[0]) == 1 && listed[0][0] == \"entry.txt\" && len(removed) == 0 && len(removed_dir) == 0) {{ return 42 }} else {{ return 1 }} }}",
+        child.display(), file.display(), child.display(), file.display(), child.display()
+    );
+    let program = parse(Path::new("main.xen"), &source).unwrap();
+    let typed = check(&program).unwrap();
+    let object = directory.path().join("main.o");
+    let executable = directory.path().join("main");
+    emit_object(&typed, &object).unwrap();
+    link_host(&object, &executable).unwrap();
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(42));
+}
+
+#[test]
 fn native_uncaught_errors_print_a_diagnostic() {
     let source = r#"fn main() -> i32 {
         panic("boom")
