@@ -19,16 +19,29 @@ fn rejects_mutable_closure_captures() {
 }
 
 #[test]
-fn rejects_non_scalar_native_closure_captures() {
-    let source = "fn main() -> i32 { let prefix: string = \"x\" let f: fn(i32) -> string = fn(x: i32) -> string => prefix return 0 }";
+fn compiles_string_native_closure_captures() {
+    let source = "fn main() -> i32 { let prefix: string = \"x\" let f: fn(i32) -> string = fn(x: i32) -> string => prefix echo(f(1)) return 0 }";
     let program = parse(Path::new("main.xen"), source).unwrap();
-    let errors = check(&program).expect_err("non-scalar captures should be rejected");
-    assert!(
-        errors
-            .iter()
-            .any(|error| error.message.contains("can only capture i32")),
-        "{errors:?}"
-    );
+    let checked = check(&program).unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let object = dir.path().join("main.o");
+    emit_object(&checked, &object).unwrap();
+    let executable = dir.path().join("main");
+    link_host(&object, &executable).unwrap();
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(0));
+}
+
+#[test]
+fn compiles_struct_native_closure_captures() {
+    let source = "struct Pair { first: i32, second: i32 } fn main() -> i32 { let pair: Pair = Pair { first: 40, second: 1 } let f: fn(i32) -> i32 = fn(x: i32) -> i32 => pair.first + pair.second + x return f(1) }";
+    let program = parse(Path::new("main.xen"), source).unwrap();
+    let checked = check(&program).unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let object = dir.path().join("main.o");
+    emit_object(&checked, &object).unwrap();
+    let executable = dir.path().join("main");
+    link_host(&object, &executable).unwrap();
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(42));
 }
 
 #[test]

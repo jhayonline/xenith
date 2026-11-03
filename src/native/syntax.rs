@@ -1190,28 +1190,16 @@ impl Parser {
         if !is_identifier(&s) {
             return Err(vec![Diagnostic::at("invalid identifier", span)]);
         }
+        let mut s = s;
         if self.tokens.get(self.i).map(String::as_str) == Some(".")
             && self.tokens.get(self.i + 2).map(String::as_str) == Some("{")
+            && self.tokens.get(self.i + 4).map(String::as_str) == Some(":")
         {
             self.take();
             let member = self.identifier("struct name")?;
-            self.need("{")?;
-            let mut fields = vec![];
-            while self.peek() != Some("}") {
-                let field = self.identifier("field name")?;
-                self.need(":")?;
-                let value = self.expr()?;
-                fields.push((field, value));
-                if self.peek() == Some(",") {
-                    self.take();
-                }
-            }
-            self.need("}")?;
-            Ok(Expr::StructLiteral {
-                name: format!("{s}__{member}"),
-                fields,
-            })
-        } else if self.tokens.get(self.i).map(String::as_str) == Some("::")
+            s = format!("{s}__{member}");
+        }
+        if self.tokens.get(self.i).map(String::as_str) == Some("::")
             && self.tokens.get(self.i + 2).map(String::as_str) == Some("::")
         {
             self.take();

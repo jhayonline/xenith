@@ -77,7 +77,7 @@ fn native_project_explains_errors_in_imported_modules() {
     let output = xenith(&project).arg("check").output().unwrap();
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(!output.status.success());
-    assert!(stderr.contains("in imported module"), "{stderr}");
+    assert!(stderr.contains("helper.xen"), "{stderr}");
 }
 
 #[test]

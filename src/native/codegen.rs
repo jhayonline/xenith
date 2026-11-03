@@ -37,7 +37,12 @@ pub fn emit_object(program: &TypedProgram, output: &Path) -> Result<(), NativeEr
     let mut synthetic = Vec::new();
     let mut closure_captures = HashMap::new();
     for f in &program.0.functions {
-        collect_closures(&f.body, &mut synthetic, &mut closure_captures);
+        let scope = f
+            .params
+            .iter()
+            .map(|parameter| (parameter.name.clone(), parameter.ty.clone()))
+            .collect();
+        collect_closures(&f.body, &mut synthetic, &mut closure_captures, &scope);
     }
     let mut all_functions = program.0.functions.clone();
     all_functions.extend(synthetic);
@@ -75,34 +80,55 @@ fn closure_name(expression: &Expr) -> String {
     format!("__closure_{:x}", hasher.finish())
 }
 
+fn restore_capture_lanes(
+    b: &mut FunctionBuilder,
+    lanes: &[Value],
+    ty: &Type,
+    layouts: &HashMap<String, StructLayout>,
+) -> Vec<Value> {
+    flat(ty, layouts)
+        .into_iter()
+        .zip(lanes.iter().copied())
+        .map(|(lane, value)| match lane {
+            lane if lane == types::I8 => b.ins().ireduce(types::I8, value),
+            lane if lane == types::I32 => b.ins().ireduce(types::I32, value),
+            lane if lane == types::F64 => b.ins().bitcast(types::F64, MemFlags::new(), value),
+            _ => value,
+        })
+        .collect()
+}
+
 fn collect_closures(
     statements: &[Stmt],
     out: &mut Vec<Function>,
-    captures: &mut HashMap<String, Vec<String>>,
+    captures: &mut HashMap<String, Vec<(String, Type)>>,
+    scope: &HashMap<String, Type>,
 ) {
+    let mut scope = scope.clone();
     for statement in statements {
         match statement {
-            Stmt::Let { value, .. } | Stmt::Expr(value) | Stmt::Return(value) => {
-                collect_closure_expr(value, out, captures)
+            Stmt::Let { value, .. } => collect_closure_expr(value, out, captures, &scope),
+            Stmt::Expr(value) | Stmt::Return(value) => {
+                collect_closure_expr(value, out, captures, &scope)
             }
-            Stmt::Assign { value, .. } => collect_closure_expr(value, out, captures),
+            Stmt::Assign { value, .. } => collect_closure_expr(value, out, captures, &scope),
             Stmt::IndexAssign { base, index, value } => {
-                collect_closure_expr(base, out, captures);
-                collect_closure_expr(index, out, captures);
-                collect_closure_expr(value, out, captures);
+                collect_closure_expr(base, out, captures, &scope);
+                collect_closure_expr(index, out, captures, &scope);
+                collect_closure_expr(value, out, captures, &scope);
             }
             Stmt::If {
                 condition,
                 then_body,
                 else_body,
             } => {
-                collect_closure_expr(condition, out, captures);
-                collect_closures(then_body, out, captures);
-                collect_closures(else_body, out, captures);
+                collect_closure_expr(condition, out, captures, &scope);
+                collect_closures(then_body, out, captures, &scope);
+                collect_closures(else_body, out, captures, &scope);
             }
             Stmt::While { condition, body } => {
-                collect_closure_expr(condition, out, captures);
-                collect_closures(body, out, captures);
+                collect_closure_expr(condition, out, captures, &scope);
+                collect_closures(body, out, captures, &scope);
             }
             Stmt::For {
                 init,
@@ -110,16 +136,22 @@ fn collect_closures(
                 step,
                 body,
             } => {
-                collect_closures(std::slice::from_ref(init), out, captures);
-                collect_closure_expr(condition, out, captures);
-                collect_closures(std::slice::from_ref(step), out, captures);
-                collect_closures(body, out, captures);
+                collect_closures(std::slice::from_ref(init), out, captures, &scope);
+                collect_closure_expr(condition, out, captures, &scope);
+                collect_closures(std::slice::from_ref(step), out, captures, &scope);
+                collect_closures(body, out, captures, &scope);
             }
             Stmt::ForIn { iterable, body, .. } => {
-                collect_closure_expr(iterable, out, captures);
-                collect_closures(body, out, captures);
+                collect_closure_expr(iterable, out, captures, &scope);
+                collect_closures(body, out, captures, &scope);
             }
             Stmt::Stop | Stmt::Skip => {}
+        }
+        if let Stmt::Let {
+            name, ty: Some(ty), ..
+        } = statement
+        {
+            scope.insert(name.clone(), ty.clone());
         }
     }
 }
@@ -127,7 +159,8 @@ fn collect_closures(
 fn collect_closure_expr(
     expression: &Expr,
     out: &mut Vec<Function>,
-    captures: &mut HashMap<String, Vec<String>>,
+    captures: &mut HashMap<String, Vec<(String, Type)>>,
+    scope: &HashMap<String, Type>,
 ) {
     match expression {
         Expr::Closure {
@@ -141,8 +174,11 @@ fn collect_closure_expr(
             for parameter in params {
                 names.remove(&parameter.name);
             }
-            let mut names: Vec<_> = names.into_iter().collect();
-            names.sort();
+            let mut names: Vec<_> = names
+                .into_iter()
+                .filter_map(|name| scope.get(&name).cloned().map(|ty| (name, ty)))
+                .collect();
+            names.sort_by(|left, right| left.0.cmp(&right.0));
             captures.insert(name.clone(), names);
             if !out.iter().any(|function: &Function| function.name == name) {
                 out.push(Function {
@@ -153,46 +189,46 @@ fn collect_closure_expr(
                     body: vec![Stmt::Return((**body).clone())],
                 });
             }
-            collect_closure_expr(body, out, captures);
+            collect_closure_expr(body, out, captures, scope);
         }
         Expr::Call { arguments, .. } | Expr::Tuple(arguments) | Expr::List(arguments) => {
             for argument in arguments {
-                collect_closure_expr(argument, out, captures);
+                collect_closure_expr(argument, out, captures, scope);
             }
         }
         Expr::Map(pairs) => {
             for (key, value) in pairs {
-                collect_closure_expr(key, out, captures);
-                collect_closure_expr(value, out, captures);
+                collect_closure_expr(key, out, captures, scope);
+                collect_closure_expr(value, out, captures, scope);
             }
         }
         Expr::EnumVariant { arguments, .. } => {
             for argument in arguments {
-                collect_closure_expr(argument, out, captures);
+                collect_closure_expr(argument, out, captures, scope);
             }
         }
         Expr::Match { subject, arms } => {
-            collect_closure_expr(subject, out, captures);
+            collect_closure_expr(subject, out, captures, scope);
             for arm in arms {
-                collect_closure_expr(&arm.body, out, captures);
+                collect_closure_expr(&arm.body, out, captures, scope);
             }
         }
         Expr::StructLiteral { fields, .. } => {
             for (_, value) in fields {
-                collect_closure_expr(value, out, captures);
+                collect_closure_expr(value, out, captures, scope);
             }
         }
-        Expr::Field { base, .. } => collect_closure_expr(base, out, captures),
+        Expr::Field { base, .. } => collect_closure_expr(base, out, captures, scope),
         Expr::Index { base, index } => {
-            collect_closure_expr(base, out, captures);
-            collect_closure_expr(index, out, captures);
+            collect_closure_expr(base, out, captures, scope);
+            collect_closure_expr(index, out, captures, scope);
         }
-        Expr::Neg(value) | Expr::Not(value) => collect_closure_expr(value, out, captures),
+        Expr::Neg(value) | Expr::Not(value) => collect_closure_expr(value, out, captures, scope),
         Expr::Logical(left, _, right)
         | Expr::Compare(left, _, right)
         | Expr::Binary(left, _, right) => {
-            collect_closure_expr(left, out, captures);
-            collect_closure_expr(right, out, captures);
+            collect_closure_expr(left, out, captures, scope);
+            collect_closure_expr(right, out, captures, scope);
         }
         Expr::Interpolated(_)
         | Expr::Int(_, _)
@@ -320,7 +356,7 @@ fn emit(
     f: &Function,
     ids: &HashMap<String, (FuncId, Type)>,
     l: &HashMap<String, StructLayout>,
-    captures: &HashMap<String, Vec<String>>,
+    captures: &HashMap<String, Vec<(String, Type)>>,
 ) -> Result<(), NativeError> {
     let mut c = m.make_context();
     c.func.signature = signature(m, f, l);
@@ -347,18 +383,25 @@ fn emit(
             None
         };
         if let Some(env) = env {
-            for (index, name) in captures.get(&f.name).into_iter().flatten().enumerate() {
-                let slot = b.ins().iconst(types::I64, index as i64);
-                let raw = runtime_call(
-                    &mut b,
-                    m,
-                    "xenith_closure_get",
-                    vec![AbiParam::new(types::I64), AbiParam::new(types::I64)],
-                    vec![AbiParam::new(types::I64)],
-                    &[env, slot],
-                )[0];
-                let value = b.ins().ireduce(types::I32, raw);
-                vals.insert(name.clone(), (vec![value], Type::I32));
+            let mut slot_index = 0;
+            for (name, ty) in captures.get(&f.name).into_iter().flatten() {
+                let width = flat(ty, l).len();
+                let mut lanes = Vec::new();
+                for _ in 0..width {
+                    let slot = b.ins().iconst(types::I64, slot_index as i64);
+                    let raw = runtime_call(
+                        &mut b,
+                        m,
+                        "xenith_closure_get",
+                        vec![AbiParam::new(types::I64), AbiParam::new(types::I64)],
+                        vec![AbiParam::new(types::I64)],
+                        &[env, slot],
+                    )[0];
+                    lanes.push(raw);
+                    slot_index += 1;
+                }
+                let values = restore_capture_lanes(&mut b, &lanes, ty, l);
+                vals.insert(name.clone(), (values, ty.clone()));
             }
         }
         for p in &f.params {
@@ -1518,7 +1561,11 @@ fn lower(
                 .filter(|name| v.contains_key(name))
                 .collect();
             capture_names.sort();
-            let capture_count = b.ins().iconst(types::I64, capture_names.len() as i64);
+            let capture_count: usize = capture_names
+                .iter()
+                .map(|name| flat(&v[name].1, l).len())
+                .sum();
+            let capture_count = b.ins().iconst(types::I64, capture_count as i64);
             let env = runtime_call(
                 b,
                 m,
@@ -1527,26 +1574,32 @@ fn lower(
                 vec![AbiParam::new(types::I64)],
                 &[capture_count],
             )[0];
-            for (index, capture) in capture_names.iter().enumerate() {
-                let value = v[capture].0[0];
-                let stored = if v[capture].1 == Type::I32 {
-                    b.ins().uextend(types::I64, value)
-                } else {
-                    value
-                };
-                let slot = b.ins().iconst(types::I64, index as i64);
-                let _ = runtime_call(
-                    b,
-                    m,
-                    "xenith_closure_set",
-                    vec![
-                        AbiParam::new(types::I64),
-                        AbiParam::new(types::I64),
-                        AbiParam::new(types::I64),
-                    ],
-                    vec![],
-                    &[env, slot, stored],
-                );
+            let mut slot_index = 0;
+            for capture in capture_names.iter() {
+                for (lane_type, value) in flat(&v[capture].1, l).into_iter().zip(&v[capture].0) {
+                    let stored = match lane_type {
+                        lane if lane == types::I32 => b.ins().sextend(types::I64, *value),
+                        lane if lane == types::I8 => b.ins().uextend(types::I64, *value),
+                        lane if lane == types::F64 => {
+                            b.ins().bitcast(types::I64, MemFlags::new(), *value)
+                        }
+                        _ => *value,
+                    };
+                    let slot = b.ins().iconst(types::I64, slot_index);
+                    let _ = runtime_call(
+                        b,
+                        m,
+                        "xenith_closure_set",
+                        vec![
+                            AbiParam::new(types::I64),
+                            AbiParam::new(types::I64),
+                            AbiParam::new(types::I64),
+                        ],
+                        vec![],
+                        &[env, slot, stored],
+                    );
+                    slot_index += 1;
+                }
             }
             (
                 vec![b.ins().func_addr(types::I64, callee), env],

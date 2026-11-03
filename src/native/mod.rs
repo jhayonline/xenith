@@ -14,11 +14,53 @@ pub struct BuildArtifact {
 pub fn check_project(p: &project::Project) -> Result<check::TypedProgram, NativeError> {
     let (a, paths) = project::load_program(&p.main_path)?;
     let s = fs::read_to_string(&p.main_path).map_err(NativeError::io)?;
-    check::check(&a).map_err(|mut e| {
-        attach_name_spans(&s, &mut e);
-        attach_import_context(&paths, &p.main_path, &mut e);
-        NativeError::diagnostics(p.main_path.clone(), s, e)
+    check::check(&a).map_err(|mut errors| {
+        attach_name_spans(&s, &mut errors);
+        let mut entries = vec![(p.main_path.clone(), s.clone(), Vec::new())];
+        let sources: Vec<_> = paths
+            .iter()
+            .filter(|path| *path != &p.main_path)
+            .filter_map(|path| {
+                fs::read_to_string(path)
+                    .ok()
+                    .map(|source| (path.clone(), source))
+            })
+            .collect();
+        for diagnostic in errors.drain(..) {
+            if let Some((path, source)) = imported_origin(&sources, &diagnostic.message) {
+                let mut diagnostic = diagnostic;
+                attach_name_spans(source, std::slice::from_mut(&mut diagnostic));
+                if let Some((_, _, diagnostics)) = entries
+                    .iter_mut()
+                    .find(|(entry_path, _, _)| entry_path == path)
+                {
+                    diagnostics.push(diagnostic);
+                } else {
+                    entries.push((path.clone(), source.clone(), vec![diagnostic]));
+                }
+            } else {
+                entries[0].2.push(diagnostic);
+            }
+        }
+        entries.retain(|(_, _, diagnostics)| !diagnostics.is_empty());
+        NativeError::diagnostics_many(entries)
     })
+}
+
+fn imported_origin<'a>(
+    sources: &'a [(PathBuf, String)],
+    message: &str,
+) -> Option<(&'a PathBuf, &'a String)> {
+    let (_, tail) = message.split_once('`')?;
+    let (name, _) = tail.split_once('`')?;
+    sources
+        .iter()
+        .find(|(_, source)| {
+            source.contains(&format!("fn {name}"))
+                || source.contains(&format!("struct {name}"))
+                || source.contains(&format!("enum {name}"))
+        })
+        .map(|(path, source)| (path, source))
 }
 
 fn attach_import_context(

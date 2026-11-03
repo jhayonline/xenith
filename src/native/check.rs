@@ -875,13 +875,6 @@ fn expr(
                         message: format!("closures cannot capture mutable binding `{name}`"),
                         span: None,
                     });
-                } else if names.get(&name).is_some_and(|(ty, _)| *ty != Type::I32) {
-                    errors.push(Diagnostic {
-                        message: format!(
-                            "native closures can only capture i32 bindings (`{name}` is not i32)"
-                        ),
-                        span: None,
-                    });
                 }
             }
             validate_type(result, layouts, errors);

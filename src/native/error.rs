@@ -13,6 +13,9 @@ pub enum NativeError {
         source: String,
         diagnostics: Vec<Diagnostic>,
     },
+    DiagnosticsMany {
+        entries: Vec<(PathBuf, String, Vec<Diagnostic>)>,
+    },
 }
 impl NativeError {
     pub fn usage(m: impl Into<String>) -> Self {
@@ -30,6 +33,9 @@ impl NativeError {
             source,
             diagnostics,
         }
+    }
+    pub fn diagnostics_many(entries: Vec<(PathBuf, String, Vec<Diagnostic>)>) -> Self {
+        Self::DiagnosticsMany { entries }
     }
 }
 impl fmt::Display for NativeError {
@@ -59,6 +65,17 @@ impl fmt::Display for NativeError {
                         writeln!(f)?;
                     }
                     render_diagnostic(f, path, source, diagnostic)?;
+                }
+                Ok(())
+            }
+            Self::DiagnosticsMany { entries } => {
+                let mut first = true;
+                for (path, source, diagnostics) in entries {
+                    for diagnostic in diagnostics {
+                        if !first { writeln!(f)?; writeln!(f)?; }
+                        first = false;
+                        render_diagnostic(f, path, source, diagnostic)?;
+                    }
                 }
                 Ok(())
             }
@@ -195,11 +212,6 @@ fn diagnostic_help(message: &str) -> Option<(&'static str, Option<&'static str>)
         ))
     } else if message.starts_with("closures cannot capture mutable binding") {
         Some(("native closures copy captured values when they are created, so mutable captures would become stale", Some("capture an immutable value, or pass the changing value as a function argument")))
-    } else if message.starts_with("native closures can only capture i32") {
-        Some((
-            "this native closure ABI currently stores only one 32-bit scalar per captured value",
-            Some("pass strings, structs, and other wide values as explicit function arguments"),
-        ))
     } else if message == "division by zero" {
         Some((
             "the divisor is known to be zero",
