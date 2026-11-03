@@ -58,6 +58,7 @@ pub struct Field {
 #[derive(Debug, Clone)]
 pub struct Function {
     pub name: String,
+    pub span: Span,
     pub exported: bool,
     pub params: Vec<Parameter>,
     pub result: Type,
@@ -623,6 +624,7 @@ impl Parser {
                 self.synchronize_top_level();
                 continue;
             }
+            let function_span = self.location();
             self.take();
             let name = self.identifier("function name")?;
             self.need("(")?;
@@ -656,6 +658,7 @@ impl Parser {
             };
             functions.push(Function {
                 name,
+                span: function_span,
                 exported,
                 params,
                 result,

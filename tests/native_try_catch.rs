@@ -3,7 +3,8 @@ use xenith::native::{check::check, codegen::{emit_object, link_host}, syntax::pa
 
 #[test]
 fn native_try_catch_is_parsed_and_checked() {
-    let source = r#"fn main() -> i32 {
+    let source = r#"
+    fn main() -> i32 {
         try {
             panic("boom")
         } catch (error) {
@@ -72,6 +73,25 @@ fn native_catch_exposes_error_function() {
     let source = r#"fn main() -> i32 {
         try { panic("boom") } catch (error) {
             if (error.function == "main") { return 42 } else { return 1 }
+        }
+        return 0
+    }"#;
+    let program = parse(Path::new("main.xen"), source).unwrap();
+    let typed = check(&program).unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let object = directory.path().join("main.o");
+    let executable = directory.path().join("main");
+    emit_object(&typed, &object).unwrap();
+    link_host(&object, &executable).unwrap();
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(42));
+}
+
+#[test]
+fn native_catch_exposes_error_source_offset() {
+    let source = r#"
+    fn main() -> i32 {
+        try { panic("boom") } catch (error) {
+            if (error.offset > 0i64) { return 42 } else { return 1 }
         }
         return 0
     }"#;

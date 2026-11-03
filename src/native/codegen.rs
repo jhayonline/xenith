@@ -1,7 +1,7 @@
 use super::{
     check::{StructLayout, TypedProgram},
     error::NativeError,
-    syntax::{Expr, Function, InterpolationPart, Stmt, Type},
+    syntax::{Expr, Function, InterpolationPart, Span, Stmt, Type},
 };
 use cranelift_codegen::{
     ir::{
@@ -188,6 +188,7 @@ fn collect_closure_expr(
             if !out.iter().any(|function: &Function| function.name == name) {
                 out.push(Function {
                     name,
+                    span: Span::new(0, 0),
                     exported: false,
                     params: params.clone(),
                     result: result.clone(),
@@ -396,6 +397,15 @@ fn emit(
             vec![AbiParam::new(types::I64), AbiParam::new(types::I64)],
             vec![],
             &[function_pointer, function_length],
+        );
+        let function_offset = b.ins().iconst(types::I64, f.span.start as i64);
+        let _ = runtime_call(
+            &mut b,
+            m,
+            "xenith_error_set_offset",
+            vec![AbiParam::new(types::I64)],
+            vec![],
+            &[function_offset],
         );
         let incoming = b.block_params(block).to_vec();
         let return_area = indirect_return(&f.result, l).then(|| incoming[0]);
@@ -813,6 +823,7 @@ fn lower_try_catch(
             error_lanes.push(runtime_call(b, m, field.0, vec![], vec![AbiParam::new(types::I64)], &[])[0]);
             error_lanes.push(runtime_call(b, m, field.1, vec![], vec![AbiParam::new(types::I64)], &[])[0]);
         }
+        error_lanes.push(runtime_call(b, m, "xenith_error_offset_value", vec![], vec![AbiParam::new(types::I64)], &[])[0]);
         catch_values.insert(binding.to_string(), (error_lanes, Type::Named("Error".into())));
         let _ = runtime_call(b, m, "xenith_error_clear", vec![], vec![], &[]);
         return lower_branch(
@@ -886,6 +897,7 @@ fn lower_try_catch(
             )[0],
         );
     }
+    error_lanes.push(runtime_call(b, m, "xenith_error_offset_value", vec![], vec![AbiParam::new(types::I64)], &[])[0]);
     catch_values.insert(binding.to_string(), (error_lanes, Type::Named("Error".into())));
     let _ = runtime_call(b, m, "xenith_error_clear", vec![], vec![], &[]);
     let catch_flow = lower_branch(
