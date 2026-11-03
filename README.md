@@ -163,10 +163,17 @@ closures and passing them as values, modules, a static checker that reports ever
 type error before anything runs, and diagnostics that point at the right code and
 suggest a fix.
 
+Function values can be named functions or closures. Closures capture immutable
+local values (including strings, structs, and tuples) by value; attempting to
+capture a mutable local is rejected with a diagnostic explaining why. Collection
+values are heap-backed and typed, with literal construction, indexing, mutation,
+and runtime allocation/access APIs available to native code.
+
 **Missing:** the standard library covers strings, maths, files, bytes and the
-environment, all written in Xenith. Time and randomness are not there, there are
-no generics so no `Result<T>` or `Option<T>`, and the static pass does not follow
-imports, so an imported name is checked as it runs rather than before.
+environment, all written in Xenith. Time and randomness are not there, and there
+are no generics so no `Result<T>` or `Option<T>`. Imported modules are checked
+before execution, though diagnostics for very large dependency graphs are still
+being refined.
 
 The full list, with what to do instead in each case, is
 [Known limitations](docs/tutorial/19-limitations.md).

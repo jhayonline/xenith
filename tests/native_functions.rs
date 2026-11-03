@@ -45,6 +45,19 @@ fn compiles_struct_native_closure_captures() {
 }
 
 #[test]
+fn compiles_tuple_native_closure_captures() {
+    let source = "fn main() -> i32 { let pair: tuple<i32, i32> = (40, 1) let f: fn(i32) -> i32 = fn(x: i32) -> i32 => pair[0] + pair[1] + x return f(1) }";
+    let program = parse(Path::new("main.xen"), source).unwrap();
+    let checked = check(&program).unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let object = dir.path().join("main.o");
+    emit_object(&checked, &object).unwrap();
+    let executable = dir.path().join("main");
+    link_host(&object, &executable).unwrap();
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(42));
+}
+
+#[test]
 fn compiles_native_named_function_values_and_indirect_calls() {
     let source = "fn add(value: i32) -> i32 { return value + 2 } fn main() -> i32 { let f: fn(i32) -> i32 = add return f(40) }";
     let program = parse(Path::new("src/main.xen"), source).unwrap();
