@@ -1949,7 +1949,10 @@ fn lower(
                         let values = b.ins().smul_overflow(x, y);
                         checked_integer_operation(b, values)
                     }
-                    _ => b.ins().sdiv(x, y),
+                    _ => {
+                        b.ins().trapz(y, TrapCode::INTEGER_DIVISION_BY_ZERO);
+                        b.ins().sdiv(x, y)
+                    }
                 }],
                 ty,
             )
