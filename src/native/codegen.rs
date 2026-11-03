@@ -199,12 +199,12 @@ fn collect_closure_expr(
             }
             collect_closure_expr(body, out, captures, scope);
         }
-        Expr::Call { arguments, .. } | Expr::Tuple(arguments) | Expr::List(arguments) => {
+        Expr::Call { arguments, .. } | Expr::Tuple(arguments) | Expr::List(arguments, _) => {
             for argument in arguments {
                 collect_closure_expr(argument, out, captures, scope);
             }
         }
-        Expr::Map(pairs) => {
+        Expr::Map(pairs, _) => {
             for (key, value) in pairs {
                 collect_closure_expr(key, out, captures, scope);
                 collect_closure_expr(value, out, captures, scope);
@@ -255,12 +255,12 @@ fn collect_names(expression: &Expr, names: &mut HashSet<String>) {
             names.insert(name.clone());
         }
         Expr::Closure { body, .. } => collect_names(body, names),
-        Expr::Call { arguments, .. } | Expr::Tuple(arguments) | Expr::List(arguments) => {
+        Expr::Call { arguments, .. } | Expr::Tuple(arguments) | Expr::List(arguments, _) => {
             for argument in arguments {
                 collect_names(argument, names);
             }
         }
-        Expr::Map(pairs) => {
+        Expr::Map(pairs, _) => {
             for (key, value) in pairs {
                 collect_names(key, names);
                 collect_names(value, names);
@@ -1733,7 +1733,9 @@ fn lower(
             );
             (raw, Type::Bytes)
         }
-        Expr::List(elements) => {
+        Expr::List(elements, span) => {
+            let location = b.ins().iconst(types::I64, span.start as i64);
+            let _ = runtime_call(b, m, "xenith_error_set_offset", vec![AbiParam::new(types::I64)], vec![], &[location]);
             let element_type = match elements.first() {
                 Some(element) => infer_lowered_type(element, v, ids, l),
                 None => unreachable!("checked"),
@@ -1770,7 +1772,9 @@ fn lower(
             }
             (vec![raw], Type::List(Box::new(element_type)))
         }
-        Expr::Map(pairs) => {
+        Expr::Map(pairs, span) => {
+            let location = b.ins().iconst(types::I64, span.start as i64);
+            let _ = runtime_call(b, m, "xenith_error_set_offset", vec![AbiParam::new(types::I64)], vec![], &[location]);
             let (key_type, value_type) = match pairs.first() {
                 Some((key, value)) => (
                     infer_lowered_type(key, v, ids, l),
@@ -2404,10 +2408,10 @@ fn infer_lowered_type(
         Expr::EnumVariant { enum_name, .. } => Type::Named(enum_name.clone()),
         Expr::Match { arms, .. } => infer_lowered_type(&arms[0].body, values, ids, layouts),
         Expr::Name(name) => values[name].1.clone(),
-        Expr::List(items) => Type::List(Box::new(infer_lowered_type(
+        Expr::List(items, _) => Type::List(Box::new(infer_lowered_type(
             &items[0], values, ids, layouts,
         ))),
-        Expr::Map(items) => Type::Map(
+        Expr::Map(items, _) => Type::Map(
             Box::new(infer_lowered_type(&items[0].0, values, ids, layouts)),
             Box::new(infer_lowered_type(&items[0].1, values, ids, layouts)),
         ),
@@ -2547,7 +2551,7 @@ fn lower_binding(
                 annotation.cloned().unwrap(),
             )
         }
-        (Some(Type::List(element)), Expr::List(elements)) if elements.is_empty() => {
+        (Some(Type::List(element)), Expr::List(elements, _)) if elements.is_empty() => {
             let zero = b.ins().iconst(types::I64, 0);
             let width = b
                 .ins()
@@ -2564,7 +2568,7 @@ fn lower_binding(
                 Type::List(element.clone()),
             )
         }
-        (Some(Type::Map(key, value_type)), Expr::Map(pairs)) if pairs.is_empty() => {
+        (Some(Type::Map(key, value_type)), Expr::Map(pairs, _)) if pairs.is_empty() => {
             let zero = b.ins().iconst(types::I64, 0);
             let width = b
                 .ins()

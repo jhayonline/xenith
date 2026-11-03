@@ -958,7 +958,7 @@ fn expr(
                 Box::new(result.clone()),
             ))
         }
-        Expr::List(elements) => {
+        Expr::List(elements, _) => {
             let inferred: Vec<_> = elements
                 .iter()
                 .map(|element| expr(element, names, signatures, layouts, errors))
@@ -978,7 +978,7 @@ fn expr(
             }
             first.map(|ty| Type::List(Box::new(ty)))
         }
-        Expr::Map(pairs) => {
+        Expr::Map(pairs, _) => {
             let keys: Vec<_> = pairs
                 .iter()
                 .map(|(key, _)| expr(key, names, signatures, layouts, errors))
@@ -1562,10 +1562,10 @@ fn typed_literal(
     errors: &mut Vec<Diagnostic>,
 ) -> Option<Type> {
     match (annotation, value) {
-        (Some(Type::List(element)), Expr::List(elements)) if elements.is_empty() => {
+        (Some(Type::List(element)), Expr::List(elements, _)) if elements.is_empty() => {
             Some(Type::List(element.clone()))
         }
-        (Some(Type::Map(key, value)), Expr::Map(pairs)) if pairs.is_empty() => {
+        (Some(Type::Map(key, value)), Expr::Map(pairs, _)) if pairs.is_empty() => {
             Some(Type::Map(key.clone(), value.clone()))
         }
         _ => expr(value, names, signatures, layouts, errors),
@@ -1586,12 +1586,12 @@ fn collect_expr_names(expression: &Expr, names: &mut HashSet<String>) {
             names.insert(name.clone());
         }
         Expr::Closure { body, .. } => collect_expr_names(body, names),
-        Expr::Call { arguments, .. } | Expr::Tuple(arguments) | Expr::List(arguments) => {
+        Expr::Call { arguments, .. } | Expr::Tuple(arguments) | Expr::List(arguments, _) => {
             for argument in arguments {
                 collect_expr_names(argument, names);
             }
         }
-        Expr::Map(pairs) => {
+        Expr::Map(pairs, _) => {
             for (key, value) in pairs {
                 collect_expr_names(key, names);
                 collect_expr_names(value, names);

@@ -130,8 +130,8 @@ pub enum Expr {
     String(String),
     Interpolated(Vec<InterpolationPart>),
     Bytes(String, Span),
-    List(Vec<Expr>),
-    Map(Vec<(Expr, Expr)>),
+    List(Vec<Expr>, Span),
+    Map(Vec<(Expr, Expr)>, Span),
     Tuple(Vec<Expr>),
     Name(String),
     Closure {
@@ -1067,7 +1067,7 @@ impl Parser {
                 }
             }
             self.need("]")?;
-            return Ok(Expr::List(elements));
+            return Ok(Expr::List(elements, span));
         }
         if s == "match" {
             let subject = self.expr()?;
@@ -1127,7 +1127,7 @@ impl Parser {
                 }
             }
             self.need("}")?;
-            return Ok(Expr::Map(pairs));
+            return Ok(Expr::Map(pairs, span));
         }
         if s == "true" {
             return Ok(Expr::Bool(true));
