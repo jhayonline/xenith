@@ -62,7 +62,7 @@ pub fn emit_object(program: &TypedProgram, output: &Path) -> Result<(), NativeEr
         ids.insert(f.name.clone(), (id, f.result.clone()));
     }
     for f in &all_functions {
-        emit(&mut module, f, &ids, &program.2, &closure_captures, &program.0.source, &program.0.file)?;
+        emit(&mut module, f, &ids, &program.2, &closure_captures, &f.source, &f.file)?;
     }
     fs::write(
         output,
@@ -188,6 +188,8 @@ fn collect_closure_expr(
             if !out.iter().any(|function: &Function| function.name == name) {
                 out.push(Function {
                     name,
+                    file: "generated".into(),
+                    source: String::new(),
                     span: Span::new(0, 0),
                     exported: false,
                     params: params.clone(),

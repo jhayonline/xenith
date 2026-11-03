@@ -60,6 +60,8 @@ pub struct Field {
 #[derive(Debug, Clone)]
 pub struct Function {
     pub name: String,
+    pub file: String,
+    pub source: String,
     pub span: Span,
     pub exported: bool,
     pub params: Vec<Parameter>,
@@ -665,6 +667,8 @@ impl Parser {
             };
             functions.push(Function {
                 name,
+                file: self.file.clone(),
+                source: self.source.clone(),
                 span: function_span,
                 exported,
                 params,
