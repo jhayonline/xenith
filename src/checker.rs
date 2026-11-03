@@ -132,6 +132,13 @@ impl Checker {
             );
         }
         checker.structs.extend(imported.structs.clone());
+        checker.structs.entry("Error".to_string()).or_insert_with(|| {
+            vec![
+                ("message".to_string(), Type::String),
+                ("code".to_string(), Type::String),
+                ("name".to_string(), Type::String),
+            ]
+        });
         checker.enums.extend(imported.enums.clone());
         checker.aliases.extend(imported.aliases.clone());
 
@@ -322,6 +329,18 @@ impl Checker {
             }
 
             Node::Return(n) => self.check_return(n),
+
+            Node::TryCatch(n) => {
+                self.visit(&n.try_body);
+                self.push_scope();
+                self.declare(
+                    n.catch_binding.value.as_deref().unwrap_or("error"),
+                    Type::Struct("Error".to_string(), Vec::new()),
+                    true,
+                );
+                self.visit(&n.catch_body);
+                self.pop_scope();
+            }
 
             Node::Destructure(n) => {
                 self.infer(&n.value_node);
@@ -1028,6 +1047,22 @@ impl Checker {
             Node::Match(n) => self.infer_match(n),
             Node::StructInstantiation(n) => self.infer_struct_literal(n),
             Node::MethodAccess(n) => self.infer_field(n),
+            Node::TryCatch(n) => {
+                let try_type = self.infer(&n.try_body);
+                self.push_scope();
+                self.declare(
+                    n.catch_binding.value.as_deref().unwrap_or("error"),
+                    Type::Struct("Error".to_string(), Vec::new()),
+                    true,
+                );
+                let catch_type = self.infer(&n.catch_body);
+                self.pop_scope();
+                if self.compatible(&try_type, &catch_type) {
+                    try_type
+                } else {
+                    Type::Unknown
+                }
+            }
 
             Node::FuncDef(n) => {
                 self.check_func_def(n);
@@ -1060,6 +1095,7 @@ impl Checker {
             | Node::Destructure(_)
             | Node::Export(_)
             | Node::Panic(_) => self.visit(node),
+            Node::TryCatch(_) => self.visit(node),
             _ => {}
         }
     }

@@ -11,7 +11,7 @@ use crate::lexer::Lexer;
 use crate::modules::{Module, ModuleError, ModuleRegistry};
 use crate::nodes::{
     BoolLiteralNode, DestructureNode, DestructurePattern, Node, NullLiteralNode, PanicNode,
-    StructDefNode, TupleLiteralNode, TypeAliasNode,
+    StructDefNode, TryCatchNode, TupleLiteralNode, TypeAliasNode,
 };
 use crate::parser::Parser;
 use crate::position::Position;
@@ -20,7 +20,7 @@ use crate::symbol_table::{AssignOutcome, SymbolTable};
 use crate::types::{FunctionType, Type};
 use crate::utils::{value_to_interpolated_string, value_to_string};
 use crate::values::{
-    BuiltInFunction, Function, List, Map, Number, Value, XenithString,
+    BuiltInFunction, Function, List, Map, Number, Struct, Value, XenithString,
 };
 
 use std::collections::HashMap;
@@ -144,6 +144,7 @@ impl Interpreter {
             Node::MethodAccess(n) => self.visit_method_access(n, context),
             Node::Map(n) => self.visit_map(n, context),
             Node::Panic(n) => self.visit_panic(n, context),
+            Node::TryCatch(n) => self.visit_try_catch(n, context),
             Node::Grab(n) => self.visit_grab(n, context),
             Node::Export(n) => self.visit_export(n, context),
             Node::StructDef(n) => self.visit_struct_def(n, context),
@@ -2061,6 +2062,23 @@ impl Interpreter {
         )
     }
 
+    fn visit_try_catch(&mut self, node: &TryCatchNode, context: &mut Context) -> RuntimeResult {
+        let try_result = self.visit(&node.try_body, context);
+        let Some(error) = try_result.error else {
+            return try_result;
+        };
+
+        let mut catch_context = context.create_child("<catch>", node.position_start.clone());
+        let mut error_value = Struct::new("Error".to_string());
+        error_value.set_field("message".to_string(), Value::string(&error.details));
+        error_value.set_field("code".to_string(), Value::string(&error.code));
+        error_value.set_field("name".to_string(), Value::string(&error.error_name));
+        catch_context
+            .symbol_table
+            .set(node.catch_binding.value.clone().unwrap_or_default(), Value::Struct(Box::new(error_value)));
+        self.visit(&node.catch_body, &mut catch_context)
+    }
+
     fn visit_interpolated_string(
         &mut self,
         node: &crate::nodes::InterpolatedStringNode,
@@ -3070,4 +3088,3 @@ pub fn describe_arity(count: usize) -> String {
         n => format!("{} values", n),
     }
 }
-

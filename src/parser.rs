@@ -935,6 +935,12 @@ impl Parser {
             }
         }
 
+        if let Some(tok) = self.current_token() {
+            if tok.matches(TokenType::Keyword, Some("try")) {
+                return self.try_catch_expr();
+            }
+        }
+
         // Check for return statement
         if let Some(tok) = self.current_token() {
             if tok.matches(TokenType::Keyword, Some("release")) {
@@ -1576,6 +1582,52 @@ impl Parser {
 
         result.success(Node::Panic(Box::new(PanicNode {
             message_node: Box::new(message.unwrap()),
+            position_start: pos_start,
+            position_end: pos_end,
+        })))
+    }
+
+    fn try_catch_expr(&mut self) -> ParseResult {
+        let mut result = ParseResult::new();
+        let pos_start = self.current_token().unwrap().position_start.clone();
+        self.advance();
+
+        let try_body = result.register(&self.block());
+        if result.error.is_some() {
+            return result;
+        }
+
+        match self.current_token() {
+            Some(t) if t.matches(TokenType::Keyword, Some("catch")) => self.advance(),
+            Some(t) => return result.failure(InvalidSyntaxError::new(t.position_start.clone(), t.position_end.clone(), "Expected `catch` after try block").base),
+            None => return result.failure(InvalidSyntaxError::new(Self::dummy_pos(), Self::dummy_pos(), "Expected `catch` after try block").base),
+        }
+
+        if !matches!(self.current_token(), Some(t) if t.kind == TokenType::LParen) {
+            return result.failure(InvalidSyntaxError::new(Self::dummy_pos(), Self::dummy_pos(), "Expected `(error)` after `catch`").base);
+        }
+        self.advance();
+        let binding = match self.current_token().cloned() {
+            Some(t) if t.kind == TokenType::Identifier => {
+                self.advance();
+                t
+            }
+            Some(t) => return result.failure(InvalidSyntaxError::new(t.position_start.clone(), t.position_end.clone(), "Expected an error variable name").base),
+            None => return result.failure(InvalidSyntaxError::new(Self::dummy_pos(), Self::dummy_pos(), "Expected an error variable name").base),
+        };
+        if !matches!(self.current_token(), Some(t) if t.kind == TokenType::RParen) {
+            return result.failure(InvalidSyntaxError::new(Self::dummy_pos(), Self::dummy_pos(), "Expected `)` after catch variable").base);
+        }
+        self.advance();
+        let catch_body = result.register(&self.block());
+        if result.error.is_some() {
+            return result;
+        }
+        let pos_end = catch_body.as_ref().map(|n| n.position_end().clone()).unwrap_or_else(|| pos_start.clone());
+        result.success(Node::TryCatch(Box::new(TryCatchNode {
+            try_body: Box::new(try_body.unwrap()),
+            catch_binding: binding,
+            catch_body: Box::new(catch_body.unwrap()),
             position_start: pos_start,
             position_end: pos_end,
         })))
@@ -4008,6 +4060,9 @@ impl Parser {
                 }
                 _ if tok.matches(TokenType::Keyword, Some("panic")) => {
                     return self.panic_expr();
+                }
+                _ if tok.matches(TokenType::Keyword, Some("try")) => {
+                    return self.try_catch_expr();
                 }
                 _ if tok.matches(TokenType::Keyword, Some("echo")) => {
                     // Treat echo as an identifier when it's used as a function call

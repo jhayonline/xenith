@@ -68,3 +68,52 @@ fn a_script_stays_quiet_about_an_undefined_name() {
 
     assert!(errors.is_empty(), "expected silence, got {errors:?}");
 }
+
+#[test]
+fn try_catches_panic_and_exposes_error_fields() {
+    let source = "method main() -> int {\n\
+        try {\n\
+            panic(\"boom\")\n\
+        } catch (error) {\n\
+            when error.code == \"XEN300\" {\n\
+                release 0\n\
+            } otherwise {\n\
+                release 1\n\
+            }\n\
+        }\n\
+    }\n";
+    assert!(matches!(xenith::run("<test>", source).unwrap(), xenith::values::Value::Int(0)));
+}
+
+#[test]
+fn try_returns_without_running_catch() {
+    let source = "method main() -> int {\n\
+        try { release 42 } catch (error) { release 1 }\n\
+    }\n";
+    assert!(matches!(xenith::run("<test>", source).unwrap(), xenith::values::Value::Int(42)));
+}
+
+#[test]
+fn a_failure_inside_catch_is_not_swallowed() {
+    let source = "method main() -> int {\n\
+        try { panic(\"outer\") } catch (error) { panic(\"inner\") }\n\
+    }\n";
+    let error = xenith::run("<test>", source).expect_err("catch failure should escape");
+    assert_eq!(error.code, "XEN300");
+    assert_eq!(error.details, "inner");
+}
+
+#[test]
+fn try_catches_division_by_zero() {
+    let source = "method main() -> int {\n\
+        let denominator: int = 0\n\
+        try {\n\
+            let value: int = 10 / denominator\n\
+            release value\n\
+        } catch (error) {\n\
+            when error.code == \"XEN003\" { release 7 } otherwise { release 1 }\n\
+        }\n\
+    }\n";
+    let value = xenith::run("<test>", source).unwrap();
+    assert!(matches!(value, xenith::values::Value::Int(7)), "got {value:?}");
+}

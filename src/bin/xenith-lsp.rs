@@ -608,6 +608,10 @@ impl Collector<'_> {
                 }
             }
             Node::Panic(n) => self.walk(&n.message_node, out),
+            Node::TryCatch(n) => {
+                self.walk(&n.try_body, out);
+                self.walk(&n.catch_body, out);
+            }
             Node::Export(n) => self.walk(&n.node, out),
 
             Node::Number(_)

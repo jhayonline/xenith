@@ -11,15 +11,13 @@ Each entry says what happens, why, and what to do instead.
 ways the type system cannot yet describe, so calls to them are not checked.
 Calls to methods you write are checked, by both count and type.
 
-## Imported names are checked as they run, not before
+## Imported names are checked before execution
 
-The static pass does not follow `grab`, so it knows nothing about what a module
-exports. A call to an imported method is not checked for argument count or type,
-and a literal of an imported struct is not checked for its fields.
-
-They are all still checked, with the same errors and the same messages, when the
-line runs. What you lose is finding out before any output appears, and finding
-out about a branch that never executes.
+The project checker follows `grab` and loads exported signatures and type
+definitions before checking the importing file. Calls to imported methods and
+imported struct literals therefore produce static diagnostics before output or
+branch execution. Very large dependency graphs still need more polished error
+grouping.
 
 ## Patterns cover less than Rust's
 
@@ -121,12 +119,28 @@ the host stack. The limit is 10000 calls and hitting it gives a clean XEN019
 rather than a crash, but a deeply recursive algorithm may need rewriting as a
 loop.
 
+## Error handling uses try/catch
+
+Recoverable runtime failures are handled with `try`/`catch`:
+
+```xenith
+try {
+    risky_operation()
+} catch (error) {
+    echo(error.message)
+}
+```
+
+The binding exposes `message`, `code`, and `name`. Xenith deliberately does not
+copy Rust's `Option<T>` or `Result<T>` types. There is no `finally` clause or
+typed exception filtering yet.
+
 ## Things that are not planned
 
 Some absences are decisions rather than gaps:
 
-- **No exceptions.** Errors stop the program; recoverable failure is a returned
-  value. See [Errors](17-errors.md).
+- **No Rust-style result wrappers.** Recoverable failures use `try`/`catch`, not
+  `Option<T>` or `Result<T>`. See [Errors](17-errors.md).
 - **No methods on structs.** Structs are data; behaviour is free methods that
   take them. See [Structs](12-structs.md).
 - **No inheritance or interfaces.**

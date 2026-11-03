@@ -169,11 +169,15 @@ capture a mutable local is rejected with a diagnostic explaining why. Collection
 values are heap-backed and typed, with literal construction, indexing, mutation,
 and runtime allocation/access APIs available to native code.
 
+Recoverable failures use `try`/`catch`; the catch binding exposes `message`,
+`code`, and `name` fields. Xenith does not use Rust-style `Option<T>` or
+`Result<T>` for ordinary error handling.
+
 **Missing:** the standard library covers strings, maths, files, bytes and the
 environment, all written in Xenith. Time and randomness are not there, and there
-are no generics so no `Result<T>` or `Option<T>`. Imported modules are checked
-before execution, though diagnostics for very large dependency graphs are still
-being refined.
+are no generics, so generic collection algorithms are still being refined.
+Imported modules are checked before execution, though diagnostics for very large
+dependency graphs are still being refined.
 
 The full list, with what to do instead in each case, is
 [Known limitations](docs/tutorial/19-limitations.md).

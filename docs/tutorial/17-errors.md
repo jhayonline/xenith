@@ -1,11 +1,22 @@
 # Errors
 
-Xenith has no exceptions and no `try` or `catch`. An error stops the program,
-prints where it happened and why, and exits with a non zero status.
+Xenith uses `try`/`catch` for recoverable runtime failures. An error that is not
+caught stops the program, prints where it happened and why, and exits with a
+non-zero status.
 
-That is a design choice, not a gap waiting to be filled. Recoverable failure is
-expressed by returning a value that says what happened; unrecoverable failure
-stops the program.
+The catch binding exposes a stable `code`, a category `name`, and a readable
+`message`:
+
+```xenith
+try {
+    divide_by_user_input()
+} catch (error) {
+    echo("{error.name} [{error.code}]: {error.message}")
+}
+```
+
+If the catch body fails, that new error continues outward. Xenith deliberately
+does not use Rust-style `Option<T>` or `Result<T>` wrappers.
 
 ## Reading a diagnostic
 

@@ -33,6 +33,7 @@ pub enum Node {
     MethodAccess(MethodAccessNode),
     Map(MapNode),
     Panic(Box<PanicNode>),
+    TryCatch(Box<TryCatchNode>),
     Grab(Box<GrabNode>),
     Export(Box<ExportNode>),
     StructDef(Box<StructDefNode>),
@@ -127,6 +128,7 @@ impl Node {
             Node::Destructure(n) => vec![n.value_node.as_ref()],
             Node::Return(n) => n.node_to_return.iter().map(|v| v.as_ref()).collect(),
             Node::Panic(n) => vec![n.message_node.as_ref()],
+            Node::TryCatch(n) => vec![n.try_body.as_ref(), n.catch_body.as_ref()],
             Node::FuncDef(n) => vec![n.body_node.as_ref()],
             Node::Export(n) => vec![n.node.as_ref()],
             Node::If(n) => {
@@ -193,6 +195,7 @@ impl Node {
             Node::MethodAccess(n) => &n.position_start,
             Node::Map(n) => &n.position_start,
             Node::Panic(n) => &n.position_start,
+            Node::TryCatch(n) => &n.position_start,
             Node::Grab(n) => &n.position_start,
             Node::Export(n) => &n.position_start,
             Node::StructDef(n) => &n.position_start,
@@ -232,6 +235,7 @@ impl Node {
             Node::MethodAccess(n) => &n.position_end,
             Node::Map(n) => &n.position_end,
             Node::Panic(n) => &n.position_end,
+            Node::TryCatch(n) => &n.position_end,
             Node::Grab(n) => &n.position_end,
             Node::Export(n) => &n.position_end,
             Node::StructDef(n) => &n.position_end,
@@ -519,6 +523,15 @@ pub struct ContinueNode {
 /// Break statement node
 #[derive(Debug, Clone)]
 pub struct BreakNode {
+    pub position_start: Position,
+    pub position_end: Position,
+}
+
+#[derive(Debug, Clone)]
+pub struct TryCatchNode {
+    pub try_body: Box<Node>,
+    pub catch_binding: Token,
+    pub catch_body: Box<Node>,
     pub position_start: Position,
     pub position_end: Position,
 }
