@@ -19,6 +19,19 @@ fn rejects_mutable_closure_captures() {
 }
 
 #[test]
+fn rejects_non_scalar_native_closure_captures() {
+    let source = "fn main() -> i32 { let prefix: string = \"x\" let f: fn(i32) -> string = fn(x: i32) -> string => prefix return 0 }";
+    let program = parse(Path::new("main.xen"), source).unwrap();
+    let errors = check(&program).expect_err("non-scalar captures should be rejected");
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message.contains("can only capture i32")),
+        "{errors:?}"
+    );
+}
+
+#[test]
 fn compiles_native_named_function_values_and_indirect_calls() {
     let source = "fn add(value: i32) -> i32 { return value + 2 } fn main() -> i32 { let f: fn(i32) -> i32 = add return f(40) }";
     let program = parse(Path::new("src/main.xen"), source).unwrap();
