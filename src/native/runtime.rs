@@ -9,6 +9,17 @@ const SOURCE: &str = r#"#include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+typedef struct { int8_t pending; unsigned char *message; int64_t message_len; const unsigned char *code; int64_t code_len; const unsigned char *name; int64_t name_len; } XenithError;
+static _Thread_local XenithError xenith_error = {0, NULL, 0, NULL, 0, NULL, 0};
+void xenith_error_clear(void) { free(xenith_error.message); xenith_error = (XenithError){0, NULL, 0, NULL, 0, NULL, 0}; }
+int8_t xenith_error_pending(void) { return xenith_error.pending; }
+void xenith_error_raise(const unsigned char *message, int64_t message_len, const unsigned char *code, int64_t code_len, const unsigned char *name, int64_t name_len) { xenith_error_clear(); xenith_error.pending = 1; xenith_error.message = malloc((size_t)message_len); memcpy(xenith_error.message, message, (size_t)message_len); xenith_error.message_len = message_len; xenith_error.code = code; xenith_error.code_len = code_len; xenith_error.name = name; xenith_error.name_len = name_len; }
+const unsigned char *xenith_error_message(void) { return xenith_error.message; }
+int64_t xenith_error_message_len(void) { return xenith_error.message_len; }
+const unsigned char *xenith_error_code(void) { return xenith_error.code; }
+int64_t xenith_error_code_len(void) { return xenith_error.code_len; }
+const unsigned char *xenith_error_name(void) { return xenith_error.name; }
+int64_t xenith_error_name_len(void) { return xenith_error.name_len; }
 void xenith_echo(const unsigned char *data, int64_t length) {
     fwrite(data, 1, (size_t)length, stdout);
     fputc('\n', stdout);
