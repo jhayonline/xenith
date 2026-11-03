@@ -62,7 +62,7 @@ pub fn emit_object(program: &TypedProgram, output: &Path) -> Result<(), NativeEr
         ids.insert(f.name.clone(), (id, f.result.clone()));
     }
     for f in &all_functions {
-        emit(&mut module, f, &ids, &program.2, &closure_captures)?;
+        emit(&mut module, f, &ids, &program.2, &closure_captures, &program.0.source)?;
     }
     fs::write(
         output,
@@ -363,6 +363,7 @@ fn emit(
     ids: &HashMap<String, (FuncId, Type)>,
     l: &HashMap<String, StructLayout>,
     captures: &HashMap<String, Vec<(String, Type)>>,
+    source: &str,
 ) -> Result<(), NativeError> {
     let mut c = m.make_context();
     c.func.signature = signature(m, f, l);
@@ -373,6 +374,29 @@ fn emit(
         b.append_block_params_for_function_params(block);
         b.switch_to_block(block);
         b.seal_block(block);
+        let source_data = m
+            .declare_data(
+                &format!("xenith_source_{}", STRING_ID.fetch_add(1, Ordering::Relaxed)),
+                Linkage::Local,
+                true,
+                false,
+            )
+            .map_err(|e| NativeError::not_implemented(e.to_string()))?;
+        let mut source_description = DataDescription::new();
+        source_description.define(source.as_bytes().to_vec().into_boxed_slice());
+        m.define_data(source_data, &source_description)
+            .map_err(|e| NativeError::not_implemented(e.to_string()))?;
+        let source_global = m.declare_data_in_func(source_data, b.func);
+        let source_pointer = b.ins().symbol_value(m.target_config().pointer_type(), source_global);
+        let source_length = b.ins().iconst(types::I64, source.len() as i64);
+        let _ = runtime_call(
+            &mut b,
+            m,
+            "xenith_error_set_source",
+            vec![AbiParam::new(types::I64), AbiParam::new(types::I64)],
+            vec![],
+            &[source_pointer, source_length],
+        );
         let function_data = m
             .declare_data(
                 &format!("xenith_function_{}", STRING_ID.fetch_add(1, Ordering::Relaxed)),
@@ -827,6 +851,8 @@ fn lower_try_catch(
             error_lanes.push(runtime_call(b, m, field.1, vec![], vec![AbiParam::new(types::I64)], &[])[0]);
         }
         error_lanes.push(runtime_call(b, m, "xenith_error_offset_value", vec![], vec![AbiParam::new(types::I64)], &[])[0]);
+        error_lanes.push(runtime_call(b, m, "xenith_error_line_value", vec![], vec![AbiParam::new(types::I64)], &[])[0]);
+        error_lanes.push(runtime_call(b, m, "xenith_error_column_value", vec![], vec![AbiParam::new(types::I64)], &[])[0]);
         catch_values.insert(binding.to_string(), (error_lanes, Type::Named("Error".into())));
         let _ = runtime_call(b, m, "xenith_error_clear", vec![], vec![], &[]);
         return lower_branch(
@@ -901,6 +927,8 @@ fn lower_try_catch(
         );
     }
     error_lanes.push(runtime_call(b, m, "xenith_error_offset_value", vec![], vec![AbiParam::new(types::I64)], &[])[0]);
+    error_lanes.push(runtime_call(b, m, "xenith_error_line_value", vec![], vec![AbiParam::new(types::I64)], &[])[0]);
+    error_lanes.push(runtime_call(b, m, "xenith_error_column_value", vec![], vec![AbiParam::new(types::I64)], &[])[0]);
     catch_values.insert(binding.to_string(), (error_lanes, Type::Named("Error".into())));
     let _ = runtime_call(b, m, "xenith_error_clear", vec![], vec![], &[]);
     let catch_flow = lower_branch(

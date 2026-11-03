@@ -128,7 +128,7 @@ fn native_division_error_uses_operation_offset() {
     let source = r#"fn main() -> i32 {
         let denominator: i32 = 0
         try { return 10 / denominator } catch (error) {
-            if (error.offset > 50i64) { return 42 } else { return 1 }
+            if (error.line == 3i64 && error.column > 20i64) { return 42 } else { return 1 }
         }
     }"#;
     let program = parse(Path::new("main.xen"), source).unwrap();
