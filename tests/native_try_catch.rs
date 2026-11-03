@@ -67,3 +67,39 @@ fn native_catch_handles_division_by_zero() {
     link_host(&object, &executable).unwrap();
     assert_eq!(Command::new(executable).status().unwrap().code(), Some(6));
 }
+
+#[test]
+fn native_catch_handles_collection_bounds() {
+    let source = r#"fn main() -> i32 {
+        let items: list<i32> = [1]
+        try { return items[2] } catch (error) {
+            return len(error.code)
+        }
+    }"#;
+    let program = parse(Path::new("main.xen"), source).unwrap();
+    let typed = check(&program).unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let object = directory.path().join("main.o");
+    let executable = directory.path().join("main");
+    emit_object(&typed, &object).unwrap();
+    link_host(&object, &executable).unwrap();
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(6));
+}
+
+#[test]
+fn native_catch_handles_missing_map_keys() {
+    let source = r#"fn main() -> i32 {
+        let names: map<string, i32> = {"answer": 2}
+        try { return names["missing"] } catch (error) {
+            return len(error.code)
+        }
+    }"#;
+    let program = parse(Path::new("main.xen"), source).unwrap();
+    let typed = check(&program).unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let object = directory.path().join("main.o");
+    let executable = directory.path().join("main");
+    emit_object(&typed, &object).unwrap();
+    link_host(&object, &executable).unwrap();
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(6));
+}
