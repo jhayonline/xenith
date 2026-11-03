@@ -254,6 +254,19 @@ fn signatures(
             result: Type::String,
         },
     );
+    for (name, parameters, result) in [
+        ("fs_append", vec![Type::String, Type::String], Type::String),
+        ("fs_write_bytes", vec![Type::String, Type::Bytes], Type::String),
+        ("fs_append_bytes", vec![Type::String, Type::Bytes], Type::String),
+        ("fs_read_bytes", vec![Type::String], Type::Tuple(vec![Type::Bytes, Type::String])),
+        ("fs_remove", vec![Type::String], Type::String),
+        ("fs_exists", vec![Type::String], Type::Bool),
+        ("fs_is_file", vec![Type::String], Type::Bool),
+        ("fs_is_dir", vec![Type::String], Type::Bool),
+        ("fs_size", vec![Type::String], Type::Tuple(vec![Type::I64, Type::String])),
+    ] {
+        signatures.insert(name.into(), FunctionSignature { parameters, result });
+    }
     for function in &program.functions {
         let signature = FunctionSignature {
             parameters: function

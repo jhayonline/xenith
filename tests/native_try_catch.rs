@@ -256,6 +256,57 @@ fn native_filesystem_read_returns_an_error_string() {
 }
 
 #[test]
+fn native_filesystem_append_and_byte_io_round_trip() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("payload.bin");
+    let source = format!(
+        "fn main() -> i32 {{ let first = fs_write_bytes(\"{}\", bytes(\"ab\")) let second = fs_append_bytes(\"{}\", bytes(\"cd\")) let result = fs_read_bytes(\"{}\") if (len(first) == 0 && len(second) == 0 && len(result[1]) == 0 && len(result[0]) == 4 && result[0][0] == 97 && result[0][3] == 100) {{ return 42 }} else {{ return 1 }} }}",
+        path.display(), path.display(), path.display()
+    );
+    let program = parse(Path::new("main.xen"), &source).unwrap();
+    let typed = check(&program).unwrap();
+    let object = directory.path().join("main.o");
+    let executable = directory.path().join("main");
+    emit_object(&typed, &object).unwrap();
+    link_host(&object, &executable).unwrap();
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(42));
+}
+
+#[test]
+fn native_filesystem_append_text_round_trip() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("message.txt");
+    let source = format!(
+        "fn main() -> i32 {{ let first = fs_write(\"{}\", \"hello\") let second = fs_append(\"{}\", \" world\") let result = fs_read(\"{}\") if (len(first) == 0 && len(second) == 0 && len(result[1]) == 0 && result[0] == \"hello world\") {{ return 42 }} else {{ return 1 }} }}",
+        path.display(), path.display(), path.display()
+    );
+    let program = parse(Path::new("main.xen"), &source).unwrap();
+    let typed = check(&program).unwrap();
+    let object = directory.path().join("main.o");
+    let executable = directory.path().join("main");
+    emit_object(&typed, &object).unwrap();
+    link_host(&object, &executable).unwrap();
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(42));
+}
+
+#[test]
+fn native_filesystem_metadata_and_remove_work() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("metadata.txt");
+    let source = format!(
+        "fn main() -> i32 {{ let write_error = fs_write(\"{}\", \"hello\") let size = fs_size(\"{}\") let file = fs_is_file(\"{}\") let exists = fs_exists(\"{}\") let remove_error = fs_remove(\"{}\") let gone = fs_exists(\"{}\") if (len(write_error) == 0 && size[0] == 5i64 && len(size[1]) == 0 && file && exists && len(remove_error) == 0 && !gone) {{ return 42 }} else {{ return 1 }} }}",
+        path.display(), path.display(), path.display(), path.display(), path.display(), path.display()
+    );
+    let program = parse(Path::new("main.xen"), &source).unwrap();
+    let typed = check(&program).unwrap();
+    let object = directory.path().join("main.o");
+    let executable = directory.path().join("main");
+    emit_object(&typed, &object).unwrap();
+    link_host(&object, &executable).unwrap();
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(42));
+}
+
+#[test]
 fn native_uncaught_errors_print_a_diagnostic() {
     let source = r#"fn main() -> i32 {
         panic("boom")
