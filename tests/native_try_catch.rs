@@ -307,6 +307,27 @@ fn native_filesystem_metadata_and_remove_work() {
 }
 
 #[test]
+fn native_environment_builtins_round_trip() {
+    let source = r#"fn main() -> i32 {
+        env_set("XENITH_NATIVE_TEST", "present")
+        let found = env_get("XENITH_NATIVE_TEST")
+        let cwd = env_cwd()
+        let args = env_args()
+        let vars = env_vars()
+        env_unset("XENITH_NATIVE_TEST")
+        if (found[0] == "present" && found[1] && contains(vars, "XENITH_NATIVE_TEST") && len(cwd[0]) > 0 && len(cwd[1]) == 0 && len(args) > 0) { return 42 } else { return 1 }
+    }"#;
+    let program = parse(Path::new("main.xen"), source).unwrap();
+    let typed = check(&program).unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let object = directory.path().join("main.o");
+    let executable = directory.path().join("main");
+    emit_object(&typed, &object).unwrap();
+    link_host(&object, &executable).unwrap();
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(42));
+}
+
+#[test]
 fn native_uncaught_errors_print_a_diagnostic() {
     let source = r#"fn main() -> i32 {
         panic("boom")

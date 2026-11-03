@@ -2179,6 +2179,45 @@ fn lower(
                 let _ = runtime_call(b, m, "xenith_fs_size", vec![AbiParam::new(types::I64); 5], vec![], &args);
                 return (vec![b.ins().load(types::I64, MemFlags::new(), args[2], 0), b.ins().load(types::I64, MemFlags::new(), args[3], 0), b.ins().load(types::I64, MemFlags::new(), args[4], 0)], Type::Tuple(vec![Type::I64, Type::String]));
             }
+            if name == "env_get" {
+                let key = lower(b, &arguments[0], v, ids, m, l).0;
+                let value_ptr = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let value_len = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let found = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 1, 3));
+                let args = [key[0], key[1], b.ins().stack_addr(types::I64, value_ptr, 0), b.ins().stack_addr(types::I64, value_len, 0), b.ins().stack_addr(types::I64, found, 0)];
+                let _ = runtime_call(b, m, "xenith_env_get", vec![AbiParam::new(types::I64); 5], vec![], &args);
+                return (vec![b.ins().load(types::I64, MemFlags::new(), args[2], 0), b.ins().load(types::I64, MemFlags::new(), args[3], 0), b.ins().load(types::I8, MemFlags::new(), args[4], 0)], Type::Tuple(vec![Type::String, Type::Bool]));
+            }
+            if name == "env_set" || name == "env_unset" {
+                let key = lower(b, &arguments[0], v, ids, m, l).0;
+                let mut args = vec![key[0], key[1]];
+                let runtime_name = if name == "env_set" { let value = lower(b, &arguments[1], v, ids, m, l).0; args.extend(value); "xenith_env_set" } else { "xenith_env_unset" };
+                let params = if name == "env_set" { 4 } else { 2 };
+                let _ = runtime_call(b, m, runtime_name, vec![AbiParam::new(types::I64); params], vec![], &args);
+                return (vec![b.ins().iconst(types::I8, 0)], Type::Null);
+            }
+            if name == "env_args" {
+                let raw = runtime_call(b, m, "xenith_env_args", vec![], vec![AbiParam::new(types::I64)], &[])[0];
+                return (vec![raw], Type::List(Box::new(Type::String)));
+            }
+            if name == "env_vars" {
+                let raw = runtime_call(b, m, "xenith_env_vars", vec![], vec![AbiParam::new(types::I64)], &[])[0];
+                return (vec![raw], Type::Map(Box::new(Type::String), Box::new(Type::String)));
+            }
+            if name == "env_cwd" {
+                let value_ptr = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let value_len = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let error_ptr = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let error_len = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let args = [b.ins().stack_addr(types::I64, value_ptr, 0), b.ins().stack_addr(types::I64, value_len, 0), b.ins().stack_addr(types::I64, error_ptr, 0), b.ins().stack_addr(types::I64, error_len, 0)];
+                let _ = runtime_call(b, m, "xenith_env_cwd", vec![AbiParam::new(types::I64); 4], vec![], &args);
+                return (vec![b.ins().load(types::I64, MemFlags::new(), args[0], 0), b.ins().load(types::I64, MemFlags::new(), args[1], 0), b.ins().load(types::I64, MemFlags::new(), args[2], 0), b.ins().load(types::I64, MemFlags::new(), args[3], 0)], Type::Tuple(vec![Type::String, Type::String]));
+            }
+            if name == "env_exit" {
+                let code = lower(b, &arguments[0], v, ids, m, l).0[0];
+                let _ = runtime_call(b, m, "xenith_env_exit", vec![AbiParam::new(types::I32)], vec![], &[code]);
+                return (vec![b.ins().iconst(types::I8, 0)], Type::Null);
+            }
             if let Some((_, Type::Function(parameters, result))) = v.get(name) {
                 let mut args = Vec::new();
                 args.push(v[name].0[1]);

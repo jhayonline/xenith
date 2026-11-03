@@ -264,6 +264,13 @@ fn signatures(
         ("fs_is_file", vec![Type::String], Type::Bool),
         ("fs_is_dir", vec![Type::String], Type::Bool),
         ("fs_size", vec![Type::String], Type::Tuple(vec![Type::I64, Type::String])),
+        ("env_get", vec![Type::String], Type::Tuple(vec![Type::String, Type::Bool])),
+        ("env_set", vec![Type::String, Type::String], Type::Null),
+        ("env_unset", vec![Type::String], Type::Null),
+        ("env_vars", vec![], Type::Map(Box::new(Type::String), Box::new(Type::String))),
+        ("env_args", vec![], Type::List(Box::new(Type::String))),
+        ("env_cwd", vec![], Type::Tuple(vec![Type::String, Type::String])),
+        ("env_exit", vec![Type::I32], Type::Null),
     ] {
         signatures.insert(name.into(), FunctionSignature { parameters, result });
     }
