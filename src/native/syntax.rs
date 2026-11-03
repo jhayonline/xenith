@@ -128,7 +128,7 @@ pub enum Expr {
     Bool(bool),
     Null,
     String(String),
-    Interpolated(Vec<InterpolationPart>),
+    Interpolated(Vec<InterpolationPart>, Span),
     Bytes(String, Span),
     List(Vec<Expr>, Span),
     Map(Vec<(Expr, Expr)>, Span),
@@ -138,6 +138,7 @@ pub enum Expr {
         params: Vec<Parameter>,
         result: Type,
         body: Box<Expr>,
+        span: Span,
     },
     EnumVariant {
         enum_name: String,
@@ -1029,6 +1030,7 @@ impl Parser {
                 params,
                 result,
                 body: Box::new(body),
+                span,
             });
         }
         if s == "-" {
@@ -1164,7 +1166,7 @@ impl Parser {
                 if !rest.is_empty() {
                     parts.push(InterpolationPart::Text(rest.into()));
                 }
-                return Ok(Expr::Interpolated(parts));
+                return Ok(Expr::Interpolated(parts, span));
             }
             return Ok(Expr::String(value));
         }

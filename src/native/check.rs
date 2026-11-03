@@ -898,7 +898,7 @@ fn expr(
                 .collect(),
         )),
         Expr::String(_) => Some(Type::String),
-        Expr::Interpolated(parts) => {
+        Expr::Interpolated(parts, _) => {
             for part in parts {
                 if let InterpolationPart::Name(name) = part {
                     if names.get(name).map(|(ty, _)| ty) != Some(&Type::String) {
@@ -916,6 +916,7 @@ fn expr(
             params,
             result,
             body,
+            ..
         } => {
             let mut closure_names = names.clone();
             let mut duplicate = HashSet::new();

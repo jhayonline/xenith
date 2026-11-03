@@ -172,6 +172,7 @@ fn collect_closure_expr(
             params,
             result,
             body,
+            ..
         } => {
             let name = closure_name(expression);
             let mut names = HashSet::new();
@@ -238,7 +239,7 @@ fn collect_closure_expr(
             collect_closure_expr(left, out, captures, scope);
             collect_closure_expr(right, out, captures, scope);
         }
-        Expr::Interpolated(_)
+        Expr::Interpolated(_, _)
         | Expr::Int(_, _)
         | Expr::Float(_)
         | Expr::Bool(_)
@@ -1653,7 +1654,9 @@ fn lower(
             }
             (values, Type::Tuple(types))
         }
-        Expr::Interpolated(parts) => {
+        Expr::Interpolated(parts, span) => {
+            let location = b.ins().iconst(types::I64, span.start as i64);
+            let _ = runtime_call(b, m, "xenith_error_set_offset", vec![AbiParam::new(types::I64)], vec![], &[location]);
             let mut current = lower(b, &Expr::String(String::new()), v, ids, m, l).0;
             for part in parts {
                 let next = match part {
@@ -1888,7 +1891,10 @@ fn lower(
             params,
             result,
             body,
+            span,
         } => {
+            let location = b.ins().iconst(types::I64, span.start as i64);
+            let _ = runtime_call(b, m, "xenith_error_set_offset", vec![AbiParam::new(types::I64)], vec![], &[location]);
             let name = closure_name(x);
             let callee = m.declare_func_in_func(ids[&name].0, b.func);
             let mut capture_names = HashSet::new();
@@ -2396,7 +2402,7 @@ fn infer_lowered_type(
         ),
         Expr::Bool(_) => Type::Bool,
         Expr::String(_) => Type::String,
-        Expr::Interpolated(_) => Type::String,
+        Expr::Interpolated(_, _) => Type::String,
         Expr::Bytes(_, _) => Type::Bytes,
         Expr::Closure { params, result, .. } => Type::Function(
             params
