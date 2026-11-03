@@ -240,6 +240,20 @@ fn signatures(
     errors: &mut Vec<Diagnostic>,
 ) -> HashMap<String, FunctionSignature> {
     let mut signatures = HashMap::new();
+    signatures.insert(
+        "fs_read".into(),
+        FunctionSignature {
+            parameters: vec![Type::String],
+            result: Type::Tuple(vec![Type::String, Type::String]),
+        },
+    );
+    signatures.insert(
+        "fs_write".into(),
+        FunctionSignature {
+            parameters: vec![Type::String, Type::String],
+            result: Type::String,
+        },
+    );
     for function in &program.functions {
         let signature = FunctionSignature {
             parameters: function

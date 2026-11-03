@@ -225,6 +225,37 @@ fn native_runtime_reports_allocation_failures_without_aborting() {
 }
 
 #[test]
+fn native_filesystem_builtins_read_and_write_text() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("message.txt");
+    let source = format!(
+        "fn main() -> i32 {{ let write_error = fs_write(\"{}\", \"hello\") let result = fs_read(\"{}\") if (len(write_error) == 0 && len(result[1]) == 0 && result[0] == \"hello\") {{ return 42 }} else {{ return 1 }} }}",
+        path.display(),
+        path.display()
+    );
+    let program = parse(Path::new("main.xen"), &source).unwrap();
+    let typed = check(&program).unwrap();
+    let object = directory.path().join("main.o");
+    let executable = directory.path().join("main");
+    emit_object(&typed, &object).unwrap();
+    link_host(&object, &executable).unwrap();
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(42));
+}
+
+#[test]
+fn native_filesystem_read_returns_an_error_string() {
+    let source = "fn main() -> i32 { let result = fs_read(\"/definitely/missing/xenith-file\") if (len(result[1]) > 0) { return 42 } else { return 1 } }";
+    let program = parse(Path::new("main.xen"), source).unwrap();
+    let typed = check(&program).unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let object = directory.path().join("main.o");
+    let executable = directory.path().join("main");
+    emit_object(&typed, &object).unwrap();
+    link_host(&object, &executable).unwrap();
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(42));
+}
+
+#[test]
 fn native_uncaught_errors_print_a_diagnostic() {
     let source = r#"fn main() -> i32 {
         panic("boom")

@@ -2094,6 +2094,40 @@ fn lower(
                 )[0];
                 return (vec![pointer, length], Type::String);
             }
+            if name == "fs_read" {
+                let path = lower(b, &arguments[0], v, ids, m, l).0;
+                let data_ptr = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let data_len = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let error_ptr = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let error_len = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let args = [
+                    path[0], path[1],
+                    b.ins().stack_addr(types::I64, data_ptr, 0), b.ins().stack_addr(types::I64, data_len, 0),
+                    b.ins().stack_addr(types::I64, error_ptr, 0), b.ins().stack_addr(types::I64, error_len, 0),
+                ];
+                let _ = runtime_call(b, m, "xenith_fs_read", vec![AbiParam::new(types::I64); 6], vec![], &args);
+                return (vec![
+                    b.ins().load(types::I64, MemFlags::new(), args[2], 0),
+                    b.ins().load(types::I64, MemFlags::new(), args[3], 0),
+                    b.ins().load(types::I64, MemFlags::new(), args[4], 0),
+                    b.ins().load(types::I64, MemFlags::new(), args[5], 0),
+                ], Type::Tuple(vec![Type::String, Type::String]));
+            }
+            if name == "fs_write" {
+                let path = lower(b, &arguments[0], v, ids, m, l).0;
+                let data = lower(b, &arguments[1], v, ids, m, l).0;
+                let error_ptr = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let error_len = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let args = [
+                    path[0], path[1], data[0], data[1],
+                    b.ins().stack_addr(types::I64, error_ptr, 0), b.ins().stack_addr(types::I64, error_len, 0),
+                ];
+                let _ = runtime_call(b, m, "xenith_fs_write", vec![AbiParam::new(types::I64); 6], vec![], &args);
+                return (vec![
+                    b.ins().load(types::I64, MemFlags::new(), args[4], 0),
+                    b.ins().load(types::I64, MemFlags::new(), args[5], 0),
+                ], Type::String);
+            }
             if let Some((_, Type::Function(parameters, result))) = v.get(name) {
                 let mut args = Vec::new();
                 args.push(v[name].0[1]);
