@@ -1188,7 +1188,7 @@ fn expr(
                 });
                 None
             }),
-        Expr::Call { name, arguments } => {
+        Expr::Call { name, arguments, .. } => {
             if let Some((Type::Function(parameters, result), _)) = names.get(name) {
                 if arguments.len() != parameters.len() {
                     errors.push(Diagnostic {

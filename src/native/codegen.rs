@@ -1181,6 +1181,7 @@ fn lower_for_in(
                     Expr::Name("__xenith_iter".into()),
                     Expr::Name("__xenith_index".into()),
                 ],
+                span: Span::new(0, 0),
             },
         ),
         _ => return LowerFlow::FallsThrough,
@@ -1200,6 +1201,7 @@ fn lower_for_in(
         Box::new(Expr::Call {
             name: "len".into(),
             arguments: vec![Expr::Name(iter_name.clone())],
+            span: Span::new(0, 0),
         }),
     );
     let step = Stmt::Assign {
@@ -2067,7 +2069,9 @@ fn lower(
                 .collect();
             (values, element_type)
         }
-        Expr::Call { name, arguments } => {
+        Expr::Call { name, arguments, span } => {
+            let location = b.ins().iconst(types::I64, span.start as i64);
+            let _ = runtime_call(b, m, "xenith_error_set_offset", vec![AbiParam::new(types::I64)], vec![], &[location]);
             if name == "__xenith_map_key" {
                 let (map, _) = lower(b, &arguments[0], v, ids, m, l);
                 let index_value = lower(b, &arguments[1], v, ids, m, l).0[0];

@@ -152,6 +152,7 @@ pub enum Expr {
     Call {
         name: String,
         arguments: Vec<Expr>,
+        span: Span,
     },
     StructLiteral {
         name: String,
@@ -972,7 +973,7 @@ impl Parser {
                         }
                     }
                     self.need(")")?;
-                    left = Expr::Call { name, arguments };
+                    left = Expr::Call { name, arguments, span: Span::new(0, 0) };
                 } else {
                     left = Expr::Field {
                         base: Box::new(left),
@@ -1334,6 +1335,7 @@ impl Parser {
         }
     }
     fn call(&mut self, name: String) -> Result<Expr, Vec<Diagnostic>> {
+        let span = self.location();
         self.need("(")?;
         let mut arguments = vec![];
         while self.tokens.get(self.i).map(String::as_str) != Some(")") {
@@ -1348,7 +1350,7 @@ impl Parser {
             }
         }
         self.need(")")?;
-        Ok(Expr::Call { name, arguments })
+        Ok(Expr::Call { name, arguments, span })
     }
 }
 
