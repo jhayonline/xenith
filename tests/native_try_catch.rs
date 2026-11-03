@@ -1,5 +1,4 @@
-use std::path::Path;
-use std::process::Command;
+use std::{fs, path::Path, process::Command};
 use xenith::native::{check::check, codegen::{emit_object, link_host}, syntax::parse};
 
 #[test]
@@ -102,4 +101,51 @@ fn native_catch_handles_missing_map_keys() {
     emit_object(&typed, &object).unwrap();
     link_host(&object, &executable).unwrap();
     assert_eq!(Command::new(executable).status().unwrap().code(), Some(6));
+}
+
+#[test]
+fn native_runtime_reports_allocation_failures_without_aborting() {
+    let directory = tempfile::tempdir().unwrap();
+    let runtime = xenith::native::runtime::write_source(directory.path()).unwrap();
+    let harness = directory.path().join("harness.c");
+    fs::write(
+        &harness,
+        r#"#include <stdint.h>
+        #include <limits.h>
+        #include <string.h>
+        void *xenith_list_new(int64_t, int64_t);
+        void *xenith_list_at(void *, int64_t);
+        void *xenith_map_new(int64_t, int64_t);
+        void *xenith_closure_new(int64_t);
+        void xenith_string_concat(const unsigned char *, int64_t, const unsigned char *, int64_t, unsigned char **, int64_t *);
+        int8_t xenith_error_pending(void);
+        const unsigned char *xenith_error_code(void);
+        int64_t xenith_error_code_len(void);
+        void xenith_error_clear(void);
+        int main(void) {
+            xenith_list_new(INT64_MAX, INT64_MAX);
+            if (!xenith_error_pending() || xenith_error_code_len() != 6 || memcmp(xenith_error_code(), "XEN005", 6) != 0) return 1;
+            xenith_list_at((void *)0, 0);
+            if (memcmp(xenith_error_code(), "XEN005", 6) != 0) return 5;
+            xenith_error_clear();
+            xenith_map_new(INT64_MAX, 1);
+            if (!xenith_error_pending() || xenith_error_code_len() != 6) return 2;
+            xenith_error_clear();
+            xenith_closure_new(INT64_MAX);
+            if (!xenith_error_pending() || xenith_error_code_len() != 6) return 3;
+            xenith_error_clear();
+            unsigned char *out = 0; int64_t length = 0;
+            xenith_string_concat((const unsigned char *)"a", INT64_MAX, (const unsigned char *)"b", 1, &out, &length);
+            return xenith_error_pending() && xenith_error_code_len() == 6 && length == 0 ? 0 : 4;
+        }
+        "#,
+    )
+    .unwrap();
+    let executable = directory.path().join("harness");
+    let status = Command::new("cc")
+        .args([runtime.as_os_str(), harness.as_os_str(), "-o".as_ref(), executable.as_os_str()])
+        .status()
+        .unwrap();
+    assert!(status.success());
+    assert!(Command::new(executable).status().unwrap().success());
 }
