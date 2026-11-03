@@ -68,6 +68,24 @@ fn native_catch_exposes_error_hint() {
 }
 
 #[test]
+fn native_catch_exposes_error_function() {
+    let source = r#"fn main() -> i32 {
+        try { panic("boom") } catch (error) {
+            if (error.function == "main") { return 42 } else { return 1 }
+        }
+        return 0
+    }"#;
+    let program = parse(Path::new("main.xen"), source).unwrap();
+    let typed = check(&program).unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let object = directory.path().join("main.o");
+    let executable = directory.path().join("main");
+    emit_object(&typed, &object).unwrap();
+    link_host(&object, &executable).unwrap();
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(42));
+}
+
+#[test]
 fn native_catch_handles_division_by_zero() {
     let source = r#"fn main() -> i32 {
         let denominator: i32 = 0

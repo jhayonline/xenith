@@ -372,6 +372,31 @@ fn emit(
         b.append_block_params_for_function_params(block);
         b.switch_to_block(block);
         b.seal_block(block);
+        let function_data = m
+            .declare_data(
+                &format!("xenith_function_{}", STRING_ID.fetch_add(1, Ordering::Relaxed)),
+                Linkage::Local,
+                true,
+                false,
+            )
+            .map_err(|e| NativeError::not_implemented(e.to_string()))?;
+        let mut function_description = DataDescription::new();
+        function_description.define(f.name.as_bytes().to_vec().into_boxed_slice());
+        m.define_data(function_data, &function_description)
+            .map_err(|e| NativeError::not_implemented(e.to_string()))?;
+        let function_global = m.declare_data_in_func(function_data, b.func);
+        let function_pointer = b
+            .ins()
+            .symbol_value(m.target_config().pointer_type(), function_global);
+        let function_length = b.ins().iconst(types::I64, f.name.len() as i64);
+        let _ = runtime_call(
+            &mut b,
+            m,
+            "xenith_error_set_function",
+            vec![AbiParam::new(types::I64), AbiParam::new(types::I64)],
+            vec![],
+            &[function_pointer, function_length],
+        );
         let incoming = b.block_params(block).to_vec();
         let return_area = indirect_return(&f.result, l).then(|| incoming[0]);
         let mut at = usize::from(return_area.is_some());
@@ -783,6 +808,7 @@ fn lower_try_catch(
             ("xenith_error_code", "xenith_error_code_len"),
             ("xenith_error_name", "xenith_error_name_len"),
             ("xenith_error_hint", "xenith_error_hint_len"),
+            ("xenith_error_function", "xenith_error_function_len"),
         ] {
             error_lanes.push(runtime_call(b, m, field.0, vec![], vec![AbiParam::new(types::I64)], &[])[0]);
             error_lanes.push(runtime_call(b, m, field.1, vec![], vec![AbiParam::new(types::I64)], &[])[0]);
@@ -837,6 +863,7 @@ fn lower_try_catch(
         ("xenith_error_code", "xenith_error_code_len"),
         ("xenith_error_name", "xenith_error_name_len"),
         ("xenith_error_hint", "xenith_error_hint_len"),
+        ("xenith_error_function", "xenith_error_function_len"),
     ] {
         error_lanes.push(
             runtime_call(
