@@ -244,7 +244,7 @@ fn collect_closure_expr(
         | Expr::Bool(_)
         | Expr::Null
         | Expr::String(_)
-        | Expr::Bytes(_)
+        | Expr::Bytes(_, _)
         | Expr::Name(_) => {}
     }
 }
@@ -1716,7 +1716,9 @@ fn lower(
             let length = b.ins().iconst(types::I64, value.len() as i64);
             (vec![pointer, length], Type::String)
         }
-        Expr::Bytes(value) => {
+        Expr::Bytes(value, span) => {
+            let location = b.ins().iconst(types::I64, span.start as i64);
+            let _ = runtime_call(b, m, "xenith_error_set_offset", vec![AbiParam::new(types::I64)], vec![], &[location]);
             let (data, _) = lower(b, &Expr::String(value.clone()), v, ids, m, l);
             let raw = runtime_call(
                 b,
@@ -2391,7 +2393,7 @@ fn infer_lowered_type(
         Expr::Bool(_) => Type::Bool,
         Expr::String(_) => Type::String,
         Expr::Interpolated(_) => Type::String,
-        Expr::Bytes(_) => Type::Bytes,
+        Expr::Bytes(_, _) => Type::Bytes,
         Expr::Closure { params, result, .. } => Type::Function(
             params
                 .iter()

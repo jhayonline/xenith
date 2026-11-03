@@ -129,7 +129,7 @@ pub enum Expr {
     Null,
     String(String),
     Interpolated(Vec<InterpolationPart>),
-    Bytes(String),
+    Bytes(String, Span),
     List(Vec<Expr>),
     Map(Vec<(Expr, Expr)>),
     Tuple(Vec<Expr>),
@@ -1324,7 +1324,7 @@ impl Parser {
                 )]);
             }
             self.need(")")?;
-            Ok(Expr::Bytes(value.trim_matches('"').to_owned()))
+            Ok(Expr::Bytes(value.trim_matches('"').to_owned(), self.previous_location()))
         } else if self.tokens.get(self.i).map(String::as_str) == Some("(") {
             self.call(s)
         } else {

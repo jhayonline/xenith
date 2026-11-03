@@ -911,7 +911,7 @@ fn expr(
             }
             Some(Type::String)
         }
-        Expr::Bytes(_) => Some(Type::Bytes),
+        Expr::Bytes(_, _) => Some(Type::Bytes),
         Expr::Closure {
             params,
             result,
