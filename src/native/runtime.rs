@@ -13,7 +13,10 @@ typedef struct { int8_t pending; unsigned char *message; int64_t message_len; co
 static _Thread_local XenithError xenith_error = {0, NULL, 0, NULL, 0, NULL, 0};
 void xenith_error_clear(void) { free(xenith_error.message); xenith_error = (XenithError){0, NULL, 0, NULL, 0, NULL, 0}; }
 int8_t xenith_error_pending(void) { return xenith_error.pending; }
+void xenith_error_abort_if_pending(void) { if (xenith_error.pending) exit(1); }
 void xenith_error_raise(const unsigned char *message, int64_t message_len, const unsigned char *code, int64_t code_len, const unsigned char *name, int64_t name_len) { xenith_error_clear(); xenith_error.pending = 1; xenith_error.message = malloc((size_t)message_len); memcpy(xenith_error.message, message, (size_t)message_len); xenith_error.message_len = message_len; xenith_error.code = code; xenith_error.code_len = code_len; xenith_error.name = name; xenith_error.name_len = name_len; }
+int64_t xenith_int_divide(int64_t left, int64_t right) { if (right == 0) { const unsigned char message[] = "cannot divide by zero"; const unsigned char code[] = "XEN003"; const unsigned char name[] = "Division by Zero"; xenith_error_raise(message, sizeof(message) - 1, code, sizeof(code) - 1, name, sizeof(name) - 1); return 0; } if (left == INT64_MIN && right == -1) { const unsigned char message[] = "integer overflow"; const unsigned char code[] = "XEN017"; const unsigned char name[] = "Integer Overflow"; xenith_error_raise(message, sizeof(message) - 1, code, sizeof(code) - 1, name, sizeof(name) - 1); return 0; } return left / right; }
+int64_t xenith_overflow_value(int64_t value, int8_t overflow) { if (overflow) { const unsigned char message[] = "integer overflow"; const unsigned char code[] = "XEN017"; const unsigned char name[] = "Integer Overflow"; xenith_error_raise(message, sizeof(message) - 1, code, sizeof(code) - 1, name, sizeof(name) - 1); return 0; } return value; }
 const unsigned char *xenith_error_message(void) { return xenith_error.message; }
 int64_t xenith_error_message_len(void) { return xenith_error.message_len; }
 const unsigned char *xenith_error_code(void) { return xenith_error.code; }

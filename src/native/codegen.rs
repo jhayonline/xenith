@@ -145,6 +145,11 @@ fn collect_closures(
                 collect_closure_expr(iterable, out, captures, &scope);
                 collect_closures(body, out, captures, &scope);
             }
+            Stmt::Panic(value) => collect_closure_expr(value, out, captures, &scope),
+            Stmt::TryCatch { body, catch_body, .. } => {
+                collect_closures(body, out, captures, &scope);
+                collect_closures(catch_body, out, captures, &scope);
+            }
             Stmt::Stop | Stmt::Skip => {}
         }
         if let Stmt::Let {
@@ -514,6 +519,23 @@ fn emit(
                 Stmt::Expr(value) => {
                     let _ = lower(&mut b, value, &vals, ids, m, l);
                 }
+                Stmt::Panic(value) => {
+                    emit_panic(&mut b, value, &vals, ids, m, l);
+                }
+                Stmt::TryCatch { body, binding, catch_body } => {
+                    let _ = lower_try_catch(
+                        &mut b,
+                        body,
+                        binding,
+                        catch_body,
+                        &mut vals,
+                        ids,
+                        m,
+                        l,
+                        return_area,
+                        &mut loops,
+                    );
+                }
                 Stmt::Return(v) => {
                     emit_return(&mut b, v, &vals, ids, m, l, return_area);
                     break;
@@ -587,6 +609,7 @@ fn emit_return(
     return_area: Option<Value>,
 ) {
     let (returned, ty) = lower(b, expression, values, ids, m, layouts);
+    let _ = runtime_call(b, m, "xenith_error_abort_if_pending", vec![], vec![], &[]);
     if let Some(return_area) = return_area {
         for (value, (_, offset)) in returned
             .into_iter()
@@ -670,6 +693,193 @@ fn assigned_names_in_scope(
     names
 }
 
+fn emit_panic(
+    b: &mut FunctionBuilder,
+    value: &Expr,
+    values: &Values,
+    ids: &HashMap<String, (FuncId, Type)>,
+    m: &mut ObjectModule,
+    layouts: &HashMap<String, StructLayout>,
+) {
+    let (message, _) = lower(b, value, values, ids, m, layouts);
+    let code = lower(b, &Expr::String("XEN300".into()), values, ids, m, layouts).0;
+    let name = lower(b, &Expr::String("Panic".into()), values, ids, m, layouts).0;
+    let _ = runtime_call(
+        b,
+        m,
+        "xenith_error_raise",
+        vec![
+            AbiParam::new(types::I64),
+            AbiParam::new(types::I64),
+            AbiParam::new(types::I64),
+            AbiParam::new(types::I64),
+            AbiParam::new(types::I64),
+            AbiParam::new(types::I64),
+        ],
+        vec![],
+        &[message[0], message[1], code[0], code[1], name[0], name[1]],
+    );
+}
+
+fn lower_try_catch(
+    b: &mut FunctionBuilder,
+    body: &[Stmt],
+    binding: &str,
+    catch_body: &[Stmt],
+    values: &mut Values,
+    ids: &HashMap<String, (FuncId, Type)>,
+    m: &mut ObjectModule,
+    layouts: &HashMap<String, StructLayout>,
+    return_area: Option<Value>,
+    loops: &mut Vec<LoopTarget>,
+) -> LowerFlow {
+    if let Some(Stmt::Return(expression)) = body.last() {
+        let prefix = &body[..body.len() - 1];
+        let prefix_flow = lower_branch(
+            b,
+            prefix,
+            values,
+            ids,
+            m,
+            layouts,
+            return_area,
+            loops,
+            &mut HashSet::new(),
+        );
+        if prefix_flow != LowerFlow::FallsThrough {
+            return prefix_flow;
+        }
+        let (returned, return_type) = lower(b, expression, values, ids, m, layouts);
+        let catch_block = b.create_block();
+        let success_block = b.create_block();
+        let pending = runtime_call(
+            b,
+            m,
+            "xenith_error_pending",
+            vec![],
+            vec![AbiParam::new(types::I8)],
+            &[],
+        )[0];
+        b.ins().brif(pending, catch_block, &[], success_block, &[]);
+        b.switch_to_block(success_block);
+        b.seal_block(success_block);
+        if let Some(area) = return_area {
+            for (value, (_, offset)) in returned
+                .into_iter()
+                .zip(return_layout(&return_type, layouts).1.into_iter())
+            {
+                b.ins().store(MemFlags::new(), value, area, offset);
+            }
+            b.ins().return_(&[]);
+        } else {
+            b.ins().return_(&returned);
+        }
+        b.switch_to_block(catch_block);
+        b.seal_block(catch_block);
+        let mut catch_values = values.clone();
+        let mut error_lanes = Vec::new();
+        for field in [
+            ("xenith_error_message", "xenith_error_message_len"),
+            ("xenith_error_code", "xenith_error_code_len"),
+            ("xenith_error_name", "xenith_error_name_len"),
+        ] {
+            error_lanes.push(runtime_call(b, m, field.0, vec![], vec![AbiParam::new(types::I64)], &[])[0]);
+            error_lanes.push(runtime_call(b, m, field.1, vec![], vec![AbiParam::new(types::I64)], &[])[0]);
+        }
+        catch_values.insert(binding.to_string(), (error_lanes, Type::Named("Error".into())));
+        let _ = runtime_call(b, m, "xenith_error_clear", vec![], vec![], &[]);
+        return lower_branch(
+            b,
+            catch_body,
+            &mut catch_values,
+            ids,
+            m,
+            layouts,
+            return_area,
+            loops,
+            &mut HashSet::new(),
+        );
+    }
+    let body_flow = lower_branch(
+        b,
+        body,
+        values,
+        ids,
+        m,
+        layouts,
+        return_area,
+        loops,
+        &mut HashSet::new(),
+    );
+    if body_flow != LowerFlow::FallsThrough {
+        return body_flow;
+    }
+
+    let catch_block = b.create_block();
+    let merge_block = b.create_block();
+    let pending = runtime_call(
+        b,
+        m,
+        "xenith_error_pending",
+        vec![],
+        vec![AbiParam::new(types::I8)],
+        &[],
+    )[0];
+    b.ins().brif(pending, catch_block, &[], merge_block, &[]);
+
+    b.switch_to_block(catch_block);
+    b.seal_block(catch_block);
+    let mut catch_values = values.clone();
+    let mut error_lanes = Vec::new();
+    for field in [
+        ("xenith_error_message", "xenith_error_message_len"),
+        ("xenith_error_code", "xenith_error_code_len"),
+        ("xenith_error_name", "xenith_error_name_len"),
+    ] {
+        error_lanes.push(
+            runtime_call(
+                b,
+                m,
+                field.0,
+                vec![],
+                vec![AbiParam::new(types::I64)],
+                &[],
+            )[0],
+        );
+        error_lanes.push(
+            runtime_call(
+                b,
+                m,
+                field.1,
+                vec![],
+                vec![AbiParam::new(types::I64)],
+                &[],
+            )[0],
+        );
+    }
+    catch_values.insert(binding.to_string(), (error_lanes, Type::Named("Error".into())));
+    let _ = runtime_call(b, m, "xenith_error_clear", vec![], vec![], &[]);
+    let catch_flow = lower_branch(
+        b,
+        catch_body,
+        &mut catch_values,
+        ids,
+        m,
+        layouts,
+        return_area,
+        loops,
+        &mut HashSet::new(),
+    );
+    if catch_flow == LowerFlow::FallsThrough {
+        let _ = runtime_call(b, m, "xenith_error_clear", vec![], vec![], &[]);
+        b.ins().jump(merge_block, &[]);
+    }
+
+    b.switch_to_block(merge_block);
+    b.seal_block(merge_block);
+    LowerFlow::FallsThrough
+}
+
 fn lower_branch(
     b: &mut FunctionBuilder,
     statements: &[Stmt],
@@ -718,6 +928,26 @@ fn lower_branch(
             }
             Stmt::Expr(value) => {
                 let _ = lower(b, value, values, ids, m, layouts);
+            }
+            Stmt::Panic(value) => {
+                emit_panic(b, value, values, ids, m, layouts);
+            }
+            Stmt::TryCatch { body, binding, catch_body } => {
+                let flow = lower_try_catch(
+                    b,
+                    body,
+                    binding,
+                    catch_body,
+                    values,
+                    ids,
+                    m,
+                    layouts,
+                    return_area,
+                    loops,
+                );
+                if flow != LowerFlow::FallsThrough {
+                    return flow;
+                }
             }
             Stmt::If {
                 condition,
@@ -1503,7 +1733,7 @@ fn lower(
             }
             let zero = b.ins().iconst(flat(&ty, l)[0], 0);
             let values = b.ins().ssub_overflow(zero, values[0]);
-            (vec![checked_integer_operation(b, values)], ty)
+            (vec![checked_integer_operation(b, m, values, &ty)], ty)
         }
         Expr::Not(value) => {
             let value = lower(b, value, v, ids, m, l).0[0];
@@ -1992,19 +2222,40 @@ fn lower(
                     '/' if ty == Type::Float => b.ins().fdiv(x, y),
                     '+' => {
                         let values = b.ins().sadd_overflow(x, y);
-                        checked_integer_operation(b, values)
+                        checked_integer_operation(b, m, values, &ty)
                     }
                     '-' => {
                         let values = b.ins().ssub_overflow(x, y);
-                        checked_integer_operation(b, values)
+                        checked_integer_operation(b, m, values, &ty)
                     }
                     '*' => {
                         let values = b.ins().smul_overflow(x, y);
-                        checked_integer_operation(b, values)
+                        checked_integer_operation(b, m, values, &ty)
                     }
                     _ => {
-                        b.ins().trapz(y, TrapCode::INTEGER_DIVISION_BY_ZERO);
-                        b.ins().sdiv(x, y)
+                        let left = if ty == Type::I32 {
+                            b.ins().sextend(types::I64, x)
+                        } else {
+                            x
+                        };
+                        let right = if ty == Type::I32 {
+                            b.ins().sextend(types::I64, y)
+                        } else {
+                            y
+                        };
+                        let quotient = runtime_call(
+                            b,
+                            m,
+                            "xenith_int_divide",
+                            vec![AbiParam::new(types::I64), AbiParam::new(types::I64)],
+                            vec![AbiParam::new(types::I64)],
+                            &[left, right],
+                        )[0];
+                        if ty == Type::I32 {
+                            b.ins().ireduce(types::I32, quotient)
+                        } else {
+                            quotient
+                        }
                     }
                 }],
                 ty,
@@ -2224,9 +2475,30 @@ fn lower_binding(
     }
 }
 
-fn checked_integer_operation(b: &mut FunctionBuilder, (value, overflow): (Value, Value)) -> Value {
-    b.ins().trapnz(overflow, TrapCode::INTEGER_OVERFLOW);
-    value
+fn checked_integer_operation(
+    b: &mut FunctionBuilder,
+    m: &mut ObjectModule,
+    (value, overflow): (Value, Value),
+    ty: &Type,
+) -> Value {
+    let widened = if *ty == Type::I32 {
+        b.ins().sextend(types::I64, value)
+    } else {
+        value
+    };
+    let checked = runtime_call(
+        b,
+        m,
+        "xenith_overflow_value",
+        vec![AbiParam::new(types::I64), AbiParam::new(types::I8)],
+        vec![AbiParam::new(types::I64)],
+        &[widened, overflow],
+    )[0];
+    if *ty == Type::I32 {
+        b.ins().ireduce(types::I32, checked)
+    } else {
+        checked
+    }
 }
 
 pub fn link_host(object: &Path, executable: &Path) -> Result<(), NativeError> {

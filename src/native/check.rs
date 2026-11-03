@@ -109,6 +109,17 @@ fn validate_type(ty: &Type, layouts: &HashMap<String, StructLayout>, errors: &mu
 }
 fn layouts(program: &Program, errors: &mut Vec<Diagnostic>) -> HashMap<String, StructLayout> {
     let mut layouts = HashMap::new();
+    layouts.insert(
+        "Error".into(),
+        StructLayout {
+            fields: vec![
+                ("message".into(), Type::String),
+                ("code".into(), Type::String),
+                ("name".into(), Type::String),
+            ],
+            variants: None,
+        },
+    );
     for structure in &program.structs {
         let mut fields = vec![];
         let mut names = HashMap::new();
@@ -493,6 +504,29 @@ fn check_function(
                     });
                 }
             }
+            Stmt::Panic(value) => {
+                if expr(value, &names, signatures, layouts, errors) != Some(Type::String) {
+                    errors.push(Diagnostic {
+                        message: "panic expects one string message".into(),
+                        span: None,
+                    });
+                }
+            }
+            Stmt::TryCatch { body, binding, catch_body } => {
+                let _ = check_block(body, &names, function, signatures, layouts, errors, 0);
+                let mut catch_names = names.clone();
+                catch_names.insert(binding.clone(), (Type::Named("Error".into()), false));
+                let catch_flow = check_block(
+                    catch_body,
+                    &catch_names,
+                    function,
+                    signatures,
+                    layouts,
+                    errors,
+                    0,
+                );
+                returned |= catch_flow.returns;
+            }
             Stmt::Expr(value) => {
                 let _ = expr(value, &names, signatures, layouts, errors);
             }
@@ -740,6 +774,31 @@ fn check_block(
                         message: format!("return type mismatch in `{}`", function.name),
                         span: None,
                     });
+                }
+            }
+            Stmt::Panic(value) => {
+                if expr(value, &names, signatures, layouts, errors) != Some(Type::String) {
+                    errors.push(Diagnostic {
+                        message: "panic expects one string message".into(),
+                        span: None,
+                    });
+                }
+            }
+            Stmt::TryCatch { body, binding, catch_body } => {
+                let _ = check_block(body, &names, function, signatures, layouts, errors, loop_depth);
+                let mut catch_names = names.clone();
+                catch_names.insert(binding.clone(), (Type::Named("Error".into()), false));
+                let catch_flow = check_block(
+                    catch_body,
+                    &catch_names,
+                    function,
+                    signatures,
+                    layouts,
+                    errors,
+                    loop_depth,
+                );
+                if catch_flow.returns {
+                    flow.returns = true;
                 }
             }
             Stmt::Expr(value) => {

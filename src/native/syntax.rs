@@ -108,6 +108,12 @@ pub enum Stmt {
         value: Expr,
     },
     Return(Expr),
+    Panic(Expr),
+    TryCatch {
+        body: Vec<Stmt>,
+        binding: String,
+        catch_body: Vec<Stmt>,
+    },
     Expr(Expr),
 }
 #[derive(Debug, Clone)]
@@ -718,6 +724,20 @@ impl Parser {
     }
     fn stmt(&mut self) -> Result<Stmt, Vec<Diagnostic>> {
         match self.tokens.get(self.i).map(String::as_str) {
+            Some("try") => {
+                self.take();
+                let body = self.block()?;
+                self.need("catch")?;
+                self.need("(")?;
+                let binding = self.identifier("catch binding")?;
+                self.need(")")?;
+                let catch_body = self.block()?;
+                Ok(Stmt::TryCatch { body, binding, catch_body })
+            }
+            Some("panic") => {
+                self.take();
+                Ok(Stmt::Panic(self.expr()?))
+            }
             Some("stop") => {
                 self.take();
                 Ok(Stmt::Stop)
