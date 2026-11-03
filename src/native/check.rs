@@ -121,6 +121,7 @@ fn layouts(program: &Program, errors: &mut Vec<Diagnostic>) -> HashMap<String, S
                 ("offset".into(), Type::I64),
                 ("line".into(), Type::I64),
                 ("column".into(), Type::I64),
+                ("file".into(), Type::String),
             ],
             variants: None,
         },

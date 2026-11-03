@@ -17,6 +17,7 @@ pub enum Type {
 }
 #[derive(Debug, Clone)]
 pub struct Program {
+    pub file: String,
     pub source: String,
     pub imports: Vec<Import>,
     pub structs: Vec<Struct>,
@@ -361,7 +362,7 @@ fn lex(source: &str) -> Vec<Token> {
     }
     merged
 }
-pub fn parse(_file: &Path, source: &str) -> Result<Program, Vec<Diagnostic>> {
+pub fn parse(file: &Path, source: &str) -> Result<Program, Vec<Diagnostic>> {
     let tokens = lex(source);
     let mut p = Parser {
         spans: tokens.iter().map(|token| token.span).collect(),
@@ -369,6 +370,7 @@ pub fn parse(_file: &Path, source: &str) -> Result<Program, Vec<Diagnostic>> {
         i: 0,
         source_end: source.len(),
         source: source.to_string(),
+        file: file.display().to_string(),
     };
     p.program()
 }
@@ -378,6 +380,7 @@ struct Parser {
     i: usize,
     source_end: usize,
     source: String,
+    file: String,
 }
 impl Parser {
     fn peek(&self) -> Option<&str> {
@@ -671,6 +674,7 @@ impl Parser {
         }
         if errors.is_empty() {
             Ok(Program {
+                file: self.file.clone(),
                 source: self.source.to_string(),
                 imports,
                 structs,

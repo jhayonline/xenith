@@ -145,6 +145,7 @@ fn load_module(
         paths.push(path);
     }
     Ok(Program {
+        file: "project".into(),
         source: String::new(),
         imports: vec![],
         structs,

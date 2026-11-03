@@ -72,7 +72,7 @@ fn native_catch_exposes_error_hint() {
 fn native_catch_exposes_error_function() {
     let source = r#"fn main() -> i32 {
         try { panic("boom") } catch (error) {
-            if (error.function == "main") { return 42 } else { return 1 }
+            if (error.function == "main" && error.file == "main.xen") { return 42 } else { return 1 }
         }
         return 0
     }"#;
@@ -244,4 +244,5 @@ fn native_uncaught_errors_print_a_diagnostic() {
     assert!(stderr.contains("Panic"), "missing error name: {stderr}");
     assert!(stderr.contains("boom"), "missing error message: {stderr}");
     assert!(stderr.contains("help:"), "missing help suggestion: {stderr}");
+    assert!(stderr.contains("main.xen"), "missing source file: {stderr}");
 }
