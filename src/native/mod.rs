@@ -12,12 +12,44 @@ pub struct BuildArtifact {
     pub reused: bool,
 }
 pub fn check_project(p: &project::Project) -> Result<check::TypedProgram, NativeError> {
-    let (a, _) = project::load_program(&p.main_path)?;
+    let (a, paths) = project::load_program(&p.main_path)?;
     let s = fs::read_to_string(&p.main_path).map_err(NativeError::io)?;
     check::check(&a).map_err(|mut e| {
         attach_name_spans(&s, &mut e);
+        attach_import_context(&paths, &p.main_path, &mut e);
         NativeError::diagnostics(p.main_path.clone(), s, e)
     })
+}
+
+fn attach_import_context(
+    paths: &[PathBuf],
+    main: &PathBuf,
+    diagnostics: &mut [syntax::Diagnostic],
+) {
+    let sources: Vec<_> = paths
+        .iter()
+        .filter(|path| *path != main)
+        .filter_map(|path| fs::read_to_string(path).ok().map(|source| (path, source)))
+        .collect();
+    for diagnostic in diagnostics.iter_mut() {
+        let Some((_, tail)) = diagnostic.message.split_once('`') else {
+            continue;
+        };
+        let Some((name, _)) = tail.split_once('`') else {
+            continue;
+        };
+        if let Some((path, _)) = sources.iter().find(|(_, source)| {
+            source.contains(&format!("fn {name}"))
+                || source.contains(&format!("struct {name}"))
+                || source.contains(&format!("enum {name}"))
+        }) {
+            diagnostic.message = format!(
+                "{} (in imported module `{}`)",
+                diagnostic.message,
+                path.display()
+            );
+        }
+    }
 }
 
 fn attach_name_spans(source: &str, diagnostics: &mut [syntax::Diagnostic]) {

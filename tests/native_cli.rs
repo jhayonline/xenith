@@ -65,6 +65,22 @@ fn native_project_rejects_an_imported_private_function() {
 }
 
 #[test]
+fn native_project_explains_errors_in_imported_modules() {
+    let dir =
+        fixture_project("grab { answer } from \"helper\"\nfn main() -> i32 { return answer() }");
+    let project = dir.path().join("app");
+    std::fs::write(
+        project.join("src/helper.xen"),
+        "export fn answer() -> i32 { return true }",
+    )
+    .unwrap();
+    let output = xenith(&project).arg("check").output().unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!output.status.success());
+    assert!(stderr.contains("in imported module"), "{stderr}");
+}
+
+#[test]
 fn native_project_builds_an_imported_struct() {
     let dir = fixture_project(
         "grab { Pair } from \"types\"\nfn main() -> i32 { let pair = Pair { value: 9 } return pair.value }",

@@ -73,7 +73,15 @@ fn render_diagnostic(
     diagnostic: &Diagnostic,
 ) -> fmt::Result {
     let Some(span) = diagnostic.span else {
-        return write!(f, "{}", diagnostic.message);
+        write!(f, "error: {}", diagnostic.message)?;
+        if let Some((explanation, suggestion)) = diagnostic_help(&diagnostic.message) {
+            writeln!(f)?;
+            writeln!(f, "note: {explanation}")?;
+            if let Some(suggestion) = suggestion {
+                write!(f, "help: {suggestion}")?;
+            }
+        }
+        return Ok(());
     };
     let prefix = &source[..span.start];
     let line_start = prefix.rfind('\n').map_or(0, |index| index + 1);
@@ -102,6 +110,13 @@ fn render_diagnostic(
         marker,
         "^".repeat(width),
     )?;
+    if let Some((explanation, suggestion)) = diagnostic_help(&diagnostic.message) {
+        writeln!(f)?;
+        writeln!(f, "note: {explanation}")?;
+        if let Some(suggestion) = suggestion {
+            write!(f, "help: {suggestion}")?;
+        }
+    }
     if let Some(name) = diagnostic
         .message
         .strip_prefix("duplicate binding `")
@@ -138,5 +153,75 @@ fn render_diagnostic(
         }
     }
     Ok(())
+}
+
+fn diagnostic_help(message: &str) -> Option<(&'static str, Option<&'static str>)> {
+    if message.starts_with("unknown name `") {
+        Some((
+            "this name is not declared in the current scope",
+            Some("check the spelling, or declare it with `let` before using it"),
+        ))
+    } else if message.starts_with("unknown function `") {
+        Some(("the compiler cannot find a function with this name", Some("check the function name and import it with `grab { name } from \"module\"` if it lives in another file")))
+    } else if message.starts_with("immutable binding `") {
+        Some((
+            "this binding cannot be assigned to after it is created",
+            Some("use `let mut` when declaring a value that must change"),
+        ))
+    } else if message == "if condition must be bool" || message == "while condition must be bool" {
+        Some((
+            "conditions must evaluate to true or false",
+            Some("compare values explicitly, for example `if (count > 0)`"),
+        ))
+    } else if message == "arithmetic operands require integers" {
+        Some((
+            "arithmetic operators need numeric operands of compatible types",
+            Some("check that both sides are `i32`, `i64`, or `float` values"),
+        ))
+    } else if message == "comparison operands must have the same type" {
+        Some((
+            "a comparison can only compare values with the same type",
+            Some("convert or adjust one side so both expressions have matching types"),
+        ))
+    } else if message.starts_with("return type mismatch") {
+        Some((
+            "the value returned by this function does not match its declared result type",
+            Some("change the returned expression or update the function's `-> type` declaration"),
+        ))
+    } else if message.starts_with("type mismatch") {
+        Some((
+            "the expression's type does not match the type required here",
+            Some("check the annotation and the value assigned to it"),
+        ))
+    } else if message.starts_with("closures cannot capture mutable binding") {
+        Some(("native closures copy captured values when they are created, so mutable captures would become stale", Some("capture an immutable value, or pass the changing value as a function argument")))
+    } else if message.starts_with("native closures can only capture i32") {
+        Some((
+            "this native closure ABI currently stores only one 32-bit scalar per captured value",
+            Some("pass strings, structs, and other wide values as explicit function arguments"),
+        ))
+    } else if message == "division by zero" {
+        Some((
+            "the divisor is known to be zero",
+            Some("guard the divisor before dividing"),
+        ))
+    } else if message.starts_with("unknown struct") {
+        Some((
+            "the compiler cannot find this struct declaration",
+            Some("check the spelling or import the struct from its module"),
+        ))
+    } else if message.starts_with("unknown field") {
+        Some((
+            "this field is not declared on the value's struct type",
+            Some("check the field name against the struct declaration"),
+        ))
+    } else if message.starts_with("map keys must be string") {
+        Some((
+            "native maps use strings as keys",
+            Some("change the key expression to a string value"),
+        ))
+    } else {
+        None
+    }
 }
 impl std::error::Error for NativeError {}
