@@ -2290,6 +2290,13 @@ fn lower(
                 let list = runtime_call(b, m, "xenith_db_all", vec![AbiParam::new(types::I64)], vec![AbiParam::new(types::I64)], &[store])[0];
                 return (vec![list], Type::List(Box::new(Type::Map(Box::new(Type::String), Box::new(Type::String)))));
             }
+            if name == "db_filter" {
+                let store = lower(b, &arguments[0], v, ids, m, l).0[0];
+                let column = lower(b, &arguments[1], v, ids, m, l).0;
+                let value = lower(b, &arguments[2], v, ids, m, l).0;
+                let list = runtime_call(b, m, "xenith_db_filter", vec![AbiParam::new(types::I64); 5], vec![AbiParam::new(types::I64)], &[store, column[0], column[1], value[0], value[1]])[0];
+                return (vec![list], Type::List(Box::new(Type::Map(Box::new(Type::String), Box::new(Type::String)))));
+            }
             if name == "env_set" || name == "env_unset" {
                 let key = lower(b, &arguments[0], v, ids, m, l).0;
                 let mut args = vec![key[0], key[1]];

@@ -257,3 +257,31 @@ function main() -> i32 {
     link_host(&object, &executable).unwrap();
     assert_eq!(Command::new(executable).status().unwrap().code(), Some(0));
 }
+
+#[test]
+fn std_db_filter_returns_matching_rows() {
+    let directory = tempfile::tempdir().unwrap();
+    let source = r#"
+grab { open, execute, store, filter, as_i64, close } from "std::db"
+function main() -> i32 {
+    let handle: i64 = open(":memory:")
+    let setup: string = execute(handle, "CREATE TABLE users (id INTEGER PRIMARY KEY, role TEXT); INSERT INTO users (id, role) VALUES (1, 'admin'); INSERT INTO users (id, role) VALUES (2, 'user')")
+    let users: i64 = store(handle, "users")
+    let rows: list<map<string, string>> = filter(users, "role", "admin")
+    let row: map<string, string> = rows[0]
+    let id: i64 = as_i64(row, "id")
+    close(handle)
+    if (len(rows) == 1 && id == 1i64) { return 0 }
+    return 1
+}
+"#;
+    let main = directory.path().join("main.xen");
+    std::fs::write(&main, source).unwrap();
+    let (program, _) = xenith::native::project::load_program(&main).unwrap();
+    let typed = check(&program).unwrap();
+    let object = directory.path().join("main.o");
+    let executable = directory.path().join("main");
+    emit_object(&typed, &object).unwrap();
+    link_host(&object, &executable).unwrap();
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(0));
+}
