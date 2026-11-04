@@ -57,3 +57,14 @@ fn sqlite_driver_applies_schema_and_executes_parameterized_store_plans() {
     let rows = database.rows(&store.find(1)).unwrap();
     assert_eq!(rows[0].get("name"), Some(&Value::Text("Ada".into())));
 }
+
+#[test]
+fn sqlite_driver_applies_each_named_migration_once() {
+    let database = SqliteDatabase::memory().unwrap();
+    let mut schema = SchemaPlan::new();
+    schema.create("users").id();
+    assert!(database.migrate("001_users", &schema).unwrap());
+    assert!(!database.migrate("001_users", &schema).unwrap());
+    let rows = database.rows(&Store::new("__xenith_migrations").all()).unwrap();
+    assert_eq!(rows.len(), 1);
+}

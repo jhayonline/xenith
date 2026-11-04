@@ -52,6 +52,23 @@ impl SqliteDatabase {
         Ok(())
     }
 
+    pub fn migrate(&self, name: &str, schema: &SchemaPlan) -> Result<bool, DatabaseError> {
+        self.connection.execute_batch(
+            "CREATE TABLE IF NOT EXISTS \"__xenith_migrations\" (\"name\" TEXT PRIMARY KEY NOT NULL)",
+        )?;
+        let already_applied: i64 = self.connection.query_row(
+            "SELECT COUNT(*) FROM \"__xenith_migrations\" WHERE \"name\" = ?1",
+            [name],
+            |row| row.get(0),
+        )?;
+        if already_applied != 0 { return Ok(false); }
+        let transaction = self.connection.unchecked_transaction()?;
+        for statement in schema.statements() { transaction.execute_batch(&statement)?; }
+        transaction.execute("INSERT INTO \"__xenith_migrations\" (\"name\") VALUES (?1)", [name])?;
+        transaction.commit()?;
+        Ok(true)
+    }
+
     pub fn execute(&self, query: &QueryPlan) -> Result<usize, DatabaseError> {
         let values = query.parameters.iter().map(to_sql_value).collect::<Result<Vec<_>, _>>()?;
         Ok(self.connection.execute(&query.sql, rusqlite::params_from_iter(values))?)

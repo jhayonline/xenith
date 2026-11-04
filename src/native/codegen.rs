@@ -2248,6 +2248,12 @@ fn lower(
                 let map = runtime_call(b, m, "xenith_db_find_map", vec![AbiParam::new(types::I64); 2], vec![AbiParam::new(types::I64)], &[store, id])[0];
                 return (vec![map], Type::Map(Box::new(Type::String), Box::new(Type::String)));
             }
+            if name == "db_map_i64" {
+                let map = lower(b, &arguments[0], v, ids, m, l).0[0];
+                let key = lower(b, &arguments[1], v, ids, m, l).0;
+                let value = runtime_call(b, m, "xenith_db_map_i64", vec![AbiParam::new(types::I64); 3], vec![AbiParam::new(types::I64)], &[map, key[0], key[1]])[0];
+                return (vec![value], Type::I64);
+            }
             if name == "env_set" || name == "env_unset" {
                 let key = lower(b, &arguments[0], v, ids, m, l).0;
                 let mut args = vec![key[0], key[1]];
