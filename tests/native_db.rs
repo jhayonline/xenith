@@ -119,10 +119,10 @@ function main() -> i32 {
 fn native_rows_map_into_an_ordinary_xenith_struct() {
     let directory = tempfile::tempdir().unwrap();
     let source = r#"
-grab { open, execute, store, find_map, as_i64, as_bool, close } from "std::db"
+grab { open, execute, store, find_map, as_i64, as_bool, as_string, close } from "std::db"
 struct User { id: i64, name: string, active: bool }
 function user_from_row(row: map<string, string>) -> User {
-    return User { id: as_i64(row, "id"), name: row["name"], active: as_bool(row, "active") }
+    return User { id: as_i64(row, "id"), name: as_string(row, "name"), active: as_bool(row, "active") }
 }
 function main() -> i32 {
     let handle: i64 = open(":memory:")
