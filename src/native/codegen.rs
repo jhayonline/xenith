@@ -2206,6 +2206,41 @@ fn lower(
                 let _ = runtime_call(b, m, "xenith_env_get", vec![AbiParam::new(types::I64); 5], vec![], &args);
                 return (vec![b.ins().load(types::I64, MemFlags::new(), args[2], 0), b.ins().load(types::I64, MemFlags::new(), args[3], 0), b.ins().load(types::I8, MemFlags::new(), args[4], 0)], Type::Tuple(vec![Type::String, Type::Bool]));
             }
+            if name == "http_bind" {
+                let address = lower(b, &arguments[0], v, ids, m, l).0;
+                let value = runtime_call(b, m, "xenith_http_bind", vec![AbiParam::new(types::I64); 2], vec![AbiParam::new(types::I64)], &address)[0];
+                return (vec![value], Type::I64);
+            }
+            if name == "http_accept" {
+                let listener = lower(b, &arguments[0], v, ids, m, l).0[0];
+                let value = runtime_call(b, m, "xenith_http_accept", vec![AbiParam::new(types::I64)], vec![AbiParam::new(types::I64)], &[listener])[0];
+                return (vec![value], Type::I64);
+            }
+            if name == "http_read" {
+                let connection = lower(b, &arguments[0], v, ids, m, l).0[0];
+                let data_ptr = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let data_len = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let error_ptr = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let error_len = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let args = [connection, b.ins().stack_addr(types::I64, data_ptr, 0), b.ins().stack_addr(types::I64, data_len, 0), b.ins().stack_addr(types::I64, error_ptr, 0), b.ins().stack_addr(types::I64, error_len, 0)];
+                let _ = runtime_call(b, m, "xenith_http_read", vec![AbiParam::new(types::I64); 5], vec![], &args);
+                return (vec![b.ins().load(types::I64, MemFlags::new(), args[1], 0), b.ins().load(types::I64, MemFlags::new(), args[2], 0), b.ins().load(types::I64, MemFlags::new(), args[3], 0), b.ins().load(types::I64, MemFlags::new(), args[4], 0)], Type::Tuple(vec![Type::String, Type::String]));
+            }
+            if name == "http_write" {
+                let connection = lower(b, &arguments[0], v, ids, m, l).0[0];
+                let status = lower(b, &arguments[1], v, ids, m, l).0[0];
+                let body = lower(b, &arguments[2], v, ids, m, l).0;
+                let error_ptr = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let error_len = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let args = [connection, status, body[0], body[1], b.ins().stack_addr(types::I64, error_ptr, 0), b.ins().stack_addr(types::I64, error_len, 0)];
+                let _ = runtime_call(b, m, "xenith_http_write", vec![AbiParam::new(types::I64), AbiParam::new(types::I32), AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64)], vec![], &args);
+                return (vec![b.ins().load(types::I64, MemFlags::new(), args[4], 0), b.ins().load(types::I64, MemFlags::new(), args[5], 0)], Type::String);
+            }
+            if name == "http_close" {
+                let connection = lower(b, &arguments[0], v, ids, m, l).0[0];
+                let _ = runtime_call(b, m, "xenith_http_close", vec![AbiParam::new(types::I64)], vec![], &[connection]);
+                return (vec![b.ins().iconst(types::I8, 0)], Type::Null);
+            }
             if name == "db_open" {
                 let path = lower(b, &arguments[0], v, ids, m, l).0;
                 let handle = runtime_call(b, m, "xenith_db_open", vec![AbiParam::new(types::I64); 2], vec![AbiParam::new(types::I64)], &path)[0];

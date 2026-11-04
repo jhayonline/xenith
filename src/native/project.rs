@@ -228,6 +228,13 @@ fn standard_native_source(name: &str) -> Option<&'static str> {
              export function rollback(handle: i64) -> string { return db_rollback(handle) }\n\
              export function close(handle: i64) -> null { return db_close(handle) }",
         ),
+        "http" => Some(
+            "export function bind(address: string) -> i64 { return http_bind(address) }\n\
+             export function accept(listener: i64) -> i64 { return http_accept(listener) }\n\
+             export function read(connection: i64) -> tuple<string, string> { return http_read(connection) }\n\
+             export function write(connection: i64, status: i32, body: string) -> string { return http_write(connection, status, body) }\n\
+             export function close(connection: i64) -> null { return http_close(connection) }",
+        ),
         _ => None,
     }
 }
