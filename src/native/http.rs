@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, fmt};
+use std::{collections::BTreeMap, fmt, io::{self, Read, Write}, net::{SocketAddr, TcpListener, TcpStream}};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Request {
@@ -12,6 +12,7 @@ pub struct Request {
 pub enum HttpError {
     Incomplete,
     Malformed(String),
+    Io(String),
 }
 
 impl fmt::Display for HttpError {
@@ -19,11 +20,16 @@ impl fmt::Display for HttpError {
         match self {
             Self::Incomplete => write!(formatter, "incomplete HTTP request"),
             Self::Malformed(message) => write!(formatter, "malformed HTTP request: {message}"),
+            Self::Io(message) => write!(formatter, "HTTP I/O error: {message}"),
         }
     }
 }
 
 impl std::error::Error for HttpError {}
+
+impl From<io::Error> for HttpError {
+    fn from(error: io::Error) -> Self { Self::Io(error.to_string()) }
+}
 
 pub fn parse_request(bytes: &[u8]) -> Result<Request, HttpError> {
     const MAX_HEADERS: usize = 64 * 1024;
@@ -74,6 +80,48 @@ impl Response {
         for (name, value) in &self.headers { output.push_str(&format!("{name}: {value}\r\n")); }
         output.push_str(&format!("Content-Length: {}\r\nConnection: close\r\n\r\n", self.body.len()));
         output.into_bytes().into_iter().chain(self.body.iter().copied()).collect()
+    }
+}
+
+pub struct Server {
+    listener: TcpListener,
+}
+
+impl Server {
+    pub fn bind(address: &str) -> Result<Self, HttpError> {
+        Ok(Self { listener: TcpListener::bind(address)? })
+    }
+
+    pub fn local_addr(&self) -> SocketAddr { self.listener.local_addr().expect("HTTP listener address is available") }
+
+    pub fn accept_once<F>(&self, handler: F) -> Result<(), HttpError>
+    where
+        F: FnOnce(Request) -> Response,
+    {
+        let (mut stream, _) = self.listener.accept()?;
+        let request = read_request(&mut stream)?;
+        let response = handler(request);
+        stream.write_all(&response.to_bytes())?;
+        stream.shutdown(std::net::Shutdown::Both)?;
+        Ok(())
+    }
+}
+
+fn read_request(stream: &mut TcpStream) -> Result<Request, HttpError> {
+    const MAX_REQUEST: usize = 1024 * 1024;
+    let mut bytes = Vec::new();
+    let mut buffer = [0u8; 4096];
+    loop {
+        match parse_request(&bytes) {
+            Ok(request) => return Ok(request),
+            Err(HttpError::Malformed(message)) => return Err(HttpError::Malformed(message)),
+            Err(HttpError::Io(message)) => return Err(HttpError::Io(message)),
+            Err(HttpError::Incomplete) => {}
+        }
+        if bytes.len() >= MAX_REQUEST { return Err(HttpError::Malformed("request is too large".into())); }
+        let count = stream.read(&mut buffer)?;
+        if count == 0 { return Err(HttpError::Incomplete); }
+        bytes.extend_from_slice(&buffer[..count]);
     }
 }
 
