@@ -61,10 +61,21 @@ function main() -> i32 {
 ```
 
 Routes may contain `:parameter` segments, and `GET`/`POST` method mismatches
-return a typed `404` response. The router is currently a dispatch layer; socket
-binding and response writing remain explicit through `bind`, `accept`, `read`,
-`write`, and `close`. Middleware, JSON extractors, and async serving are planned
-on top of this stable core.
+return a typed `404` response. A real blocking server can own the socket loop:
+
+```xenith
+function server_main() -> i32 {
+    let routes: i64 = router()
+    get(routes, "/health", health)
+    let error: string = serve(routes, "127.0.0.1:8080")
+    return len(error)
+}
+```
+
+`query(path, key)` extracts a query value and `json(status, body)` constructs a
+typed response tuple. The server currently uses blocking I/O and runs until its
+process is stopped; graceful shutdown, headers, and richer JSON extraction are
+the next backend layer.
 
 ## The language in one screen
 
