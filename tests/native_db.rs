@@ -114,3 +114,34 @@ function main() -> i32 {
     link_host(&object, &executable).unwrap();
     assert_eq!(Command::new(executable).status().unwrap().code(), Some(0));
 }
+
+#[test]
+fn native_rows_map_into_an_ordinary_xenith_struct() {
+    let directory = tempfile::tempdir().unwrap();
+    let source = r#"
+grab { open, execute, store, find_map, as_i64, as_bool, close } from "std::db"
+struct User { id: i64, name: string, active: bool }
+function user_from_row(row: map<string, string>) -> User {
+    return User { id: as_i64(row, "id"), name: row["name"], active: as_bool(row, "active") }
+}
+function main() -> i32 {
+    let handle: i64 = open(":memory:")
+    let setup: string = execute(handle, "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, active INTEGER); INSERT INTO users (id, name, active) VALUES (7, 'Ada', 1)")
+    let users: i64 = store(handle, "users")
+    let row: map<string, string> = find_map(users, 7i64)
+    let user: User = user_from_row(row)
+    close(handle)
+    if (user.active && user.id == 7i64) { return len(user.name) }
+    return 0
+}
+"#;
+    let main = directory.path().join("main.xen");
+    std::fs::write(&main, source).unwrap();
+    let (program, _) = xenith::native::project::load_program(&main).unwrap();
+    let typed = check(&program).unwrap();
+    let object = directory.path().join("main.o");
+    let executable = directory.path().join("main");
+    emit_object(&typed, &object).unwrap();
+    link_host(&object, &executable).unwrap();
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(3));
+}
