@@ -22,6 +22,34 @@ function main() -> i32 {
 }
 
 #[test]
+fn std_db_validated_writes_accept_valid_rows() {
+    let directory = tempfile::tempdir().unwrap();
+    let source = r#"
+grab { open, execute, store, insert_validated, close } from "std::db"
+function main() -> i32 {
+    let handle: i64 = open(":memory:")
+    let setup: string = execute(handle, "CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, age INTEGER)")
+    let users: i64 = store(handle, "users")
+    let schema: map<string, string> = {"age": "i32"}
+    let valid: map<string, string> = {"age": "36"}
+    let id: i64 = insert_validated(users, schema, valid)
+    close(handle)
+    if (id == 1i64) { return 0 }
+    return 1
+}
+"#;
+    let main = directory.path().join("main.xen");
+    std::fs::write(&main, source).unwrap();
+    let (program, _) = xenith::native::project::load_program(&main).unwrap();
+    let typed = check(&program).unwrap();
+    let object = directory.path().join("main.o");
+    let executable = directory.path().join("main");
+    emit_object(&typed, &object).unwrap();
+    link_host(&object, &executable).unwrap();
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(0));
+}
+
+#[test]
 fn std_db_module_exposes_native_database_functions() {
     let directory = tempfile::tempdir().unwrap();
     let source = r#"

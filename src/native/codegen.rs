@@ -2319,6 +2319,24 @@ fn lower(
                 let value = runtime_call(b, m, "xenith_db_insert", vec![AbiParam::new(types::I64); 2], vec![AbiParam::new(types::I64)], &[store, row])[0];
                 return (vec![value], Type::I64);
             }
+            if name == "db_insert_validated" {
+                let store = lower(b, &arguments[0], v, ids, m, l).0[0];
+                let schema = lower(b, &arguments[1], v, ids, m, l).0[0];
+                let row = lower(b, &arguments[2], v, ids, m, l).0[0];
+                let value = runtime_call(b, m, "xenith_db_insert_validated", vec![AbiParam::new(types::I64); 3], vec![AbiParam::new(types::I64)], &[store, schema, row])[0];
+                return (vec![value], Type::I64);
+            }
+            if name == "db_update_validated" {
+                let store = lower(b, &arguments[0], v, ids, m, l).0[0];
+                let id = lower(b, &arguments[1], v, ids, m, l).0[0];
+                let schema = lower(b, &arguments[2], v, ids, m, l).0[0];
+                let row = lower(b, &arguments[3], v, ids, m, l).0[0];
+                let error_ptr = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let error_len = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let args = [store, id, schema, row, b.ins().stack_addr(types::I64, error_ptr, 0), b.ins().stack_addr(types::I64, error_len, 0)];
+                let _ = runtime_call(b, m, "xenith_db_update_validated", vec![AbiParam::new(types::I64); 6], vec![], &args);
+                return (vec![b.ins().load(types::I64, MemFlags::new(), args[4], 0), b.ins().load(types::I64, MemFlags::new(), args[5], 0)], Type::String);
+            }
             if name == "db_delete" {
                 let store = lower(b, &arguments[0], v, ids, m, l).0[0];
                 let id = lower(b, &arguments[1], v, ids, m, l).0[0];
