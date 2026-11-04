@@ -2282,6 +2282,28 @@ fn lower(
                 let _ = runtime_call(b, m, "xenith_db_map_string", vec![AbiParam::new(types::I64); 5], vec![], &args);
                 return (vec![b.ins().load(types::I64, MemFlags::new(), args[3], 0), b.ins().load(types::I64, MemFlags::new(), args[4], 0)], Type::String);
             }
+            if name == "db_set_i32" || name == "db_set_i64" || name == "db_set_bool" || name == "db_set_string" {
+                let map = lower(b, &arguments[0], v, ids, m, l).0[0];
+                let key = lower(b, &arguments[1], v, ids, m, l).0;
+                let value = lower(b, &arguments[2], v, ids, m, l).0;
+                let (runtime_name, value_type) = match name.as_str() {
+                    "db_set_i32" => ("xenith_db_set_i32", types::I32),
+                    "db_set_i64" => ("xenith_db_set_i64", types::I64),
+                    "db_set_bool" => ("xenith_db_set_bool", types::I8),
+                    _ => ("xenith_db_set_string", types::I64),
+                };
+                let mut args = vec![map, key[0], key[1]];
+                let mut params = vec![AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64)];
+                if name == "db_set_string" {
+                    args.extend(value);
+                    params.extend([AbiParam::new(types::I64), AbiParam::new(types::I64)]);
+                } else {
+                    args.push(value[0]);
+                    params.push(AbiParam::new(value_type));
+                }
+                let _ = runtime_call(b, m, runtime_name, params, vec![], &args);
+                return (vec![b.ins().iconst(types::I8, 0)], Type::Null);
+            }
             if name == "db_insert" {
                 let store = lower(b, &arguments[0], v, ids, m, l).0[0];
                 let row = lower(b, &arguments[1], v, ids, m, l).0[0];

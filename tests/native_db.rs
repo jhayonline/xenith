@@ -172,6 +172,38 @@ function main() -> i32 {
 }
 
 #[test]
+fn std_db_typed_setters_build_insert_rows_without_string_conversion() {
+    let directory = tempfile::tempdir().unwrap();
+    let source = r#"
+grab { open, execute, store, insert, update, find_map, as_i32, as_string, set_i32, set_string, close } from "std::db"
+function main() -> i32 {
+    let handle: i64 = open(":memory:")
+    let setup: string = execute(handle, "CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, age INTEGER, name TEXT)")
+    let users: i64 = store(handle, "users")
+    let row: map<string, string> = {"age": "", "name": ""}
+    set_i32(row, "age", 36)
+    set_string(row, "name", "Ada")
+    let id: i64 = insert(users, row)
+    set_i32(row, "age", 37)
+    let update_error: string = update(users, id, row)
+    let saved: map<string, string> = find_map(users, id)
+    close(handle)
+    if (len(update_error) == 0 && as_i32(saved, "age") == 37 && len(as_string(saved, "name")) == 3) { return 0 }
+    return 1
+}
+"#;
+    let main = directory.path().join("main.xen");
+    std::fs::write(&main, source).unwrap();
+    let (program, _) = xenith::native::project::load_program(&main).unwrap();
+    let typed = check(&program).unwrap();
+    let object = directory.path().join("main.o");
+    let executable = directory.path().join("main");
+    emit_object(&typed, &object).unwrap();
+    link_host(&object, &executable).unwrap();
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(0));
+}
+
+#[test]
 fn native_rows_map_into_an_ordinary_xenith_struct() {
     let directory = tempfile::tempdir().unwrap();
     let source = r#"
