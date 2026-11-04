@@ -341,3 +341,31 @@ function main() -> i32 {
     link_host(&object, &executable).unwrap();
     assert_eq!(Command::new(executable).status().unwrap().code(), Some(0));
 }
+
+#[test]
+fn std_db_query_combines_filter_order_and_page() {
+    let directory = tempfile::tempdir().unwrap();
+    let source = r#"
+grab { open, execute, store, query, as_i64, close } from "std::db"
+function main() -> i32 {
+    let handle: i64 = open(":memory:")
+    let setup: string = execute(handle, "CREATE TABLE users (id INTEGER PRIMARY KEY, role TEXT, score INTEGER); INSERT INTO users (id, role, score) VALUES (1, 'admin', 20); INSERT INTO users (id, role, score) VALUES (2, 'admin', 10); INSERT INTO users (id, role, score) VALUES (3, 'user', 30)")
+    let users: i64 = store(handle, "users")
+    let rows: list<map<string, string>> = query(users, "role", "admin", "score", false, 1i64, 1i64)
+    let row: map<string, string> = rows[0]
+    let id: i64 = as_i64(row, "id")
+    close(handle)
+    if (len(rows) == 1 && id == 1i64) { return 0 }
+    return 1
+}
+"#;
+    let main = directory.path().join("main.xen");
+    std::fs::write(&main, source).unwrap();
+    let (program, _) = xenith::native::project::load_program(&main).unwrap();
+    let typed = check(&program).unwrap();
+    let object = directory.path().join("main.o");
+    let executable = directory.path().join("main");
+    emit_object(&typed, &object).unwrap();
+    link_host(&object, &executable).unwrap();
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(0));
+}

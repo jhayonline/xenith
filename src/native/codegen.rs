@@ -2311,6 +2311,17 @@ fn lower(
                 let list = runtime_call(b, m, "xenith_db_page", vec![AbiParam::new(types::I64); 3], vec![AbiParam::new(types::I64)], &[store, limit, offset])[0];
                 return (vec![list], Type::List(Box::new(Type::Map(Box::new(Type::String), Box::new(Type::String)))));
             }
+            if name == "db_query" {
+                let store = lower(b, &arguments[0], v, ids, m, l).0[0];
+                let filter_column = lower(b, &arguments[1], v, ids, m, l).0;
+                let filter_value = lower(b, &arguments[2], v, ids, m, l).0;
+                let order_column = lower(b, &arguments[3], v, ids, m, l).0;
+                let descending = lower(b, &arguments[4], v, ids, m, l).0[0];
+                let limit = lower(b, &arguments[5], v, ids, m, l).0[0];
+                let offset = lower(b, &arguments[6], v, ids, m, l).0[0];
+                let list = runtime_call(b, m, "xenith_db_query", vec![AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I8), AbiParam::new(types::I64), AbiParam::new(types::I64)], vec![AbiParam::new(types::I64)], &[store, filter_column[0], filter_column[1], filter_value[0], filter_value[1], order_column[0], order_column[1], descending, limit, offset])[0];
+                return (vec![list], Type::List(Box::new(Type::Map(Box::new(Type::String), Box::new(Type::String)))));
+            }
             if name == "env_set" || name == "env_unset" {
                 let key = lower(b, &arguments[0], v, ids, m, l).0;
                 let mut args = vec![key[0], key[1]];
