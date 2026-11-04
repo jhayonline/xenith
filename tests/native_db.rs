@@ -145,6 +145,33 @@ function main() -> i32 {
 }
 
 #[test]
+fn std_db_helpers_decode_i32_model_fields() {
+    let directory = tempfile::tempdir().unwrap();
+    let source = r#"
+grab { open, execute, store, find_map, as_i32, close } from "std::db"
+struct User { age: i32 }
+function main() -> i32 {
+    let handle: i64 = open(":memory:")
+    let setup: string = execute(handle, "CREATE TABLE users (id INTEGER PRIMARY KEY, age INTEGER); INSERT INTO users (age) VALUES (36)")
+    let users: i64 = store(handle, "users")
+    let row: map<string, string> = find_map(users, 1i64)
+    let age: i32 = as_i32(row, "age")
+    close(handle)
+    return age
+}
+"#;
+    let main = directory.path().join("main.xen");
+    std::fs::write(&main, source).unwrap();
+    let (program, _) = xenith::native::project::load_program(&main).unwrap();
+    let typed = check(&program).unwrap();
+    let object = directory.path().join("main.o");
+    let executable = directory.path().join("main");
+    emit_object(&typed, &object).unwrap();
+    link_host(&object, &executable).unwrap();
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(36));
+}
+
+#[test]
 fn native_rows_map_into_an_ordinary_xenith_struct() {
     let directory = tempfile::tempdir().unwrap();
     let source = r#"

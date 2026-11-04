@@ -2261,6 +2261,12 @@ fn lower(
                 let value = runtime_call(b, m, "xenith_db_map_i64", vec![AbiParam::new(types::I64); 3], vec![AbiParam::new(types::I64)], &[map, key[0], key[1]])[0];
                 return (vec![value], Type::I64);
             }
+            if name == "db_map_i32" {
+                let map = lower(b, &arguments[0], v, ids, m, l).0[0];
+                let key = lower(b, &arguments[1], v, ids, m, l).0;
+                let value = runtime_call(b, m, "xenith_db_map_i32", vec![AbiParam::new(types::I64); 3], vec![AbiParam::new(types::I32)], &[map, key[0], key[1]])[0];
+                return (vec![value], Type::I32);
+            }
             if name == "db_map_bool" {
                 let map = lower(b, &arguments[0], v, ids, m, l).0[0];
                 let key = lower(b, &arguments[1], v, ids, m, l).0;
