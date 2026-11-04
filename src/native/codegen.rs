@@ -2291,6 +2291,22 @@ fn lower(
                 let _ = runtime_call(b, m, "xenith_http_query", vec![AbiParam::new(types::I64); 6], vec![], &args);
                 return (vec![b.ins().load(types::I64, MemFlags::new(), args[4], 0), b.ins().load(types::I64, MemFlags::new(), args[5], 0)], Type::String);
             }
+            if name == "http_header" || name == "http_param" {
+                let first = lower(b, &arguments[0], v, ids, m, l).0;
+                let second = lower(b, &arguments[1], v, ids, m, l).0;
+                let mut args = vec![first[0], first[1], second[0], second[1]];
+                if name == "http_param" {
+                    let third = lower(b, &arguments[2], v, ids, m, l).0;
+                    args.extend(third);
+                }
+                let value_ptr = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let value_len = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                args.push(b.ins().stack_addr(types::I64, value_ptr, 0));
+                args.push(b.ins().stack_addr(types::I64, value_len, 0));
+                let runtime_name = if name == "http_header" { "xenith_http_header" } else { "xenith_http_param" };
+                let _ = runtime_call(b, m, runtime_name, vec![AbiParam::new(types::I64); args.len()], vec![], &args);
+                return (vec![b.ins().load(types::I64, MemFlags::new(), args[args.len() - 2], 0), b.ins().load(types::I64, MemFlags::new(), args[args.len() - 1], 0)], Type::String);
+            }
             if name == "http_json" {
                 let status = lower(b, &arguments[0], v, ids, m, l).0[0];
                 let body = lower(b, &arguments[1], v, ids, m, l).0;

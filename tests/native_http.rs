@@ -207,6 +207,7 @@ function main() -> i32 {
     let response: tuple<i32, string> = json(200, "ok")
     return response[0] + len(value)
 }
+
 "#;
     let main = directory.path().join("main.xen");
     fs::write(&main, source).unwrap();
@@ -217,4 +218,27 @@ function main() -> i32 {
     xenith::native::codegen::emit_object(&typed, &object).unwrap();
     xenith::native::codegen::link_host(&object, &executable).unwrap();
     assert_eq!(Command::new(executable).status().unwrap().code(), Some(205));
+}
+
+#[test]
+fn xenith_http_headers_and_parameters_are_typed() {
+    let directory = tempfile::tempdir().unwrap();
+    let source = r#"
+grab { header, param } from "std::http"
+function main() -> i32 {
+    let request: string = "Host: abc"
+    let host: string = header(request, "Host")
+    let id: string = param("/users/42", "/users/:id", "id")
+    return len(host) + len(id)
+}
+"#;
+    let main = directory.path().join("main.xen");
+    fs::write(&main, source).unwrap();
+    let (program, _) = xenith::native::project::load_program(&main).unwrap();
+    let typed = xenith::native::check::check(&program).unwrap();
+    let object = directory.path().join("main.o");
+    let executable = directory.path().join("main");
+    xenith::native::codegen::emit_object(&typed, &object).unwrap();
+    xenith::native::codegen::link_host(&object, &executable).unwrap();
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(5));
 }

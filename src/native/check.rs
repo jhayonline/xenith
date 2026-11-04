@@ -316,6 +316,8 @@ fn signatures(
         ("http_serve", vec![Type::I64, Type::String], Type::String),
         ("http_query", vec![Type::String, Type::String], Type::String),
         ("http_json", vec![Type::I32, Type::String], Type::Tuple(vec![Type::I32, Type::String])),
+        ("http_header", vec![Type::String, Type::String], Type::String),
+        ("http_param", vec![Type::String, Type::String, Type::String], Type::String),
     ] {
         signatures.insert(name.into(), FunctionSignature { parameters, result });
     }
