@@ -33,7 +33,12 @@ fn load_module(
     loaded: &mut HashSet<PathBuf>,
     paths: &mut Vec<PathBuf>,
 ) -> Result<Program, NativeError> {
-    let path = path.canonicalize().map_err(NativeError::io)?;
+    let is_standard = path.to_string_lossy().starts_with("std::");
+    let path = if is_standard {
+        path.to_path_buf()
+    } else {
+        path.canonicalize().map_err(NativeError::io)?
+    };
     if !visiting.insert(path.clone()) {
         return Err(NativeError::diagnostics(
             path,
@@ -44,7 +49,15 @@ fn load_module(
             }],
         ));
     }
-    let source = fs::read_to_string(&path).map_err(NativeError::io)?;
+    let source = if is_standard {
+        let path_name = path.to_string_lossy();
+        let name = path_name.trim_start_matches("std::");
+        standard_native_source(name)
+            .ok_or_else(|| NativeError::NotImplemented(format!("unknown standard module `{name}`")))?
+            .to_string()
+    } else {
+        fs::read_to_string(&path).map_err(NativeError::io)?
+    };
     let parsed = syntax::parse(&path, &source)
         .map_err(|e| NativeError::diagnostics(path.clone(), source.clone(), e))?;
     let mut structs = Vec::new();
@@ -52,11 +65,14 @@ fn load_module(
     let mut functions = Vec::new();
     let mut imported_names = HashSet::new();
     for import in &parsed.imports {
-        let imported_path = path
-            .parent()
-            .unwrap()
-            .join(&import.path)
-            .with_extension("xen");
+        let imported_path = if import.path.starts_with("std::") {
+            PathBuf::from(&import.path)
+        } else {
+            path.parent()
+                .unwrap()
+                .join(&import.path)
+                .with_extension("xen")
+        };
         let dependency = load_module(&imported_path, false, visiting, loaded, paths)?;
         if let Some(namespace) = &import.namespace {
             for function in dependency.functions.iter().filter(|item| item.exported) {
@@ -141,7 +157,7 @@ fn load_module(
         functions.extend(parsed.functions.into_iter().filter(|item| item.exported));
     }
     visiting.remove(&path);
-    if loaded.insert(path.clone()) {
+    if loaded.insert(path.clone()) && !is_standard {
         paths.push(path);
     }
     Ok(Program {
@@ -152,6 +168,37 @@ fn load_module(
         enums,
         functions,
     })
+}
+
+fn standard_native_source(name: &str) -> Option<&'static str> {
+    match name {
+        "env" => Some(
+            "export fn get(name: string) -> tuple<string, bool> { return env_get(name) }\n\
+             export fn set(name: string, value: string) -> null { return env_set(name, value) }\n\
+             export fn unset(name: string) -> null { return env_unset(name) }\n\
+             export fn all() -> map<string, string> { return env_vars() }\n\
+             export fn args() -> list<string> { return env_args() }\n\
+             export fn cwd() -> tuple<string, string> { return env_cwd() }\n\
+             export fn exit(code: i32) -> null { return env_exit(code) }",
+        ),
+        "fs" => Some(
+            "export fn read(path: string) -> tuple<string, string> { return fs_read(path) }\n\
+             export fn write(path: string, contents: string) -> string { return fs_write(path, contents) }\n\
+             export fn append(path: string, contents: string) -> string { return fs_append(path, contents) }\n\
+             export fn read_bytes(path: string) -> tuple<bytes, string> { return fs_read_bytes(path) }\n\
+             export fn write_bytes(path: string, contents: bytes) -> string { return fs_write_bytes(path, contents) }\n\
+             export fn append_bytes(path: string, contents: bytes) -> string { return fs_append_bytes(path, contents) }\n\
+             export fn remove(path: string) -> string { return fs_remove(path) }\n\
+             export fn exists(path: string) -> bool { return fs_exists(path) }\n\
+             export fn is_file(path: string) -> bool { return fs_is_file(path) }\n\
+             export fn is_dir(path: string) -> bool { return fs_is_dir(path) }\n\
+             export fn size(path: string) -> tuple<i64, string> { return fs_size(path) }\n\
+             export fn list_dir(path: string) -> tuple<list<string>, string> { return fs_list(path) }\n\
+             export fn create_dir(path: string) -> string { return fs_create_dir(path) }\n\
+             export fn remove_dir(path: string) -> string { return fs_remove_dir(path) }",
+        ),
+        _ => None,
+    }
 }
 impl Project {
     pub fn discover(start: &Path) -> Result<Self, NativeError> {

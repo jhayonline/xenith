@@ -51,6 +51,16 @@ fn native_project_builds_and_runs_an_imported_function() {
 }
 
 #[test]
+fn native_project_builds_and_runs_a_standard_library_import() {
+    let dir = fixture_project(
+        "grab { cwd } from \"std::env\"\nfn main() -> i32 { let result = cwd() if (len(result[0]) > 0 && len(result[1]) == 0) { return 42 } else { return 1 } }",
+    );
+    let project = dir.path().join("app");
+    let output = xenith(&project).arg("run").output().unwrap();
+    assert_eq!(output.status.code(), Some(42), "{}", String::from_utf8_lossy(&output.stderr));
+}
+
+#[test]
 fn native_project_rejects_an_imported_private_function() {
     let dir = fixture_project("grab { hidden } from \"helper\"\nfn main() -> i32 { return 0 }");
     let project = dir.path().join("app");
