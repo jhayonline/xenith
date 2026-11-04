@@ -131,3 +131,30 @@ function main() -> i32 {
     xenith::native::codegen::link_host(&object, &executable).unwrap();
     assert_eq!(Command::new(executable).status().unwrap().code(), Some(9));
 }
+
+#[test]
+fn xenith_http_router_passes_post_body_to_handler() {
+    let directory = tempfile::tempdir().unwrap();
+    let source = r#"
+grab { router, post, dispatch, router_close } from "std::http"
+function create(method: string, path: string, body: string) -> tuple<i32, string> {
+    return (201, body)
+}
+function main() -> i32 {
+    let routes: i64 = router()
+    post(routes, "/users", create)
+    let response: tuple<i32, string> = dispatch(routes, "POST", "/users", "payload")
+    router_close(routes)
+    return response[0] + len(response[1])
+}
+"#;
+    let main = directory.path().join("main.xen");
+    fs::write(&main, source).unwrap();
+    let (program, _) = xenith::native::project::load_program(&main).unwrap();
+    let typed = xenith::native::check::check(&program).unwrap();
+    let object = directory.path().join("main.o");
+    let executable = directory.path().join("main");
+    xenith::native::codegen::emit_object(&typed, &object).unwrap();
+    xenith::native::codegen::link_host(&object, &executable).unwrap();
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(208));
+}
