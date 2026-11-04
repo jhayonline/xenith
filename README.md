@@ -37,6 +37,35 @@ Every executable project has a `xenith.toml` manifest and a `src/main.xen`
 entry point. The compiler emits a host-native executable under
 `target/host/debug/`.
 
+## Native HTTP routing
+
+The native HTTP module provides a small router without requiring MVC, classes,
+or framework-specific keywords. Handlers are ordinary Xenith functions with a
+typed `(method, path, body)` signature and a `(status, body)` response:
+
+```xenith
+grab { router, get, post, dispatch, router_close } from "std::http"
+
+function health(method: string, path: string, body: string) -> tuple<i32, string> {
+    return (200, "ok")
+}
+
+function main() -> i32 {
+    let routes: i64 = router()
+    get(routes, "/health", health)
+
+    let response: tuple<i32, string> = dispatch(routes, "GET", "/health", "")
+    router_close(routes)
+    return response[0]
+}
+```
+
+Routes may contain `:parameter` segments, and `GET`/`POST` method mismatches
+return a typed `404` response. The router is currently a dispatch layer; socket
+binding and response writing remain explicit through `bind`, `accept`, `read`,
+`write`, and `close`. Middleware, JSON extractors, and async serving are planned
+on top of this stable core.
+
 ## The language in one screen
 
 ```xenith
