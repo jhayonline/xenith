@@ -1,4 +1,4 @@
-use xenith::native::orm::SchemaPlan;
+use xenith::native::orm::{SchemaPlan, Store, Value};
 
 #[test]
 fn schema_builder_describes_a_users_table_without_raw_sql() {
@@ -23,4 +23,19 @@ fn schema_builder_quotes_identifiers_and_supports_relations() {
     schema.drop("old_posts");
 
     assert_eq!(schema.to_string(), "CREATE TABLE \"posts\" (\"id\" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, \"user_id\" INTEGER NOT NULL REFERENCES \"users\"(\"id\"));\nDROP TABLE \"old_posts\"");
+}
+
+#[test]
+fn stores_build_parameterized_queries_without_raw_sql() {
+    let users = Store::new("users");
+    assert_eq!(users.find(42), xenith::native::orm::QueryPlan {
+        sql: "SELECT * FROM \"users\" WHERE \"id\" = ? LIMIT 1".into(),
+        parameters: vec![Value::Integer(42)],
+    });
+    assert_eq!(users.where_eq("email", Value::Text("ada@example.com".into())).sql,
+        "SELECT * FROM \"users\" WHERE \"email\" = ?");
+    assert_eq!(users.insert([
+        ("name".into(), Value::Text("Ada".into())),
+        ("active".into(), Value::Boolean(true)),
+    ]).sql, "INSERT INTO \"users\" (\"name\", \"active\") VALUES (?, ?)");
 }

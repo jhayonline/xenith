@@ -8,6 +8,58 @@
 use std::fmt;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Value {
+    Null,
+    Integer(i64),
+    Text(String),
+    Boolean(bool),
+    Bytes(Vec<u8>),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct QueryPlan {
+    pub sql: String,
+    pub parameters: Vec<Value>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Store {
+    pub table: String,
+}
+
+impl Store {
+    pub fn new(table: impl Into<String>) -> Self { Self { table: table.into() } }
+
+    pub fn find(&self, id: i64) -> QueryPlan {
+        QueryPlan {
+            sql: format!("SELECT * FROM {} WHERE \"id\" = ? LIMIT 1", ident(&self.table)),
+            parameters: vec![Value::Integer(id)],
+        }
+    }
+
+    pub fn all(&self) -> QueryPlan {
+        QueryPlan { sql: format!("SELECT * FROM {}", ident(&self.table)), parameters: vec![] }
+    }
+
+    pub fn where_eq(&self, field: impl AsRef<str>, value: Value) -> QueryPlan {
+        QueryPlan {
+            sql: format!("SELECT * FROM {} WHERE {} = ?", ident(&self.table), ident(field.as_ref())),
+            parameters: vec![value],
+        }
+    }
+
+    pub fn insert(&self, fields: impl IntoIterator<Item = (String, Value)>) -> QueryPlan {
+        let fields: Vec<_> = fields.into_iter().collect();
+        let names = fields.iter().map(|(name, _)| ident(name)).collect::<Vec<_>>().join(", ");
+        let placeholders = std::iter::repeat_n("?", fields.len()).collect::<Vec<_>>().join(", ");
+        QueryPlan {
+            sql: format!("INSERT INTO {} ({names}) VALUES ({placeholders})", ident(&self.table)),
+            parameters: fields.into_iter().map(|(_, value)| value).collect(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ColumnType {
     Integer,
     Text,
