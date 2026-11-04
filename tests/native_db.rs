@@ -369,3 +369,38 @@ function main() -> i32 {
     link_host(&object, &executable).unwrap();
     assert_eq!(Command::new(executable).status().unwrap().code(), Some(0));
 }
+
+#[test]
+fn std_db_transactions_commit_and_rollback() {
+    let directory = tempfile::tempdir().unwrap();
+    let source = r#"
+grab { open, execute, store, insert, all, begin, commit, rollback, close } from "std::db"
+function main() -> i32 {
+    let handle: i64 = open(":memory:")
+    let setup: string = execute(handle, "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)")
+    let users: i64 = store(handle, "users")
+    let started: string = begin(handle)
+    let first: map<string, string> = {"name": "Ada"}
+    let inserted: i64 = insert(users, first)
+    let undone: string = rollback(handle)
+    let after_rollback: list<map<string, string>> = all(users)
+    let started_again: string = begin(handle)
+    let second: map<string, string> = {"name": "Grace"}
+    let inserted_again: i64 = insert(users, second)
+    let saved: string = commit(handle)
+    let after_commit: list<map<string, string>> = all(users)
+    close(handle)
+    if (len(started) == 0 && len(undone) == 0 && len(started_again) == 0 && len(saved) == 0 && len(after_rollback) == 0 && len(after_commit) == 1) { return 0 }
+    return 1
+}
+"#;
+    let main = directory.path().join("main.xen");
+    std::fs::write(&main, source).unwrap();
+    let (program, _) = xenith::native::project::load_program(&main).unwrap();
+    let typed = check(&program).unwrap();
+    let object = directory.path().join("main.o");
+    let executable = directory.path().join("main");
+    emit_object(&typed, &object).unwrap();
+    link_host(&object, &executable).unwrap();
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(0));
+}

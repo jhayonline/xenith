@@ -2322,6 +2322,15 @@ fn lower(
                 let list = runtime_call(b, m, "xenith_db_query", vec![AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I8), AbiParam::new(types::I64), AbiParam::new(types::I64)], vec![AbiParam::new(types::I64)], &[store, filter_column[0], filter_column[1], filter_value[0], filter_value[1], order_column[0], order_column[1], descending, limit, offset])[0];
                 return (vec![list], Type::List(Box::new(Type::Map(Box::new(Type::String), Box::new(Type::String)))));
             }
+            if name == "db_begin" || name == "db_commit" || name == "db_rollback" {
+                let handle = lower(b, &arguments[0], v, ids, m, l).0[0];
+                let error_ptr = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let error_len = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let runtime_name = match name.as_str() { "db_begin" => "xenith_db_begin", "db_commit" => "xenith_db_commit", _ => "xenith_db_rollback" };
+                let args = [handle, b.ins().stack_addr(types::I64, error_ptr, 0), b.ins().stack_addr(types::I64, error_len, 0)];
+                let _ = runtime_call(b, m, runtime_name, vec![AbiParam::new(types::I64); 3], vec![], &args);
+                return (vec![b.ins().load(types::I64, MemFlags::new(), args[1], 0), b.ins().load(types::I64, MemFlags::new(), args[2], 0)], Type::String);
+            }
             if name == "env_set" || name == "env_unset" {
                 let key = lower(b, &arguments[0], v, ids, m, l).0;
                 let mut args = vec![key[0], key[1]];

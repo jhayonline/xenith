@@ -213,6 +213,9 @@ fn standard_native_source(name: &str) -> Option<&'static str> {
              export function order(store: i64, column: string, descending: bool) -> list<map<string, string>> { return db_order(store, column, descending) }\n\
              export function page(store: i64, limit: i64, offset: i64) -> list<map<string, string>> { return db_page(store, limit, offset) }\n\
              export function query(store: i64, filter_column: string, filter_value: string, order_column: string, descending: bool, limit: i64, offset: i64) -> list<map<string, string>> { return db_query(store, filter_column, filter_value, order_column, descending, limit, offset) }\n\
+             export function begin(handle: i64) -> string { return db_begin(handle) }\n\
+             export function commit(handle: i64) -> string { return db_commit(handle) }\n\
+             export function rollback(handle: i64) -> string { return db_rollback(handle) }\n\
              export function close(handle: i64) -> null { return db_close(handle) }",
         ),
         _ => None,
