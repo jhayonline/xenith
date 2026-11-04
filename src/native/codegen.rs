@@ -2304,6 +2304,13 @@ fn lower(
                 let list = runtime_call(b, m, "xenith_db_order", vec![AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I8)], vec![AbiParam::new(types::I64)], &[store, column[0], column[1], descending])[0];
                 return (vec![list], Type::List(Box::new(Type::Map(Box::new(Type::String), Box::new(Type::String)))));
             }
+            if name == "db_page" {
+                let store = lower(b, &arguments[0], v, ids, m, l).0[0];
+                let limit = lower(b, &arguments[1], v, ids, m, l).0[0];
+                let offset = lower(b, &arguments[2], v, ids, m, l).0[0];
+                let list = runtime_call(b, m, "xenith_db_page", vec![AbiParam::new(types::I64); 3], vec![AbiParam::new(types::I64)], &[store, limit, offset])[0];
+                return (vec![list], Type::List(Box::new(Type::Map(Box::new(Type::String), Box::new(Type::String)))));
+            }
             if name == "env_set" || name == "env_unset" {
                 let key = lower(b, &arguments[0], v, ids, m, l).0;
                 let mut args = vec![key[0], key[1]];
