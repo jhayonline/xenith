@@ -5,6 +5,7 @@ pub mod error;
 pub mod project;
 pub mod runtime;
 pub mod syntax;
+pub mod orm;
 pub use error::NativeError;
 use std::{collections::HashMap, fs, path::PathBuf, process::Command};
 pub struct BuildArtifact {
