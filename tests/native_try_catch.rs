@@ -225,6 +225,39 @@ fn native_runtime_reports_allocation_failures_without_aborting() {
 }
 
 #[test]
+fn native_runtime_reference_counting_is_deterministic() {
+    let directory = tempfile::tempdir().unwrap();
+    let runtime = xenith::native::runtime::write_source(directory.path()).unwrap();
+    let harness = directory.path().join("harness.c");
+    fs::write(
+        &harness,
+        r#"#include <stdint.h>
+        void *xenith_rc_alloc(int64_t);
+        void xenith_retain(void *);
+        void xenith_release(void *);
+        int64_t xenith_rc_live(void);
+        int main(void) {
+            void *value = xenith_rc_alloc(32);
+            if (!value || xenith_rc_live() != 1) return 1;
+            xenith_retain(value);
+            xenith_release(value);
+            if (xenith_rc_live() != 1) return 2;
+            xenith_release(value);
+            return xenith_rc_live() == 0 ? 0 : 3;
+        }
+        "#,
+    )
+    .unwrap();
+    let executable = directory.path().join("harness");
+    let status = Command::new("cc")
+        .args([runtime.as_os_str(), harness.as_os_str(), "-o".as_ref(), executable.as_os_str()])
+        .status()
+        .unwrap();
+    assert!(status.success());
+    assert!(Command::new(executable).status().unwrap().success());
+}
+
+#[test]
 fn native_filesystem_builtins_read_and_write_text() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("message.txt");
