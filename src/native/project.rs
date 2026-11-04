@@ -205,6 +205,7 @@ fn standard_native_source(name: &str) -> Option<&'static str> {
              export function find_map(store: i64, id: i64) -> map<string, string> { return db_find_map(store, id) }\n\
              export function as_i64(row: map<string, string>, key: string) -> i64 { return db_map_i64(row, key) }\n\
              export function as_bool(row: map<string, string>, key: string) -> bool { return db_map_bool(row, key) }\n\
+             export function insert(store: i64, row: map<string, string>) -> i64 { return db_insert(store, row) }\n\
              export function close(handle: i64) -> null { return db_close(handle) }",
         ),
         _ => None,

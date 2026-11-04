@@ -282,6 +282,7 @@ fn signatures(
         ("db_find_map", vec![Type::I64, Type::I64], Type::Map(Box::new(Type::String), Box::new(Type::String))),
         ("db_map_i64", vec![Type::Map(Box::new(Type::String), Box::new(Type::String)), Type::String], Type::I64),
         ("db_map_bool", vec![Type::Map(Box::new(Type::String), Box::new(Type::String)), Type::String], Type::Bool),
+        ("db_insert", vec![Type::I64, Type::Map(Box::new(Type::String), Box::new(Type::String))], Type::I64),
     ] {
         signatures.insert(name.into(), FunctionSignature { parameters, result });
     }
