@@ -116,6 +116,35 @@ function main() -> i32 {
 }
 
 #[test]
+fn std_db_related_returns_rows_for_a_model_relation() {
+    let directory = tempfile::tempdir().unwrap();
+    let source = r#"
+grab { open, execute, store, related, as_string, close } from "std::db"
+struct Post { user_id: i64, title: string }
+function main() -> i32 {
+    let handle: i64 = open(":memory:")
+    let setup: string = execute(handle, "CREATE TABLE posts (id INTEGER PRIMARY KEY, user_id INTEGER, title TEXT); INSERT INTO posts (user_id, title) VALUES (7, 'Welcome'); INSERT INTO posts (user_id, title) VALUES (8, 'Other')")
+    let posts: i64 = store(handle, "posts")
+    let rows: list<map<string, string>> = related(posts, "user_id", 7i64)
+    let first: map<string, string> = rows[0]
+    let title: string = as_string(first, "title")
+    close(handle)
+    if (len(title) == 7 && len(rows) == 1) { return 0 }
+    return 1
+}
+"#;
+    let main = directory.path().join("main.xen");
+    std::fs::write(&main, source).unwrap();
+    let (program, _) = xenith::native::project::load_program(&main).unwrap();
+    let typed = check(&program).unwrap();
+    let object = directory.path().join("main.o");
+    let executable = directory.path().join("main");
+    emit_object(&typed, &object).unwrap();
+    link_host(&object, &executable).unwrap();
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(0));
+}
+
+#[test]
 fn native_rows_map_into_an_ordinary_xenith_struct() {
     let directory = tempfile::tempdir().unwrap();
     let source = r#"

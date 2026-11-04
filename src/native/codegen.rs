@@ -2248,6 +2248,13 @@ fn lower(
                 let map = runtime_call(b, m, "xenith_db_find_map", vec![AbiParam::new(types::I64); 2], vec![AbiParam::new(types::I64)], &[store, id])[0];
                 return (vec![map], Type::Map(Box::new(Type::String), Box::new(Type::String)));
             }
+            if name == "db_related" {
+                let store = lower(b, &arguments[0], v, ids, m, l).0[0];
+                let column = lower(b, &arguments[1], v, ids, m, l).0;
+                let id = lower(b, &arguments[2], v, ids, m, l).0[0];
+                let list = runtime_call(b, m, "xenith_db_related", vec![AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64)], vec![AbiParam::new(types::I64)], &[store, column[0], column[1], id])[0];
+                return (vec![list], Type::List(Box::new(Type::Map(Box::new(Type::String), Box::new(Type::String)))));
+            }
             if name == "db_map_i64" {
                 let map = lower(b, &arguments[0], v, ids, m, l).0[0];
                 let key = lower(b, &arguments[1], v, ids, m, l).0;
