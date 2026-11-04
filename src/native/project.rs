@@ -239,7 +239,9 @@ fn standard_native_source(name: &str) -> Option<&'static str> {
              export function post(router: i64, pattern: string, handler: fn(string, string, string) -> tuple<i32, string>) -> string { return http_router_post(router, pattern, handler) }\n\
              export function dispatch(router: i64, method: string, path: string, body: string) -> tuple<i32, string> { return http_router_dispatch(router, method, path, body) }\n\
              export function router_close(router: i64) -> null { return http_router_close(router) }\n\
-             export function serve(router: i64, address: string) -> string { return http_serve(router, address) }",
+             export function serve(router: i64, address: string) -> string { return http_serve(router, address) }\n\
+             export function query(path: string, key: string) -> string { return http_query(path, key) }\n\
+             export function json(status: i32, body: string) -> tuple<i32, string> { return http_json(status, body) }",
         ),
         _ => None,
     }

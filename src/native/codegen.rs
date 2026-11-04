@@ -2282,6 +2282,20 @@ fn lower(
                 let _ = runtime_call(b, m, "xenith_http_serve", vec![AbiParam::new(types::I64); 5], vec![], &args);
                 return (vec![b.ins().load(types::I64, MemFlags::new(), args[3], 0), b.ins().load(types::I64, MemFlags::new(), args[4], 0)], Type::String);
             }
+            if name == "http_query" {
+                let path = lower(b, &arguments[0], v, ids, m, l).0;
+                let key = lower(b, &arguments[1], v, ids, m, l).0;
+                let value_ptr = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let value_len = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let args = [path[0], path[1], key[0], key[1], b.ins().stack_addr(types::I64, value_ptr, 0), b.ins().stack_addr(types::I64, value_len, 0)];
+                let _ = runtime_call(b, m, "xenith_http_query", vec![AbiParam::new(types::I64); 6], vec![], &args);
+                return (vec![b.ins().load(types::I64, MemFlags::new(), args[4], 0), b.ins().load(types::I64, MemFlags::new(), args[5], 0)], Type::String);
+            }
+            if name == "http_json" {
+                let status = lower(b, &arguments[0], v, ids, m, l).0[0];
+                let body = lower(b, &arguments[1], v, ids, m, l).0;
+                return (vec![status, body[0], body[1]], Type::Tuple(vec![Type::I32, Type::String]));
+            }
             if name == "db_open" {
                 let path = lower(b, &arguments[0], v, ids, m, l).0;
                 let handle = runtime_call(b, m, "xenith_db_open", vec![AbiParam::new(types::I64); 2], vec![AbiParam::new(types::I64)], &path)[0];

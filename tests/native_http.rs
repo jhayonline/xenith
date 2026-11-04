@@ -196,3 +196,25 @@ function main() -> i32 {{
     child.kill().unwrap();
     let _ = child.wait();
 }
+
+#[test]
+fn xenith_http_query_and_json_helpers_are_typed() {
+    let directory = tempfile::tempdir().unwrap();
+    let source = r#"
+grab { query, json } from "std::http"
+function main() -> i32 {
+    let value: string = query("/search?q=hello&limit=2", "q")
+    let response: tuple<i32, string> = json(200, "ok")
+    return response[0] + len(value)
+}
+"#;
+    let main = directory.path().join("main.xen");
+    fs::write(&main, source).unwrap();
+    let (program, _) = xenith::native::project::load_program(&main).unwrap();
+    let typed = xenith::native::check::check(&program).unwrap();
+    let object = directory.path().join("main.o");
+    let executable = directory.path().join("main");
+    xenith::native::codegen::emit_object(&typed, &object).unwrap();
+    xenith::native::codegen::link_host(&object, &executable).unwrap();
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(205));
+}
