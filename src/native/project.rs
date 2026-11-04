@@ -197,6 +197,11 @@ fn standard_native_source(name: &str) -> Option<&'static str> {
              export function create_dir(path: string) -> string { return fs_create_dir(path) }\n\
              export function remove_dir(path: string) -> string { return fs_remove_dir(path) }",
         ),
+        "db" => Some(
+            "export function open(path: string) -> i64 { return db_open(path) }\n\
+             export function execute(handle: i64, sql: string) -> string { return db_exec(handle, sql) }\n\
+             export function close(handle: i64) -> null { return db_close(handle) }",
+        ),
         _ => None,
     }
 }

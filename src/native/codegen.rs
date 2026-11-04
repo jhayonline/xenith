@@ -2206,6 +2206,25 @@ fn lower(
                 let _ = runtime_call(b, m, "xenith_env_get", vec![AbiParam::new(types::I64); 5], vec![], &args);
                 return (vec![b.ins().load(types::I64, MemFlags::new(), args[2], 0), b.ins().load(types::I64, MemFlags::new(), args[3], 0), b.ins().load(types::I8, MemFlags::new(), args[4], 0)], Type::Tuple(vec![Type::String, Type::Bool]));
             }
+            if name == "db_open" {
+                let path = lower(b, &arguments[0], v, ids, m, l).0;
+                let handle = runtime_call(b, m, "xenith_db_open", vec![AbiParam::new(types::I64); 2], vec![AbiParam::new(types::I64)], &path)[0];
+                return (vec![handle], Type::I64);
+            }
+            if name == "db_exec" {
+                let handle = lower(b, &arguments[0], v, ids, m, l).0[0];
+                let sql = lower(b, &arguments[1], v, ids, m, l).0;
+                let error_ptr = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let error_len = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let args = [handle, sql[0], sql[1], b.ins().stack_addr(types::I64, error_ptr, 0), b.ins().stack_addr(types::I64, error_len, 0)];
+                let _ = runtime_call(b, m, "xenith_db_exec", vec![AbiParam::new(types::I64); 5], vec![], &args);
+                return (vec![b.ins().load(types::I64, MemFlags::new(), args[3], 0), b.ins().load(types::I64, MemFlags::new(), args[4], 0)], Type::String);
+            }
+            if name == "db_close" {
+                let handle = lower(b, &arguments[0], v, ids, m, l).0[0];
+                let _ = runtime_call(b, m, "xenith_db_close", vec![AbiParam::new(types::I64)], vec![], &[handle]);
+                return (vec![b.ins().iconst(types::I8, 0)], Type::Null);
+            }
             if name == "env_set" || name == "env_unset" {
                 let key = lower(b, &arguments[0], v, ids, m, l).0;
                 let mut args = vec![key[0], key[1]];
@@ -2773,6 +2792,7 @@ pub fn link_host(object: &Path, executable: &Path) -> Result<(), NativeError> {
     let out = Command::new("cc")
         .arg(object)
         .arg(runtime)
+        .arg("-lsqlite3")
         .arg("-o")
         .arg(executable)
         .output()

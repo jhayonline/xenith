@@ -274,6 +274,9 @@ fn signatures(
         ("env_args", vec![], Type::List(Box::new(Type::String))),
         ("env_cwd", vec![], Type::Tuple(vec![Type::String, Type::String])),
         ("env_exit", vec![Type::I32], Type::Null),
+        ("db_open", vec![Type::String], Type::I64),
+        ("db_exec", vec![Type::I64, Type::String], Type::String),
+        ("db_close", vec![Type::I64], Type::Null),
     ] {
         signatures.insert(name.into(), FunctionSignature { parameters, result });
     }
