@@ -140,6 +140,7 @@ grab { router, post, dispatch, router_close } from "std::http"
 function create(method: string, path: string, body: string) -> tuple<i32, string> {
     return (201, body)
 }
+
 function main() -> i32 {
     let routes: i64 = router()
     post(routes, "/users", create)
@@ -157,4 +158,41 @@ function main() -> i32 {
     xenith::native::codegen::emit_object(&typed, &object).unwrap();
     xenith::native::codegen::link_host(&object, &executable).unwrap();
     assert_eq!(Command::new(executable).status().unwrap().code(), Some(208));
+}
+
+#[test]
+fn xenith_http_serve_routes_a_real_request() {
+    let reservation = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = reservation.local_addr().unwrap().port();
+    drop(reservation);
+    let directory = tempfile::tempdir().unwrap();
+    let source = format!(r#"
+grab {{ router, get, serve }} from "std::http"
+function health(method: string, path: string, body: string) -> tuple<i32, string> {{
+    return (200, "served")
+}}
+function main() -> i32 {{
+    let routes: i64 = router()
+    get(routes, "/health", health)
+    let error: string = serve(routes, "127.0.0.1:{port}")
+    return len(error)
+}}
+"#);
+    let main = directory.path().join("main.xen");
+    fs::write(&main, source).unwrap();
+    let (program, _) = xenith::native::project::load_program(&main).unwrap();
+    let typed = xenith::native::check::check(&program).unwrap();
+    let object = directory.path().join("main.o");
+    let executable = directory.path().join("main");
+    xenith::native::codegen::emit_object(&typed, &object).unwrap();
+    xenith::native::codegen::link_host(&object, &executable).unwrap();
+    let mut child = Command::new(&executable).spawn().unwrap();
+    thread::sleep(Duration::from_millis(100));
+    let mut client = TcpStream::connect(("127.0.0.1", port)).unwrap();
+    client.write_all(b"GET /health HTTP/1.1\r\nHost: localhost\r\n\r\n").unwrap();
+    let mut response = Vec::new();
+    client.read_to_end(&mut response).unwrap();
+    assert!(response.ends_with(b"served"));
+    child.kill().unwrap();
+    let _ = child.wait();
 }

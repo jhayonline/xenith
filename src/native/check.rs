@@ -313,6 +313,7 @@ fn signatures(
         ("http_router_post", vec![Type::I64, Type::String, Type::Function(vec![Type::String, Type::String, Type::String], Box::new(Type::Tuple(vec![Type::I32, Type::String])))], Type::String),
         ("http_router_dispatch", vec![Type::I64, Type::String, Type::String, Type::String], Type::Tuple(vec![Type::I32, Type::String])),
         ("http_router_close", vec![Type::I64], Type::Null),
+        ("http_serve", vec![Type::I64, Type::String], Type::String),
     ] {
         signatures.insert(name.into(), FunctionSignature { parameters, result });
     }
