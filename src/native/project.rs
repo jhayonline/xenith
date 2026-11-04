@@ -202,6 +202,7 @@ fn standard_native_source(name: &str) -> Option<&'static str> {
              export function execute(handle: i64, sql: string) -> string { return db_exec(handle, sql) }\n\
              export function store(handle: i64, table: string) -> i64 { return db_store(handle, table) }\n\
              export function find(store: i64, id: i64) -> tuple<string, string> { return db_find(store, id) }\n\
+             export function find_map(store: i64, id: i64) -> map<string, string> { return db_find_map(store, id) }\n\
              export function close(handle: i64) -> null { return db_close(handle) }",
         ),
         _ => None,

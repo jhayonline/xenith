@@ -65,3 +65,25 @@ function main() -> i32 {
     link_host(&object, &executable).unwrap();
     assert_eq!(Command::new(executable).status().unwrap().code(), Some(23));
 }
+
+#[test]
+fn native_database_store_decodes_columns_as_a_typed_map() {
+    let source = r#"
+function main() -> i32 {
+    let handle: i64 = db_open(":memory:")
+    let setup: string = db_exec(handle, "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT); INSERT INTO users (id, name) VALUES (1, 'Ada')")
+    let store: i64 = db_store(handle, "users")
+    let row: map<string, string> = db_find_map(store, 1i64)
+    db_close(handle)
+    return len(row["name"])
+}
+"#;
+    let program = parse(Path::new("src/main.xen"), source).unwrap();
+    let typed = check(&program).unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let object = directory.path().join("main.o");
+    let executable = directory.path().join("main");
+    emit_object(&typed, &object).unwrap();
+    link_host(&object, &executable).unwrap();
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(3));
+}

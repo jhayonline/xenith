@@ -279,6 +279,7 @@ fn signatures(
         ("db_close", vec![Type::I64], Type::Null),
         ("db_store", vec![Type::I64, Type::String], Type::I64),
         ("db_find", vec![Type::I64, Type::I64], Type::Tuple(vec![Type::String, Type::String])),
+        ("db_find_map", vec![Type::I64, Type::I64], Type::Map(Box::new(Type::String), Box::new(Type::String))),
     ] {
         signatures.insert(name.into(), FunctionSignature { parameters, result });
     }
