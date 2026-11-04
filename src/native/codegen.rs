@@ -2285,6 +2285,11 @@ fn lower(
                 let _ = runtime_call(b, m, "xenith_db_update", vec![AbiParam::new(types::I64); 5], vec![], &args);
                 return (vec![b.ins().load(types::I64, MemFlags::new(), args[3], 0), b.ins().load(types::I64, MemFlags::new(), args[4], 0)], Type::String);
             }
+            if name == "db_all" {
+                let store = lower(b, &arguments[0], v, ids, m, l).0[0];
+                let list = runtime_call(b, m, "xenith_db_all", vec![AbiParam::new(types::I64)], vec![AbiParam::new(types::I64)], &[store])[0];
+                return (vec![list], Type::List(Box::new(Type::Map(Box::new(Type::String), Box::new(Type::String)))));
+            }
             if name == "env_set" || name == "env_unset" {
                 let key = lower(b, &arguments[0], v, ids, m, l).0;
                 let mut args = vec![key[0], key[1]];
