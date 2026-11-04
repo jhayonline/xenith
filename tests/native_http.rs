@@ -111,7 +111,7 @@ function show(method: string, path: string, body: string) -> tuple<i32, string> 
 function main() -> i32 {
     let routes: i64 = router()
     let registration: string = get(routes, "/users/:id", show)
-    let malformed: string = get(routes, "/bad//route", show)
+    let malformed: string = get(routes, "/users/:", show)
     let response: tuple<i32, string> = dispatch(routes, "GET", "/users/42", "")
     let missing: tuple<i32, string> = dispatch(routes, "POST", "/users/42", "")
     router_close(routes)
