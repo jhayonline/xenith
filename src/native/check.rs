@@ -287,6 +287,7 @@ fn signatures(
         ("db_update", vec![Type::I64, Type::I64, Type::Map(Box::new(Type::String), Box::new(Type::String))], Type::String),
         ("db_all", vec![Type::I64], Type::List(Box::new(Type::Map(Box::new(Type::String), Box::new(Type::String))))),
         ("db_filter", vec![Type::I64, Type::String, Type::String], Type::List(Box::new(Type::Map(Box::new(Type::String), Box::new(Type::String))))),
+        ("db_order", vec![Type::I64, Type::String, Type::Bool], Type::List(Box::new(Type::Map(Box::new(Type::String), Box::new(Type::String))))),
     ] {
         signatures.insert(name.into(), FunctionSignature { parameters, result });
     }

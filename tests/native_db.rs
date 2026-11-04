@@ -285,3 +285,31 @@ function main() -> i32 {
     link_host(&object, &executable).unwrap();
     assert_eq!(Command::new(executable).status().unwrap().code(), Some(0));
 }
+
+#[test]
+fn std_db_order_sorts_rows() {
+    let directory = tempfile::tempdir().unwrap();
+    let source = r#"
+grab { open, execute, store, order, as_i64, close } from "std::db"
+function main() -> i32 {
+    let handle: i64 = open(":memory:")
+    let setup: string = execute(handle, "CREATE TABLE users (id INTEGER PRIMARY KEY, score INTEGER); INSERT INTO users (id, score) VALUES (1, 20); INSERT INTO users (id, score) VALUES (2, 10)")
+    let users: i64 = store(handle, "users")
+    let rows: list<map<string, string>> = order(users, "score", false)
+    let first: map<string, string> = rows[0]
+    let score: i64 = as_i64(first, "score")
+    close(handle)
+    if (score == 10i64) { return 0 }
+    return 1
+}
+"#;
+    let main = directory.path().join("main.xen");
+    std::fs::write(&main, source).unwrap();
+    let (program, _) = xenith::native::project::load_program(&main).unwrap();
+    let typed = check(&program).unwrap();
+    let object = directory.path().join("main.o");
+    let executable = directory.path().join("main");
+    emit_object(&typed, &object).unwrap();
+    link_host(&object, &executable).unwrap();
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(0));
+}

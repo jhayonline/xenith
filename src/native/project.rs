@@ -210,6 +210,7 @@ fn standard_native_source(name: &str) -> Option<&'static str> {
              export function update(store: i64, id: i64, row: map<string, string>) -> string { return db_update(store, id, row) }\n\
              export function all(store: i64) -> list<map<string, string>> { return db_all(store) }\n\
              export function filter(store: i64, column: string, value: string) -> list<map<string, string>> { return db_filter(store, column, value) }\n\
+             export function order(store: i64, column: string, descending: bool) -> list<map<string, string>> { return db_order(store, column, descending) }\n\
              export function close(handle: i64) -> null { return db_close(handle) }",
         ),
         _ => None,
