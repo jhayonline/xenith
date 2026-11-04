@@ -97,3 +97,30 @@ fn model_schema_rejects_wrong_field_types() {
     let error = user.hydrate(fields, BTreeMap::new()).unwrap_err();
     assert!(error.to_string().contains("wrong type"));
 }
+
+#[test]
+fn sqlite_driver_loads_models_and_declared_relations() {
+    let database = SqliteDatabase::memory().unwrap();
+    let mut schema = SchemaPlan::new();
+    let users = schema.create("users");
+    users.id();
+    users.string("name");
+    let posts = schema.create("posts");
+    posts.id();
+    posts.foreign("user_id");
+    posts.string("title");
+    database.apply(&schema).unwrap();
+    database.execute(&Store::new("users").insert([(
+        "name".into(), Value::Text("Ada".into()),
+    )])).unwrap();
+    database.execute(&Store::new("posts").insert([
+        ("user_id".into(), Value::Integer(1)),
+        ("title".into(), Value::Text("Welcome".into())),
+    ])).unwrap();
+    let mut model = ModelSchema::new("User", "users");
+    model.field("id", ColumnType::Integer).field("name", ColumnType::Text);
+    model.has_many("posts", "posts", "user_id");
+    let hydrated = database.load_model(&model, 1).unwrap();
+    assert_eq!(hydrated.fields["name"], Value::Text("Ada".into()));
+    assert_eq!(hydrated.relations["posts"].len(), 1);
+}

@@ -41,6 +41,13 @@ pub struct ModelRelation {
     pub name: String,
     pub table: String,
     pub foreign_key: String,
+    pub kind: RelationKind,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RelationKind {
+    BelongsTo,
+    HasMany,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -68,12 +75,13 @@ impl ModelSchema {
     }
 
     pub fn belongs_to(&mut self, name: impl Into<String>, table: impl Into<String>, foreign_key: impl Into<String>) -> &mut Self {
-        self.relations.push(ModelRelation { name: name.into(), table: table.into(), foreign_key: foreign_key.into() });
+        self.relations.push(ModelRelation { name: name.into(), table: table.into(), foreign_key: foreign_key.into(), kind: RelationKind::BelongsTo });
         self
     }
 
     pub fn has_many(&mut self, name: impl Into<String>, table: impl Into<String>, foreign_key: impl Into<String>) -> &mut Self {
-        self.belongs_to(name, table, foreign_key)
+        self.relations.push(ModelRelation { name: name.into(), table: table.into(), foreign_key: foreign_key.into(), kind: RelationKind::HasMany });
+        self
     }
 
     pub fn hydrate(&self, row: Row, relations: BTreeMap<String, Vec<Row>>) -> Result<HydratedModel, DatabaseError> {
@@ -158,6 +166,24 @@ impl SqliteDatabase {
             Ok(result)
         })?;
         rows.collect::<Result<Vec<_>, rusqlite::Error>>().map_err(DatabaseError::from)
+    }
+
+    pub fn load_model(&self, model: &ModelSchema, id: i64) -> Result<HydratedModel, DatabaseError> {
+        let base_rows = self.rows(&Store::new(&model.table).find(id))?;
+        let row = base_rows.into_iter().next().ok_or_else(|| DatabaseError::InvalidValue(format!("{} with id {} was not found", model.name, id)))?;
+        let mut related = BTreeMap::new();
+        for relation in &model.relations {
+            let rows = match relation.kind {
+                RelationKind::HasMany => self.rows(&Store::new(&relation.table).where_eq(&relation.foreign_key, Value::Integer(id)))?,
+                RelationKind::BelongsTo => match row.get(&relation.foreign_key) {
+                    Some(Value::Integer(foreign_id)) => self.rows(&Store::new(&relation.table).find(*foreign_id))?,
+                    Some(_) => return Err(DatabaseError::InvalidValue(format!("{} relation key `{}` is not an integer", relation.name, relation.foreign_key))),
+                    None => Vec::new(),
+                },
+            };
+            related.insert(relation.name.clone(), rows);
+        }
+        model.hydrate(row, related)
     }
 }
 
