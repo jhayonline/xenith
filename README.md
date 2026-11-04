@@ -1,7 +1,29 @@
 # Xenith
 
-Xenith is becoming a small, native-compiled systems language. Start a project
-with the built-in tool:
+Xenith is a type-safe, native-compiled programming language for building real
+applications. Its main goals are practical backend and server programming,
+systems programming, game development, desktop applications, and general
+purpose software.
+
+Xenith is designed to feel approachable to beginners while still giving
+experienced developers direct access to native execution and platform APIs.
+
+## What Xenith is for
+
+- Backend and server applications, in the spirit of PHP and Go, with static
+  types and compiler-checked errors.
+- Systems software that needs native executables, predictable behavior, and FFI
+  access.
+- Games with fast update loops, native graphics/input/audio integrations, and
+  control over performance-sensitive code.
+- Desktop applications with XML-based UI structure and native platform
+  backends.
+- General-purpose command-line tools, automation, data processing, and scripts
+  that can grow into compiled applications.
+
+## Quick start
+
+Create and build a native project:
 
 ```sh
 xenith new hello
@@ -11,31 +33,15 @@ xenith build
 xenith run
 ```
 
-Every executable project has `xenith.toml` and `src/main.xen`. The current
-native bootstrap supports `function main() -> i32`, integer expressions, local
-bindings, explicit `let mut`, typed heap-backed `list<T>`, `map<string, T>`, and
-`bytes` values, collection literals, indexing, mutation, and `return`; it emits
-a host-native executable under `target/host/debug/`. The legacy interpreter and
-VM remain in this repository during migration but are not used by these project
-commands.
+Every executable project has a `xenith.toml` manifest and a `src/main.xen`
+entry point. The compiler emits a host-native executable under
+`target/host/debug/`.
 
-Native projects may split exported declarations into files under `src/`:
-
-```xenith
-# src/helper.xen
-export function answer() -> i32 { return 42 }
-
-# src/main.xen
-grab { answer } from "helper"
-function main() -> i32 { return answer() }
-```
-
-A small, statically typed language with C style syntax. Roughly thirty keywords,
-no runtime surprises, and numbers that behave the way you expect.
+## The language in one screen
 
 ```xenith
 struct Runner {
-    name: string,
+    name: string
     minutes: i32
 }
 
@@ -50,35 +56,160 @@ function faster_of(a: Runner, b: Runner) -> Runner {
 function main() -> i32 {
     let ada: Runner = Runner { name: "Ada", minutes: 31 }
     let alan: Runner = Runner { name: "Alan", minutes: 28 }
-
     let winner: Runner = faster_of(ada, alan)
+
     echo("The faster runner is selected")
     return winner.minutes
 }
 ```
 
+Declarations use `function`. `fn` is reserved for function types and anonymous
+callbacks:
+
+```xenith
+function apply(value: i32, operation: fn(i32) -> i32) -> i32 {
+    return operation(value)
+}
+
+function main() -> i32 {
+    let doubled = apply(21, fn(value: i32) -> i32 { return value * 2 })
+    return doubled
+}
 ```
-28
+
+Methods attach behavior to a type and use receiver syntax:
+
+```xenith
+struct User {
+    name: string
+}
+
+method User.greeting() -> string {
+    return "Hello, " + self.name
+}
 ```
 
-## What it takes from where
+Conditions and loop conditions use parentheses:
 
-Xenith is an attempt to keep the good parts of four languages and leave out most
-of the rest.
+```xenith
+if (user.name == "Ada") {
+    echo("matched")
+}
 
-**From Go**, structs that are plain data and straightforward native execution.
-Xenith also provides methods for behavior that naturally belongs to a type, with
-no inheritance requirement.
+for (let i: i32 = 0; i < 3; i = i + 1) {
+    echo("iteration")
+}
+```
 
-**From Rust and Zig**, arithmetic that refuses to lie. `i64` is a real 64 bit
-integer and `i32` is a real 32 bit integer; the two never mix without you saying
-so, and integer overflow is an error rather than a silent wrap.
+## Types and collections
 
-**From C**, the shape. Braces, semicolon separated `for` loops, familiar operator
-precedence, nothing clever.
+Xenith has explicit integer widths, booleans, strings, bytes, structs, tuples,
+enums, functions, lists, and maps. Collection literals are statically checked
+for homogeneity and are heap-backed in native programs.
 
-**From TypeScript**, type annotations that read easily and can be left off when
-the value makes the type obvious.
+```xenith
+function checksum() -> i32 {
+    let mut values: list<i32> = [1, 2, 3]
+    values[0] = 99
+
+    let mut names: map<string, i32> = {"ada": 36}
+    names["alan"] = 41
+
+    let raw: bytes = bytes("hello")
+    return values[0] + names["alan"] + raw[0]
+}
+```
+
+## Error handling
+
+Expected failures use `try`/`catch`. Xenith does not require Rust-style
+`Option<T>` or `Result<T>` values for ordinary error handling.
+
+```xenith
+function load_config(path: string) -> string {
+    try {
+        let (contents, error) = fs_read(path)
+        if (error != "") {
+            panic(error)
+        }
+        return contents
+    } catch (error) {
+        echo(error.message)
+        return ""
+    }
+}
+```
+
+Native diagnostics include an error code, name, message, source location, and
+beginner-friendly help text. Allocation and filesystem failures use the shared
+recoverable native status ABI.
+
+## Standard library and imports
+
+Native projects can import the filesystem and environment modules:
+
+```xenith
+grab { read, write } from "std::fs"
+grab { cwd, args } from "std::env"
+
+function main() -> i32 {
+    let (directory, error) = cwd()
+    if (error != "") {
+        echo(error)
+        return 1
+    }
+    echo(directory)
+    return 0
+}
+```
+
+The standard library is being expanded around the language’s target domains:
+HTTP and networking, JSON and serialization, processes, databases, time,
+randomness, graphics, audio, input, and desktop UI.
+
+## Memory and safety model
+
+Xenith is intended to be safe and easy to reason about without exposing manual
+allocation to ordinary programs and without requiring Rust-style ownership
+annotations.
+
+The planned model is compiler-managed deterministic reference counting (ARC/ORC):
+
+- No tracing garbage collector or GC pauses.
+- No `malloc`/`free` in normal Xenith code.
+- Automatic cleanup of heap values when they are no longer referenced.
+- Value semantics for ordinary structs and primitive values.
+- Weak references for cycles.
+- Explicit `unsafe` boundaries for raw FFI and platform-level operations.
+
+The native runtime currently contains the reference-counted allocation
+foundation. Compiler-generated retain/release insertion is still being built
+and must be completed before the memory model is considered finished.
+
+## Current status
+
+Implemented native compiler capabilities include:
+
+- Native project creation, checking, building, and running.
+- Static type checking and homogeneous typed collections.
+- Lists, maps, bytes, literals, indexing, mutation, and iteration.
+- Enums, pattern matching, closures, function values, methods, and string
+  interpolation.
+- Parenthesized `if` and `for` conditions.
+- Filesystem and environment runtime APIs with recoverable failures.
+- Native `std::fs` and `std::env` imports.
+- Source-aware diagnostics with codes, hints, function names, files, lines,
+  columns, and byte offsets.
+
+The major work still ahead includes:
+
+- Complete compiler-managed ARC/ORC insertion and cycle-safe weak references.
+- TCP networking, HTTP servers, routing, middleware, and concurrency.
+- JSON, database, TLS, process, and serialization libraries.
+- Graphics, audio, input, and game-oriented runtime modules.
+- XML parsing and desktop UI tooling.
+- FFI safety, portability across operating systems, optimization modes, and
+  release-build hardening.
 
 ## Installing
 
@@ -86,22 +217,13 @@ the value makes the type obvious.
 cargo install --path .
 ```
 
-That builds two binaries into `~/.cargo/bin`:
-
-- `xenith`, the interpreter. `xenith program.xen` runs a file, no arguments opens
-  a REPL.
-- `xenith-lsp`, the language server your editor talks to.
-
-On Arch, `packaging/arch/PKGBUILD` installs the same two under pacman:
-
-```sh
-cd packaging/arch && makepkg -si
-```
+This installs the `xenith` compiler and the `xenith-lsp` language server. On
+Arch Linux, the package definition is in `packaging/arch/PKGBUILD`.
 
 ## Editor support
 
-`editors/nvim` is a Neovim plugin with filetype detection, syntax highlighting,
-indenting and the language server. With lazy.nvim:
+`editors/nvim` provides Neovim filetype detection, syntax highlighting,
+indenting, and language-server integration. With lazy.nvim:
 
 ```lua
 {
@@ -114,217 +236,27 @@ indenting and the language server. With lazy.nvim:
 }
 ```
 
-The server gives diagnostics as you type, including type errors, plus hover, go
-to definition, references, rename, document symbols and completion. Any LSP capable editor can use it; see
+Any LSP-capable editor can use `xenith-lsp`. See
 [Editor setup](docs/tutorial/18-editor-setup.md).
 
 ## Documentation
 
-- **[Tutorial](docs/tutorial/README.md)** to learn the language. Twenty short
-  pages covering all of it.
-- **[Internals](docs/internals/README.md)** to work on the interpreter. Twelve
-  pages on how it is built and what to fix next.
+- [Tutorial](docs/tutorial/README.md)
+- [Known limitations](docs/tutorial/19-limitations.md)
+- [Internals](docs/internals/README.md)
 
-## The language in one screen
+## Development
 
-```xenith
-# Comments start with a hash.
-
-let name: string = "Ada"
-let count: i32 = 3
-
-if (count > 0) {
-    echo("count is positive")
-} else {
-    echo("count is zero")
-}
-
-for (let i: i32 = 0; i < count; i = i + 1) {
-    echo("loop iteration")
-}
-
-let mut numbers: list<i32> = [1, 2, 3]
-numbers[0] = 99
-
-let mut ages: map<string, i32> = {"ada": 36}
-ages["alan"] = 41
-
-let raw: bytes = bytes("hello")
-let first: i32 = raw[0]
-```
-
-## Where it stands
-
-Xenith works and is worth writing small programs in. It is not finished.
-
-**Solid:** the number semantics, structs and collections, enums with pattern
-matching and completeness checking, the four loop forms, methods including
-closures and passing them as values, modules, a static checker that reports every
-type error before anything runs, and diagnostics that point at the right code and
-suggest a fix.
-
-Function values can be named functions or closures. Closures capture immutable
-local values (including strings, structs, and tuples) by value; attempting to
-capture a mutable local is rejected with a diagnostic explaining why. Collection
-values are heap-backed and typed, with literal construction, indexing, mutation,
-and runtime allocation/access APIs available to native code.
-
-Recoverable failures use `try`/`catch`; the catch binding exposes `message`,
-`code`, and `name` fields. Xenith does not use Rust-style `Option<T>` or
-`Result<T>` for ordinary error handling.
-
-**Missing:** the standard library covers strings, maths, files, bytes and the
-environment, all written in Xenith. Time and randomness are not there, and there
-are no generics, so generic collection algorithms are still being refined.
-Imported modules are checked before execution, though diagnostics for very large
-dependency graphs are still being refined.
-
-The full list, with what to do instead in each case, is
-[Known limitations](docs/tutorial/19-limitations.md).
-
-## Performance
-
-A tree walking interpreter, so not fast in absolute terms, but nothing in the hot
-path is doing invisible work. On an idle machine, naive `fib(25)` runs in roughly
-a third of a second and a three million iteration counting loop in under two.
-
-Getting there meant fixing nine things, almost none of them where profiling was
-expected to point: a function body deep copied on every reference, the whole
-source file copied with every position, a 392 byte struct returned from every
-step, an interpolated string re-parsed on every evaluation, an allocation on
-every assignment, a `Value` twice the size it needed to be, and every loop
-quietly collecting a list of its own iterations.
-[Performance](docs/internals/10-performance.md) describes each, since they are
-all easy to reintroduce.
-
-## The bytecode VM
-
-The tree walker is finished, in the sense that there is nothing left to fix in
-it. The profile that remains is 36% dispatch and 21% binary operators, variable
-lookup does not appear at all, and allocation does not appear at all. That is
-what a tree walker costs when nothing is being wasted.
-
-So it is being replaced by a **register based bytecode VM with type specialised
-opcodes**, in place, one phase at a time. The target is 5 to 15 times the
-current throughput, measured by instruction count rather than wall clock -- a
-loaded machine has produced two false regressions in this project's history.
-
-The lever is that Xenith is statically typed. Python, Ruby, Lua and JavaScript
-spend most of a VM's budget rediscovering types at run time; every `+`
-dispatches on a pair of tags. Xenith does not have to. Where the checker knows
-both operands are `int`, the compiler emits `ADD_I` instead. Where it does not
-know, the compiler emits the generic opcode, which does exactly what the tree
-walker does today -- so checker completeness turns into speed continuously,
-rather than gating it.
-
-### How it is being built without breaking anything
-
-Three rules, and they are the reason a rewrite of this size is survivable:
-
-- **Anything the compiler cannot handle runs on the tree walker.** Returning
-  "unsupported" is never a failure. Compiling to something that behaves
-  differently is.
-- **Every fixture runs through both engines and is compared byte for byte** --
-  stdout, stderr and exit status. That harness has run on every commit since
-  phase 3, not at the end.
-- **A disassembler was written before the VM loop.** Register allocation bugs
-  produce wrong answers rather than crashes, so `xenith --dump-bytecode
-  file.xen` exists to make them visible.
-
-The VM is opt in while it is built: `XENITH_VM=1 xenith program.xen`. Without
-it, nothing has changed.
-
-### The phases
-
-| | | |
-| --- | --- | --- |
-| 0 | Shrink `Value` to 16 bytes, node ids, the checker emits a type table | done |
-| 1 | `main` as an entry point; program mode and script mode | done |
-| 2 | Whole program front end, cross module type checking | done |
-| 3 | Chunks, opcodes, register allocation, the disassembler, the VM loop, the differential harness | done |
-| 4 | Frames, `CALL` and `RET`, upvalues, `release` | done |
-| 5 | Typed opcodes, wired to the checker's table | **in progress** |
-| 6 | Structs with indexed fields, tagged enums, `match` jump tables, lists, maps, indexing | not started |
-| 7 | Modules, builtins, string interpolation, the standard library precompiled into the binary | not started |
-| 8 | The REPL onto the VM, and `src/interpreter.rs` deleted | not started |
-
-### Where it has got to
-
-Phases 0 to 4 are merged. Measured by callgrind instruction count on one
-machine and one build:
-
-| | tree walker | VM | |
-| --- | --- | --- | --- |
-| `fib(25)`, 242,785 calls | 1,391,087,959 | 248,783,608 | 5.59x |
-| 400,000 iteration counting loop | 1,181,300,349 | 289,255,472 | 4.08x |
-
-`fib(25)` also runs in 36.9 ms against 273.0 ms, which meets the one success
-criterion stated in milliseconds rather than instructions.
-
-The counting loop is the honest number: phase 3 reached 4.45x and **phase 4
-gave 8.9% of it back**, because frames made every register access take a base
-offset and every instruction fetch walk an `Rc`. That was measured, attributed
-to two functions, written down and left, rather than papered over.
-
-Phase 5 is under way and has not been measured yet. What can be said without
-measuring is what the counting loop now compiles to. Before, nine instructions
-a pass:
-
-```
-LOAD_CONST    r2, k1        the bound, reloaded every pass
-LT            r2, r0, r2
-JUMP_IF_FALSE r2, @0011
-ADD           r2, r1, r0
-MOVE          r1, r2        total = ...
-LOAD_CONST    r2, k2        the step, reloaded every pass
-ADD           r2, r0, r2
-MOVE          r0, r2        i = ...
-JUMP          @0002
-```
-
-After, five:
-
-```
-LT_IK         r2, r0, k1    the bound read where it already lives
-JUMP_IF_FALSE r2, @0007
-ADD_I         r1, r1, r0    written straight into total
-ADD_IK        r0, r0, k2    and into i
-JUMP          @0002
-```
-
-Four separate changes, and only the first is what the phase is named after: the
-narrowed opcodes, a constant right operand read where it already lives instead
-of being loaded into a register, an assignment written straight into its own
-variable, and an error that now travels behind a pointer -- every operation in
-`src/values.rs` used to return 240 bytes to carry a 16 byte answer.
-
-### What is left
-
-In phase 5: the interpreter loop still reaches its code through an `Rc` on
-every dispatch, which is where phase 4's regression went and which phase 4's
-notes deferred to here. Then a differential fixture that exercises the narrow
-paths and the wide ones together, and the callgrind run that says whether any
-of this worked.
-
-After phase 5, the three phases that have not started. Phase 6 is the one that
-matters most for real programs: a struct field is a hashed string lookup today,
-and `match` compares variant names as strings.
-
-The whole of it is written up in
-[Performance](docs/internals/10-performance.md), phase by phase, including the
-things that did not work.
-
-## Contributing
+Run the complete test suite with:
 
 ```sh
-cargo test
+cargo test --all
 ```
 
-The suite is driven by fixtures under `tests/`, so adding a test means adding a
-`.xen` file and its expected output rather than writing Rust. See
-[Contributing](docs/internals/12-contributing.md), which also lists what is worth
-working on. The short version: more of the standard library, and a decision about
-generics before collections can be written.
+The compiler and runtime are developed test-first. Native integration tests
+cover parsing, static checking, code generation, linking, runtime behavior,
+recoverable errors, collections, filesystem access, environment access, and
+standard-library imports.
 
 ## License
 
