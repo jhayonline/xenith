@@ -72,3 +72,62 @@ function main() -> i32 {{
     assert!(response.ends_with(b"ok"));
     assert_eq!(child.wait().unwrap().code(), Some(0));
 }
+
+#[test]
+fn xenith_http_router_dispatches_a_registered_route() {
+    let directory = tempfile::tempdir().unwrap();
+    let source = r#"
+grab { router, get, dispatch, router_close } from "std::http"
+function hello(method: string, path: string, body: string) -> tuple<i32, string> {
+    return (200, "hello")
+}
+function main() -> i32 {
+    let routes: i64 = router()
+    let registration: string = get(routes, "/hello", hello)
+    let response: tuple<i32, string> = dispatch(routes, "GET", "/hello", "")
+    router_close(routes)
+    return response[0] + len(response[1]) + len(registration)
+}
+"#;
+    let main = directory.path().join("main.xen");
+    fs::write(&main, source).unwrap();
+    let (program, _) = xenith::native::project::load_program(&main).unwrap();
+    let typed = xenith::native::check::check(&program).unwrap();
+    let object = directory.path().join("main.o");
+    let executable = directory.path().join("main");
+    xenith::native::codegen::emit_object(&typed, &object).unwrap();
+    xenith::native::codegen::link_host(&object, &executable).unwrap();
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(205));
+}
+
+#[test]
+fn xenith_http_router_matches_parameters_and_rejects_bad_routes() {
+    let directory = tempfile::tempdir().unwrap();
+    let source = r#"
+grab { router, get, dispatch, router_close } from "std::http"
+function show(method: string, path: string, body: string) -> tuple<i32, string> {
+    return (201, path)
+}
+function main() -> i32 {
+    let routes: i64 = router()
+    let registration: string = get(routes, "/users/:id", show)
+    let malformed: string = get(routes, "/bad//route", show)
+    let response: tuple<i32, string> = dispatch(routes, "GET", "/users/42", "")
+    let missing: tuple<i32, string> = dispatch(routes, "POST", "/users/42", "")
+    router_close(routes)
+    if (len(registration) == 0 && len(malformed) > 0 && response[0] == 201 && missing[0] == 404) {
+        return len(response[1])
+    }
+    return 0
+}
+"#;
+    let main = directory.path().join("main.xen");
+    fs::write(&main, source).unwrap();
+    let (program, _) = xenith::native::project::load_program(&main).unwrap();
+    let typed = xenith::native::check::check(&program).unwrap();
+    let object = directory.path().join("main.o");
+    let executable = directory.path().join("main");
+    xenith::native::codegen::emit_object(&typed, &object).unwrap();
+    xenith::native::codegen::link_host(&object, &executable).unwrap();
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(9));
+}

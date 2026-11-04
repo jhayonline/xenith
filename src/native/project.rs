@@ -233,7 +233,12 @@ fn standard_native_source(name: &str) -> Option<&'static str> {
              export function accept(listener: i64) -> i64 { return http_accept(listener) }\n\
              export function read(connection: i64) -> tuple<string, string> { return http_read(connection) }\n\
              export function write(connection: i64, status: i32, body: string) -> string { return http_write(connection, status, body) }\n\
-             export function close(connection: i64) -> null { return http_close(connection) }",
+             export function close(connection: i64) -> null { return http_close(connection) }\n\
+             export function router() -> i64 { return http_router_new() }\n\
+             export function get(router: i64, pattern: string, handler: fn(string, string, string) -> tuple<i32, string>) -> string { return http_router_get(router, pattern, handler) }\n\
+             export function post(router: i64, pattern: string, handler: fn(string, string, string) -> tuple<i32, string>) -> string { return http_router_post(router, pattern, handler) }\n\
+             export function dispatch(router: i64, method: string, path: string, body: string) -> tuple<i32, string> { return http_router_dispatch(router, method, path, body) }\n\
+             export function router_close(router: i64) -> null { return http_router_close(router) }",
         ),
         _ => None,
     }

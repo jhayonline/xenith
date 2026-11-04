@@ -308,6 +308,11 @@ fn signatures(
         ("http_read", vec![Type::I64], Type::Tuple(vec![Type::String, Type::String])),
         ("http_write", vec![Type::I64, Type::I32, Type::String], Type::String),
         ("http_close", vec![Type::I64], Type::Null),
+        ("http_router_new", vec![], Type::I64),
+        ("http_router_get", vec![Type::I64, Type::String, Type::Function(vec![Type::String, Type::String, Type::String], Box::new(Type::Tuple(vec![Type::I32, Type::String])))], Type::String),
+        ("http_router_post", vec![Type::I64, Type::String, Type::Function(vec![Type::String, Type::String, Type::String], Box::new(Type::Tuple(vec![Type::I32, Type::String])))], Type::String),
+        ("http_router_dispatch", vec![Type::I64, Type::String, Type::String, Type::String], Type::Tuple(vec![Type::I32, Type::String])),
+        ("http_router_close", vec![Type::I64], Type::Null),
     ] {
         signatures.insert(name.into(), FunctionSignature { parameters, result });
     }
