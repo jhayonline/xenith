@@ -492,3 +492,29 @@ function main() -> i32 {
     link_host(&object, &executable).unwrap();
     assert_eq!(Command::new(executable).status().unwrap().code(), Some(0));
 }
+
+#[test]
+fn std_db_validates_model_rows_against_a_schema_map() {
+    let directory = tempfile::tempdir().unwrap();
+    let source = r#"
+grab { validate } from "std::db"
+function main() -> i32 {
+    let schema: map<string, string> = {"age": "i32", "name": "string"}
+    let valid: map<string, string> = {"age": "36", "name": "Ada"}
+    let invalid: map<string, string> = {"age": "not-a-number", "name": "Ada", "extra": "x"}
+    let valid_error: string = validate(schema, valid)
+    let invalid_error: string = validate(schema, invalid)
+    if (len(valid_error) == 0 && len(invalid_error) > 0) { return 0 }
+    return 1
+}
+"#;
+    let main = directory.path().join("main.xen");
+    std::fs::write(&main, source).unwrap();
+    let (program, _) = xenith::native::project::load_program(&main).unwrap();
+    let typed = check(&program).unwrap();
+    let object = directory.path().join("main.o");
+    let executable = directory.path().join("main");
+    emit_object(&typed, &object).unwrap();
+    link_host(&object, &executable).unwrap();
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(0));
+}

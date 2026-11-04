@@ -212,6 +212,7 @@ fn standard_native_source(name: &str) -> Option<&'static str> {
              export function set_i64(row: map<string, string>, key: string, value: i64) -> null { return db_set_i64(row, key, value) }\n\
              export function set_bool(row: map<string, string>, key: string, value: bool) -> null { return db_set_bool(row, key, value) }\n\
              export function set_string(row: map<string, string>, key: string, value: string) -> null { return db_set_string(row, key, value) }\n\
+             export function validate(schema: map<string, string>, row: map<string, string>) -> string { return db_validate(schema, row) }\n\
              export function insert(store: i64, row: map<string, string>) -> i64 { return db_insert(store, row) }\n\
              export function delete(store: i64, id: i64) -> string { return db_delete(store, id) }\n\
              export function update(store: i64, id: i64, row: map<string, string>) -> string { return db_update(store, id, row) }\n\

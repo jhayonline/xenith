@@ -289,6 +289,7 @@ fn signatures(
         ("db_set_i64", vec![Type::Map(Box::new(Type::String), Box::new(Type::String)), Type::String, Type::I64], Type::Null),
         ("db_set_bool", vec![Type::Map(Box::new(Type::String), Box::new(Type::String)), Type::String, Type::Bool], Type::Null),
         ("db_set_string", vec![Type::Map(Box::new(Type::String), Box::new(Type::String)), Type::String, Type::String], Type::Null),
+        ("db_validate", vec![Type::Map(Box::new(Type::String), Box::new(Type::String)), Type::Map(Box::new(Type::String), Box::new(Type::String))], Type::String),
         ("db_insert", vec![Type::I64, Type::Map(Box::new(Type::String), Box::new(Type::String))], Type::I64),
         ("db_delete", vec![Type::I64, Type::I64], Type::String),
         ("db_update", vec![Type::I64, Type::I64, Type::Map(Box::new(Type::String), Box::new(Type::String))], Type::String),
