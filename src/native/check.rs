@@ -284,6 +284,7 @@ fn signatures(
         ("db_map_bool", vec![Type::Map(Box::new(Type::String), Box::new(Type::String)), Type::String], Type::Bool),
         ("db_insert", vec![Type::I64, Type::Map(Box::new(Type::String), Box::new(Type::String))], Type::I64),
         ("db_delete", vec![Type::I64, Type::I64], Type::String),
+        ("db_update", vec![Type::I64, Type::I64, Type::Map(Box::new(Type::String), Box::new(Type::String))], Type::String),
     ] {
         signatures.insert(name.into(), FunctionSignature { parameters, result });
     }

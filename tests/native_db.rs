@@ -198,3 +198,32 @@ function main() -> i32 {
     link_host(&object, &executable).unwrap();
     assert_eq!(Command::new(executable).status().unwrap().code(), Some(0));
 }
+
+#[test]
+fn std_db_update_changes_a_row() {
+    let directory = tempfile::tempdir().unwrap();
+    let source = r#"
+grab { open, execute, store, update, find_map, as_i64, close } from "std::db"
+function main() -> i32 {
+    let handle: i64 = open(":memory:")
+    let setup: string = execute(handle, "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, age INTEGER); INSERT INTO users (id, name, age) VALUES (1, 'Ada', 36)")
+    let users: i64 = store(handle, "users")
+    let row: map<string, string> = {"name": "Grace", "age": "37"}
+    let error: string = update(users, 1i64, row)
+    let updated: map<string, string> = find_map(users, 1i64)
+    let age: i64 = as_i64(updated, "age")
+    close(handle)
+    if (len(error) == 0 && age == 37i64 && len(updated["name"]) == 5) { return 0 }
+    return 1
+}
+"#;
+    let main = directory.path().join("main.xen");
+    std::fs::write(&main, source).unwrap();
+    let (program, _) = xenith::native::project::load_program(&main).unwrap();
+    let typed = check(&program).unwrap();
+    let object = directory.path().join("main.o");
+    let executable = directory.path().join("main");
+    emit_object(&typed, &object).unwrap();
+    link_host(&object, &executable).unwrap();
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(0));
+}
