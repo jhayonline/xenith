@@ -6,6 +6,91 @@
 //! involved.
 
 use std::fmt;
+use std::collections::BTreeMap;
+
+#[derive(Debug)]
+pub enum DatabaseError {
+    Sqlite(rusqlite::Error),
+    InvalidValue(String),
+}
+
+impl fmt::Display for DatabaseError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Sqlite(error) => write!(formatter, "database error: {error}"),
+            Self::InvalidValue(error) => write!(formatter, "invalid database value: {error}"),
+        }
+    }
+}
+
+impl std::error::Error for DatabaseError {}
+impl From<rusqlite::Error> for DatabaseError {
+    fn from(error: rusqlite::Error) -> Self { Self::Sqlite(error) }
+}
+
+pub type Row = BTreeMap<String, Value>;
+
+pub struct SqliteDatabase {
+    connection: rusqlite::Connection,
+}
+
+impl SqliteDatabase {
+    pub fn open(path: impl AsRef<std::path::Path>) -> Result<Self, DatabaseError> {
+        Ok(Self { connection: rusqlite::Connection::open(path)? })
+    }
+
+    pub fn memory() -> Result<Self, DatabaseError> {
+        Ok(Self { connection: rusqlite::Connection::open_in_memory()? })
+    }
+
+    pub fn apply(&self, schema: &SchemaPlan) -> Result<(), DatabaseError> {
+        let transaction = self.connection.unchecked_transaction()?;
+        for statement in schema.statements() {
+            transaction.execute_batch(&statement)?;
+        }
+        transaction.commit()?;
+        Ok(())
+    }
+
+    pub fn execute(&self, query: &QueryPlan) -> Result<usize, DatabaseError> {
+        let values = query.parameters.iter().map(to_sql_value).collect::<Result<Vec<_>, _>>()?;
+        Ok(self.connection.execute(&query.sql, rusqlite::params_from_iter(values))?)
+    }
+
+    pub fn rows(&self, query: &QueryPlan) -> Result<Vec<Row>, DatabaseError> {
+        let values = query.parameters.iter().map(to_sql_value).collect::<Result<Vec<_>, _>>()?;
+        let mut statement = self.connection.prepare(&query.sql)?;
+        let columns: Vec<String> = statement.column_names().iter().map(|name| (*name).to_owned()).collect();
+        let rows = statement.query_map(rusqlite::params_from_iter(values), |row| {
+            let mut result = Row::new();
+            for (index, name) in columns.iter().enumerate() {
+                result.insert(name.clone(), from_sql_value(row.get_ref(index)?));
+            }
+            Ok(result)
+        })?;
+        rows.collect::<Result<Vec<_>, rusqlite::Error>>().map_err(DatabaseError::from)
+    }
+}
+
+fn to_sql_value(value: &Value) -> Result<rusqlite::types::Value, DatabaseError> {
+    Ok(match value {
+        Value::Null => rusqlite::types::Value::Null,
+        Value::Integer(value) => rusqlite::types::Value::Integer(*value),
+        Value::Text(value) => rusqlite::types::Value::Text(value.clone()),
+        Value::Boolean(value) => rusqlite::types::Value::Integer(i64::from(*value)),
+        Value::Bytes(value) => rusqlite::types::Value::Blob(value.clone()),
+    })
+}
+
+fn from_sql_value(value: rusqlite::types::ValueRef<'_>) -> Value {
+    match value {
+        rusqlite::types::ValueRef::Null => Value::Null,
+        rusqlite::types::ValueRef::Integer(value) => Value::Integer(value),
+        rusqlite::types::ValueRef::Real(value) => Value::Text(value.to_string()),
+        rusqlite::types::ValueRef::Text(value) => Value::Text(String::from_utf8_lossy(value).into_owned()),
+        rusqlite::types::ValueRef::Blob(value) => Value::Bytes(value.to_vec()),
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Value {

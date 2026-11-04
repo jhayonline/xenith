@@ -1,4 +1,4 @@
-use xenith::native::orm::{SchemaPlan, Store, Value};
+use xenith::native::orm::{SchemaPlan, SqliteDatabase, Store, Value};
 
 #[test]
 fn schema_builder_describes_a_users_table_without_raw_sql() {
@@ -38,4 +38,22 @@ fn stores_build_parameterized_queries_without_raw_sql() {
         ("name".into(), Value::Text("Ada".into())),
         ("active".into(), Value::Boolean(true)),
     ]).sql, "INSERT INTO \"users\" (\"name\", \"active\") VALUES (?, ?)");
+}
+
+#[test]
+fn sqlite_driver_applies_schema_and_executes_parameterized_store_plans() {
+    let mut schema = SchemaPlan::new();
+    let users = schema.create("users");
+    users.id();
+    users.string("name");
+
+    let database = SqliteDatabase::memory().unwrap();
+    database.apply(&schema).unwrap();
+    let store = Store::new("users");
+    database.execute(&store.insert([
+        ("name".into(), Value::Text("Ada".into())),
+    ])).unwrap();
+
+    let rows = database.rows(&store.find(1)).unwrap();
+    assert_eq!(rows[0].get("name"), Some(&Value::Text("Ada".into())));
 }
