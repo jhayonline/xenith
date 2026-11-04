@@ -1,4 +1,5 @@
-use xenith::native::orm::{SchemaPlan, SqliteDatabase, Store, Value};
+use xenith::native::orm::{ColumnType, ModelSchema, SchemaPlan, SqliteDatabase, Store, Value};
+use std::collections::BTreeMap;
 
 #[test]
 fn schema_builder_describes_a_users_table_without_raw_sql() {
@@ -67,4 +68,32 @@ fn sqlite_driver_applies_each_named_migration_once() {
     assert!(!database.migrate("001_users", &schema).unwrap());
     let rows = database.rows(&Store::new("__xenith_migrations").all()).unwrap();
     assert_eq!(rows.len(), 1);
+}
+
+#[test]
+fn model_schema_validates_fields_and_hydrates_relations() {
+    let mut user = ModelSchema::new("User", "users");
+    user.field("id", ColumnType::Integer)
+        .field("name", ColumnType::Text)
+        .has_many("posts", "posts", "user_id");
+    let mut fields = BTreeMap::new();
+    fields.insert("id".into(), Value::Integer(1));
+    fields.insert("name".into(), Value::Text("Ada".into()));
+    let mut post = BTreeMap::new();
+    post.insert("user_id".into(), Value::Integer(1));
+    let mut relations = BTreeMap::new();
+    relations.insert("posts".into(), vec![post]);
+    let hydrated = user.hydrate(fields, relations).unwrap();
+    assert_eq!(hydrated.fields.get("name"), Some(&Value::Text("Ada".into())));
+    assert_eq!(hydrated.relations["posts"].len(), 1);
+}
+
+#[test]
+fn model_schema_rejects_wrong_field_types() {
+    let mut user = ModelSchema::new("User", "users");
+    user.field("id", ColumnType::Integer);
+    let mut fields = BTreeMap::new();
+    fields.insert("id".into(), Value::Text("not an id".into()));
+    let error = user.hydrate(fields, BTreeMap::new()).unwrap_err();
+    assert!(error.to_string().contains("wrong type"));
 }

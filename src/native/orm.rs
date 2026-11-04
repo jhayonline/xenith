@@ -30,6 +30,78 @@ impl From<rusqlite::Error> for DatabaseError {
 
 pub type Row = BTreeMap<String, Value>;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModelField {
+    pub name: String,
+    pub ty: ColumnType,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModelRelation {
+    pub name: String,
+    pub table: String,
+    pub foreign_key: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HydratedModel {
+    pub fields: Row,
+    pub relations: BTreeMap<String, Vec<Row>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModelSchema {
+    pub name: String,
+    pub table: String,
+    pub fields: Vec<ModelField>,
+    pub relations: Vec<ModelRelation>,
+}
+
+impl ModelSchema {
+    pub fn new(name: impl Into<String>, table: impl Into<String>) -> Self {
+        Self { name: name.into(), table: table.into(), fields: Vec::new(), relations: Vec::new() }
+    }
+
+    pub fn field(&mut self, name: impl Into<String>, ty: ColumnType) -> &mut Self {
+        self.fields.push(ModelField { name: name.into(), ty });
+        self
+    }
+
+    pub fn belongs_to(&mut self, name: impl Into<String>, table: impl Into<String>, foreign_key: impl Into<String>) -> &mut Self {
+        self.relations.push(ModelRelation { name: name.into(), table: table.into(), foreign_key: foreign_key.into() });
+        self
+    }
+
+    pub fn has_many(&mut self, name: impl Into<String>, table: impl Into<String>, foreign_key: impl Into<String>) -> &mut Self {
+        self.belongs_to(name, table, foreign_key)
+    }
+
+    pub fn hydrate(&self, row: Row, relations: BTreeMap<String, Vec<Row>>) -> Result<HydratedModel, DatabaseError> {
+        for field in &self.fields {
+            let value = row.get(&field.name).ok_or_else(|| DatabaseError::InvalidValue(format!("{} is missing field `{}`", self.name, field.name)))?;
+            let valid = match (&field.ty, value) {
+                (ColumnType::Integer, Value::Integer(_))
+                | (ColumnType::Text, Value::Text(_))
+                | (ColumnType::DateTime, Value::Text(_))
+                | (ColumnType::Boolean, Value::Boolean(_))
+                | (ColumnType::Bytes, Value::Bytes(_)) => true,
+                _ => false,
+            };
+            if !valid { return Err(DatabaseError::InvalidValue(format!("{} field `{}` has the wrong type", self.name, field.name))); }
+        }
+        for relation in &self.relations {
+            if let Some(rows) = relations.get(&relation.name) {
+                for related in rows {
+                    if !related.contains_key(&relation.foreign_key) {
+                        return Err(DatabaseError::InvalidValue(format!("relation `{}` is missing foreign key `{}`", relation.name, relation.foreign_key)));
+                    }
+                }
+            }
+        }
+        Ok(HydratedModel { fields: row, relations })
+    }
+}
+
 pub struct SqliteDatabase {
     connection: rusqlite::Connection,
 }
