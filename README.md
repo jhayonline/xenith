@@ -12,7 +12,7 @@ xenith run
 ```
 
 Every executable project has `xenith.toml` and `src/main.xen`. The current
-native bootstrap supports `fn main() -> i32`, integer expressions, local
+native bootstrap supports `function main() -> i32`, integer expressions, local
 bindings, explicit `let mut`, typed heap-backed `list<T>`, `map<string, T>`, and
 `bytes` values, collection literals, indexing, mutation, and `return`; it emits
 a host-native executable under `target/host/debug/`. The legacy interpreter and
@@ -23,11 +23,11 @@ Native projects may split exported declarations into files under `src/`:
 
 ```xenith
 # src/helper.xen
-export fn answer() -> i32 { return 42 }
+export function answer() -> i32 { return 42 }
 
 # src/main.xen
 grab { answer } from "helper"
-fn main() -> i32 { return answer() }
+function main() -> i32 { return answer() }
 ```
 
 A small, statically typed language with C style syntax. Roughly thirty keywords,
@@ -39,7 +39,7 @@ struct Runner {
     minutes: i32
 }
 
-fn faster_of(a: Runner, b: Runner) -> Runner {
+function faster_of(a: Runner, b: Runner) -> Runner {
     if (a.minutes < b.minutes) {
         return a
     } else {
@@ -47,7 +47,7 @@ fn faster_of(a: Runner, b: Runner) -> Runner {
     }
 }
 
-fn main() -> i32 {
+function main() -> i32 {
     let ada: Runner = Runner { name: "Ada", minutes: 31 }
     let alan: Runner = Runner { name: "Alan", minutes: 28 }
 
@@ -66,9 +66,9 @@ fn main() -> i32 {
 Xenith is an attempt to keep the good parts of four languages and leave out most
 of the rest.
 
-**From Go**, structs that are plain data. No methods on types, no inheritance, no
-interfaces. Behaviour is free functions that take the data, so everything that
-touches a type is a name you can search for.
+**From Go**, structs that are plain data and straightforward native execution.
+Xenith also provides methods for behavior that naturally belongs to a type, with
+no inheritance requirement.
 
 **From Rust and Zig**, arithmetic that refuses to lie. `i64` is a real 64 bit
 integer and `i32` is a real 32 bit integer; the two never mix without you saying

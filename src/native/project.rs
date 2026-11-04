@@ -173,29 +173,29 @@ fn load_module(
 fn standard_native_source(name: &str) -> Option<&'static str> {
     match name {
         "env" => Some(
-            "export fn get(name: string) -> tuple<string, bool> { return env_get(name) }\n\
-             export fn set(name: string, value: string) -> null { return env_set(name, value) }\n\
-             export fn unset(name: string) -> null { return env_unset(name) }\n\
-             export fn all() -> map<string, string> { return env_vars() }\n\
-             export fn args() -> list<string> { return env_args() }\n\
-             export fn cwd() -> tuple<string, string> { return env_cwd() }\n\
-             export fn exit(code: i32) -> null { return env_exit(code) }",
+            "export function get(name: string) -> tuple<string, bool> { return env_get(name) }\n\
+             export function set(name: string, value: string) -> null { return env_set(name, value) }\n\
+             export function unset(name: string) -> null { return env_unset(name) }\n\
+             export function all() -> map<string, string> { return env_vars() }\n\
+             export function args() -> list<string> { return env_args() }\n\
+             export function cwd() -> tuple<string, string> { return env_cwd() }\n\
+             export function exit(code: i32) -> null { return env_exit(code) }",
         ),
         "fs" => Some(
-            "export fn read(path: string) -> tuple<string, string> { return fs_read(path) }\n\
-             export fn write(path: string, contents: string) -> string { return fs_write(path, contents) }\n\
-             export fn append(path: string, contents: string) -> string { return fs_append(path, contents) }\n\
-             export fn read_bytes(path: string) -> tuple<bytes, string> { return fs_read_bytes(path) }\n\
-             export fn write_bytes(path: string, contents: bytes) -> string { return fs_write_bytes(path, contents) }\n\
-             export fn append_bytes(path: string, contents: bytes) -> string { return fs_append_bytes(path, contents) }\n\
-             export fn remove(path: string) -> string { return fs_remove(path) }\n\
-             export fn exists(path: string) -> bool { return fs_exists(path) }\n\
-             export fn is_file(path: string) -> bool { return fs_is_file(path) }\n\
-             export fn is_dir(path: string) -> bool { return fs_is_dir(path) }\n\
-             export fn size(path: string) -> tuple<i64, string> { return fs_size(path) }\n\
-             export fn list_dir(path: string) -> tuple<list<string>, string> { return fs_list(path) }\n\
-             export fn create_dir(path: string) -> string { return fs_create_dir(path) }\n\
-             export fn remove_dir(path: string) -> string { return fs_remove_dir(path) }",
+            "export function read(path: string) -> tuple<string, string> { return fs_read(path) }\n\
+             export function write(path: string, contents: string) -> string { return fs_write(path, contents) }\n\
+             export function append(path: string, contents: string) -> string { return fs_append(path, contents) }\n\
+             export function read_bytes(path: string) -> tuple<bytes, string> { return fs_read_bytes(path) }\n\
+             export function write_bytes(path: string, contents: bytes) -> string { return fs_write_bytes(path, contents) }\n\
+             export function append_bytes(path: string, contents: bytes) -> string { return fs_append_bytes(path, contents) }\n\
+             export function remove(path: string) -> string { return fs_remove(path) }\n\
+             export function exists(path: string) -> bool { return fs_exists(path) }\n\
+             export function is_file(path: string) -> bool { return fs_is_file(path) }\n\
+             export function is_dir(path: string) -> bool { return fs_is_dir(path) }\n\
+             export function size(path: string) -> tuple<i64, string> { return fs_size(path) }\n\
+             export function list_dir(path: string) -> tuple<list<string>, string> { return fs_list(path) }\n\
+             export function create_dir(path: string) -> string { return fs_create_dir(path) }\n\
+             export function remove_dir(path: string) -> string { return fs_remove_dir(path) }",
         ),
         _ => None,
     }

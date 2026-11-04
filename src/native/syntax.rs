@@ -628,9 +628,9 @@ impl Parser {
                 });
                 continue;
             }
-            if self.peek() != Some("fn") {
+            if !matches!(self.peek(), Some("function" | "fn")) {
                 if errors.is_empty() {
-                    errors.push(Diagnostic::at("expected `fn`", self.location()));
+                    errors.push(Diagnostic::at("expected `function`", self.location()));
                 }
                 self.synchronize_top_level();
                 continue;
@@ -701,7 +701,7 @@ impl Parser {
         }
     }
     fn synchronize_struct_field(&mut self) {
-        while !matches!(self.peek(), Some("," | "}" | "fn" | "struct")) && self.peek().is_some() {
+        while !matches!(self.peek(), Some("," | "}" | "fn" | "function" | "struct")) && self.peek().is_some() {
             self.take();
         }
         if self.peek() == Some(",") {
@@ -709,7 +709,7 @@ impl Parser {
         }
     }
     fn synchronize_top_level(&mut self) {
-        while !matches!(self.peek(), Some("fn" | "struct")) && self.peek().is_some() {
+        while !matches!(self.peek(), Some("fn" | "function" | "struct")) && self.peek().is_some() {
             self.take();
         }
     }

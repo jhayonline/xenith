@@ -17,6 +17,19 @@ fn native_try_catch_is_parsed_and_checked() {
 }
 
 #[test]
+fn native_function_keyword_declares_a_function() {
+    let source = "function main() -> i32 { return 42 }";
+    let program = parse(Path::new("main.xen"), source).unwrap();
+    let typed = check(&program).unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let object = directory.path().join("main.o");
+    let executable = directory.path().join("main");
+    emit_object(&typed, &object).unwrap();
+    link_host(&object, &executable).unwrap();
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(42));
+}
+
+#[test]
 fn native_try_catch_runs_the_handler_after_panic() {
     let source = r#"fn main() -> i32 {
         try { panic("boom") } catch (error) { return 42 }
