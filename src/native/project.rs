@@ -246,6 +246,9 @@ fn standard_native_source(name: &str) -> Option<&'static str> {
              export function json_validate(body: string) -> string { return http_json_validate(body) }\n\
              export function json_escape(value: string) -> string { return http_json_escape(value) }\n\
              export function json_object(body: string) -> tuple<map<string, string>, string> { return http_json_object(body) }\n\
+             export function json_string(value: string) -> tuple<string, string> { return http_json_string(value) }\n\
+             export function json_i64(value: string) -> tuple<i64, string> { return http_json_i64(value) }\n\
+             export function json_bool(value: string) -> tuple<bool, string> { return http_json_bool(value) }\n\
              export function header(request: string, name: string) -> string { return http_header(request, name) }\n\
              export function param(path: string, pattern: string, name: string) -> string { return http_param(path, pattern, name) }\n\
              export function server(address: string) -> i64 { return http_server_bind(address) }\n\

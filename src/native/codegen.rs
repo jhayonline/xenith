@@ -2345,6 +2345,24 @@ fn lower(
                 let _ = runtime_call(b, m, "xenith_http_json_object", vec![AbiParam::new(types::I64); 5], vec![], &args);
                 return (vec![b.ins().load(types::I64, MemFlags::new(), args[2], 0), b.ins().load(types::I64, MemFlags::new(), args[3], 0), b.ins().load(types::I64, MemFlags::new(), args[4], 0)], Type::Tuple(vec![Type::Map(Box::new(Type::String), Box::new(Type::String)), Type::String]));
             }
+            if name == "http_json_string" || name == "http_json_i64" || name == "http_json_bool" {
+                let value = lower(b, &arguments[0], v, ids, m, l).0;
+                let output = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let error_ptr = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let error_len = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let runtime_name = if name == "http_json_string" { "xenith_http_json_string" } else if name == "http_json_i64" { "xenith_http_json_i64" } else { "xenith_http_json_bool" };
+                if name == "http_json_string" {
+                    let output_len = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                    let args = [value[0], value[1], b.ins().stack_addr(types::I64, output, 0), b.ins().stack_addr(types::I64, output_len, 0), b.ins().stack_addr(types::I64, error_ptr, 0), b.ins().stack_addr(types::I64, error_len, 0)];
+                    let _ = runtime_call(b, m, runtime_name, vec![AbiParam::new(types::I64); 6], vec![], &args);
+                    return (vec![b.ins().load(types::I64, MemFlags::new(), args[2], 0), b.ins().load(types::I64, MemFlags::new(), args[3], 0), b.ins().load(types::I64, MemFlags::new(), args[4], 0), b.ins().load(types::I64, MemFlags::new(), args[5], 0)], Type::Tuple(vec![Type::String, Type::String]));
+                }
+                let args = [value[0], value[1], b.ins().stack_addr(types::I64, output, 0), b.ins().stack_addr(types::I64, error_ptr, 0), b.ins().stack_addr(types::I64, error_len, 0)];
+                let _ = runtime_call(b, m, runtime_name, vec![AbiParam::new(types::I64); 5], vec![], &args);
+                let result_type = if name == "http_json_i64" { Type::I64 } else { Type::Bool };
+                let result_lane = if name == "http_json_bool" { types::I8 } else { types::I64 };
+                return (vec![b.ins().load(result_lane, MemFlags::new(), args[2], 0), b.ins().load(types::I64, MemFlags::new(), args[3], 0), b.ins().load(types::I64, MemFlags::new(), args[4], 0)], Type::Tuple(vec![result_type, Type::String]));
+            }
             if name == "http_server_bind" {
                 let address = lower(b, &arguments[0], v, ids, m, l).0;
                 let value = runtime_call(b, m, "xenith_http_server_bind", vec![AbiParam::new(types::I64); 2], vec![AbiParam::new(types::I64)], &address)[0];

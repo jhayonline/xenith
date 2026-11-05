@@ -353,3 +353,31 @@ function main() -> i32 {{
     child.kill().unwrap();
     let _ = child.wait();
 }
+
+#[test]
+fn xenith_http_json_values_convert_to_typed_scalars() {
+    let directory = tempfile::tempdir().unwrap();
+    let source = r#"
+grab { json_string, json_i64, json_bool, json_escape } from "std::http"
+function main() -> i32 {
+    let encoded: string = json_escape("Ada")
+    let text: tuple<string, string> = json_string(encoded)
+    let number: tuple<i64, string> = json_i64("42")
+    let flag: tuple<bool, string> = json_bool("true")
+    let bad: tuple<i64, string> = json_i64("oops")
+    if (text[0] == "Ada" && number[0] == 42i64 && flag[0] && len(text[1]) == 0 && len(number[1]) == 0 && len(bad[1]) > 0) {
+        return 1
+    }
+    return 0
+}
+"#;
+    let main = directory.path().join("main.xen");
+    fs::write(&main, source).unwrap();
+    let (program, _) = xenith::native::project::load_program(&main).unwrap();
+    let typed = xenith::native::check::check(&program).unwrap();
+    let object = directory.path().join("main.o");
+    let executable = directory.path().join("main");
+    xenith::native::codegen::emit_object(&typed, &object).unwrap();
+    xenith::native::codegen::link_host(&object, &executable).unwrap();
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(1));
+}
