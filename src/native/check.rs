@@ -261,6 +261,10 @@ fn signatures(
     for (name, parameters, result) in [
         ("auth_hash_password", vec![Type::String], Type::String),
         ("auth_verify_password", vec![Type::String, Type::String], Type::Bool),
+        ("auth_session_open", vec![Type::I64], Type::String),
+        ("auth_session_create", vec![Type::I64, Type::I64, Type::I64], Type::String),
+        ("auth_session_user", vec![Type::I64, Type::String], Type::I64),
+        ("auth_session_revoke", vec![Type::I64, Type::String], Type::String),
         ("fs_append", vec![Type::String, Type::String], Type::String),
         ("fs_write_bytes", vec![Type::String, Type::Bytes], Type::String),
         ("fs_append_bytes", vec![Type::String, Type::Bytes], Type::String),

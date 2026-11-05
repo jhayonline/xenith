@@ -314,7 +314,11 @@ fn standard_native_source(name: &str) -> Option<&'static str> {
         ),
         "auth" => Some(
             "export function hash_password(password: string) -> string { return auth_hash_password(password) }\n\
-             export function verify_password(password: string, encoded: string) -> bool { return auth_verify_password(password, encoded) }",
+             export function verify_password(password: string, encoded: string) -> bool { return auth_verify_password(password, encoded) }\n\
+             export function session_open(database: i64) -> string { return auth_session_open(database) }\n\
+             export function session_create(database: i64, user_id: i64, ttl_seconds: i64) -> string { return auth_session_create(database, user_id, ttl_seconds) }\n\
+             export function session_user(database: i64, token: string) -> i64 { return auth_session_user(database, token) }\n\
+             export function session_revoke(database: i64, token: string) -> string { return auth_session_revoke(database, token) }",
         ),
         _ => None,
     }

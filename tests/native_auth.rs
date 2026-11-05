@@ -29,3 +29,26 @@ function main() -> i32 {
 "#, &directory);
     assert_eq!(Command::new(executable).status().unwrap().code(), Some(0));
 }
+
+#[test]
+fn auth_sessions_create_lookup_expire_and_revoke() {
+    let directory = tempfile::tempdir().unwrap();
+    let executable = compile(r#"
+grab { open, close } from "std::db"
+grab { session_open, session_create, session_user, session_revoke } from "std::auth"
+function main() -> i32 {
+    let database: i64 = open(":memory:")
+    let setup: string = session_open(database)
+    if (len(setup) != 0) { return 10 }
+    let token: string = session_create(database, 42i64, 3600i64)
+    if (len(token) < 32) { return 20 }
+    if (session_user(database, token) != 42i64) { return 30 }
+    let revoked: string = session_revoke(database, token)
+    if (len(revoked) != 0) { return 40 }
+    if (session_user(database, token) != 0i64) { return 50 }
+    close(database)
+    return 0
+}
+"#, &directory);
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(0));
+}

@@ -155,6 +155,25 @@ function check_login(password: string, stored: string) -> bool {
 
 Hashing failures are returned through Xenith's recoverable error channel.
 
+Sessions can be stored in the same SQLite database. `session_open` is
+idempotent, IDs are random opaque tokens, and expired or revoked sessions
+resolve to user ID `0`:
+
+```xenith
+grab { open, close } from "std::db"
+grab { session_open, session_create, session_user, session_revoke } from "std::auth"
+
+function main() -> i32 {
+    let database: i64 = open("app.db")
+    session_open(database)
+    let token: string = session_create(database, 42i64, 3600i64)
+    let user_id: i64 = session_user(database, token)
+    session_revoke(database, token)
+    close(database)
+    return user_id
+}
+```
+
 For the blocking TCP server, use `run_with_pool` or
 `run_for_with_pool`. They apply the same request scope to every accepted
 connection, including cleanup when reading or writing the request fails.
