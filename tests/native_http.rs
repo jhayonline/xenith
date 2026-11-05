@@ -231,6 +231,7 @@ function main() -> i32 {
     let id: string = param("/users/42", "/users/:id", "id")
     return len(host) + len(id)
 }
+
 "#;
     let main = directory.path().join("main.xen");
     fs::write(&main, source).unwrap();
@@ -241,4 +242,28 @@ function main() -> i32 {
     xenith::native::codegen::emit_object(&typed, &object).unwrap();
     xenith::native::codegen::link_host(&object, &executable).unwrap();
     assert_eq!(Command::new(executable).status().unwrap().code(), Some(5));
+}
+
+#[test]
+fn xenith_http_server_shutdown_is_safe_and_recoverable() {
+    let directory = tempfile::tempdir().unwrap();
+    let source = r#"
+grab { server, shutdown, run } from "std::http"
+function main() -> i32 {
+    let handle: i64 = server("not-an-address")
+    shutdown(handle)
+    let error: string = run(handle, 0i64)
+    if (len(error) > 0) { return 1 }
+    return 0
+}
+"#;
+    let main = directory.path().join("main.xen");
+    fs::write(&main, source).unwrap();
+    let (program, _) = xenith::native::project::load_program(&main).unwrap();
+    let typed = xenith::native::check::check(&program).unwrap();
+    let object = directory.path().join("main.o");
+    let executable = directory.path().join("main");
+    xenith::native::codegen::emit_object(&typed, &object).unwrap();
+    xenith::native::codegen::link_host(&object, &executable).unwrap();
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(1));
 }

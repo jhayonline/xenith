@@ -2312,6 +2312,25 @@ fn lower(
                 let body = lower(b, &arguments[1], v, ids, m, l).0;
                 return (vec![status, body[0], body[1]], Type::Tuple(vec![Type::I32, Type::String]));
             }
+            if name == "http_server_bind" {
+                let address = lower(b, &arguments[0], v, ids, m, l).0;
+                let value = runtime_call(b, m, "xenith_http_server_bind", vec![AbiParam::new(types::I64); 2], vec![AbiParam::new(types::I64)], &address)[0];
+                return (vec![value], Type::I64);
+            }
+            if name == "http_server_shutdown" {
+                let server = lower(b, &arguments[0], v, ids, m, l).0[0];
+                let _ = runtime_call(b, m, "xenith_http_server_shutdown", vec![AbiParam::new(types::I64)], vec![], &[server]);
+                return (vec![b.ins().iconst(types::I8, 0)], Type::Null);
+            }
+            if name == "http_server_run" {
+                let server = lower(b, &arguments[0], v, ids, m, l).0[0];
+                let router = lower(b, &arguments[1], v, ids, m, l).0[0];
+                let error_ptr = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let error_len = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let args = [server, router, b.ins().stack_addr(types::I64, error_ptr, 0), b.ins().stack_addr(types::I64, error_len, 0)];
+                let _ = runtime_call(b, m, "xenith_http_server_run", vec![AbiParam::new(types::I64); 4], vec![], &args);
+                return (vec![b.ins().load(types::I64, MemFlags::new(), args[2], 0), b.ins().load(types::I64, MemFlags::new(), args[3], 0)], Type::String);
+            }
             if name == "db_open" {
                 let path = lower(b, &arguments[0], v, ids, m, l).0;
                 let handle = runtime_call(b, m, "xenith_db_open", vec![AbiParam::new(types::I64); 2], vec![AbiParam::new(types::I64)], &path)[0];
