@@ -2094,6 +2094,26 @@ fn lower(
                 )[0];
                 return (vec![pointer, length], Type::String);
             }
+            if let Some((model, method)) = name.split_once("__") {
+                if method == "find" && l.contains_key(model) {
+                    let store = lower(b, &arguments[0], v, ids, m, l).0[0];
+                    let id = lower(b, &arguments[1], v, ids, m, l).0[0];
+                    let map = runtime_call(b, m, "xenith_db_find_map", vec![AbiParam::new(types::I64); 2], vec![AbiParam::new(types::I64)], &[store, id])[0];
+                    let mut values = Vec::new();
+                    for (field, ty) in &l[model].fields {
+                        let key = lower(b, &Expr::String(field.clone()), v, ids, m, l).0;
+                        let value = match ty {
+                            Type::I64 => runtime_call(b, m, "xenith_db_map_i64", vec![AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64)], vec![AbiParam::new(types::I64)], &[map, key[0], key[1]])[0],
+                            Type::I32 => runtime_call(b, m, "xenith_db_map_i32", vec![AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64)], vec![AbiParam::new(types::I32)], &[map, key[0], key[1]])[0],
+                            Type::Bool => runtime_call(b, m, "xenith_db_map_bool", vec![AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64)], vec![AbiParam::new(types::I8)], &[map, key[0], key[1]])[0],
+                            Type::String => { let ptr = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3)); let len = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3)); let args = [map, key[0], key[1], b.ins().stack_addr(types::I64, ptr, 0), b.ins().stack_addr(types::I64, len, 0)]; let _ = runtime_call(b, m, "xenith_db_map_string", vec![AbiParam::new(types::I64); 5], vec![], &args); values.push(b.ins().load(types::I64, MemFlags::new(), args[3], 0)); b.ins().load(types::I64, MemFlags::new(), args[4], 0) }
+                            _ => { let location = b.ins().iconst(types::I64, 0); let _ = runtime_call(b, m, "xenith_error_set_offset", vec![AbiParam::new(types::I64)], vec![], &[location]); b.ins().iconst(types::I64, 0) }
+                        };
+                        values.push(value);
+                    }
+                    return (values, Type::Named(model.to_string()));
+                }
+            }
             if name == "fs_read" {
                 let path = lower(b, &arguments[0], v, ids, m, l).0;
                 let data_ptr = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));

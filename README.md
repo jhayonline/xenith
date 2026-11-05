@@ -347,6 +347,17 @@ let error: string = update_model(users, id, model, {"id": "1", "name": "Grace"})
 Rows are validated against the declared field types before writes and reads;
 database failures remain recoverable through `try`/`catch`.
 
+Ordinary structs can also hydrate directly from a model store. The compiler
+checks the struct fields and emits typed conversions for the row:
+
+```xenith
+struct User { id: i64, name: string, age: i64 }
+let user: User = User.find(users, 1i64)
+```
+
+Missing columns and invalid scalar values are reported as recoverable database
+errors.
+
 ## Standard library and imports
 
 Native projects can import the filesystem and environment modules:

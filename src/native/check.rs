@@ -28,7 +28,7 @@ struct Flow {
 
 pub fn check(program: &Program) -> Result<TypedProgram, Vec<Diagnostic>> {
     let mut errors = vec![];
-    let signatures = signatures(program, &mut errors);
+    let mut signatures = signatures(program, &mut errors);
     let layouts = layouts(program, &mut errors);
     let mains: Vec<_> = program
         .functions
@@ -1462,6 +1462,15 @@ fn expr(
                         });
                     }
                     return Some(Type::Bool);
+                }
+                if let Some((receiver, method)) = name.split_once("__") {
+                    if method == "find" && layouts.contains_key(receiver) {
+                        if arguments.len() != 2 {
+                            errors.push(Diagnostic { message: format!("model `{receiver}.find` expects a store and id"), span: None });
+                        }
+                        for argument in arguments { expr(argument, names, signatures, layouts, errors); }
+                        return Some(Type::Named(receiver.to_string()));
+                    }
                 }
                 let Some(signature) = signatures.get(name) else {
                     if let Some((receiver, method)) = name.split_once("__") {
