@@ -319,6 +319,7 @@ fn signatures(
         ("http_json_body", vec![Type::String], Type::Tuple(vec![Type::String, Type::String])),
         ("http_json_validate", vec![Type::String], Type::String),
         ("http_json_escape", vec![Type::String], Type::String),
+        ("http_json_object", vec![Type::String], Type::Tuple(vec![Type::Map(Box::new(Type::String), Box::new(Type::String)), Type::String])),
         ("http_header", vec![Type::String, Type::String], Type::String),
         ("http_param", vec![Type::String, Type::String, Type::String], Type::String),
         ("http_server_bind", vec![Type::String], Type::I64),

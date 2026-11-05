@@ -293,3 +293,63 @@ function main() -> i32 {
     // `true` is four bytes, the invalid-json diagnostic and escaped string are non-empty.
     assert!(Command::new(executable).status().unwrap().code().unwrap() > 8);
 }
+
+#[test]
+fn xenith_http_json_object_returns_a_typed_map_or_error() {
+    let directory = tempfile::tempdir().unwrap();
+    let source = r#"
+grab { json_object } from "std::http"
+function main() -> i32 {
+    let decoded: tuple<map<string, string>, string> = json_object("true")
+    return len(decoded[1])
+}
+"#;
+    let main = directory.path().join("main.xen");
+    fs::write(&main, source).unwrap();
+    let (program, _) = xenith::native::project::load_program(&main).unwrap();
+    let typed = xenith::native::check::check(&program).unwrap();
+    let object = directory.path().join("main.o");
+    let executable = directory.path().join("main");
+    xenith::native::codegen::emit_object(&typed, &object).unwrap();
+    xenith::native::codegen::link_host(&object, &executable).unwrap();
+    assert!(Command::new(executable).status().unwrap().code().unwrap() > 0);
+}
+
+#[test]
+fn xenith_http_json_object_decodes_post_fields() {
+    let reservation = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = reservation.local_addr().unwrap().port();
+    drop(reservation);
+    let directory = tempfile::tempdir().unwrap();
+    let source = format!(r#"
+grab {{ router, post, serve, json_object }} from "std::http"
+function create(method: string, path: string, body: string) -> tuple<i32, string> {{
+    let decoded: tuple<map<string, string>, string> = json_object(body)
+    if (len(decoded[1]) > 0) {{ return (400, decoded[1]) }}
+    return (200, decoded[0]["name"])
+}}
+function main() -> i32 {{
+    let routes: i64 = router()
+    post(routes, "/users", create)
+    let error: string = serve(routes, "127.0.0.1:{port}")
+    return len(error)
+}}
+"#);
+    let main = directory.path().join("main.xen");
+    fs::write(&main, source).unwrap();
+    let (program, _) = xenith::native::project::load_program(&main).unwrap();
+    let typed = xenith::native::check::check(&program).unwrap();
+    let object = directory.path().join("main.o");
+    let executable = directory.path().join("main");
+    xenith::native::codegen::emit_object(&typed, &object).unwrap();
+    xenith::native::codegen::link_host(&object, &executable).unwrap();
+    let mut child = Command::new(&executable).spawn().unwrap();
+    thread::sleep(Duration::from_millis(100));
+    let mut client = TcpStream::connect(("127.0.0.1", port)).unwrap();
+    client.write_all(b"POST /users HTTP/1.1\r\nContent-Length: 22\r\n\r\n{\"name\":\"Ada\",\"age\":42}").unwrap();
+    let mut response = Vec::new();
+    client.read_to_end(&mut response).unwrap();
+    assert!(response.ends_with(b"\"Ada\""));
+    child.kill().unwrap();
+    let _ = child.wait();
+}

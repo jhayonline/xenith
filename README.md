@@ -78,9 +78,12 @@ parameter. `json(status, body)` constructs a typed response tuple. For request
 handlers, `json_body(request)` returns `(body, error)` after checking the HTTP
 header boundary and validating the complete JSON value; `json_validate(body)`
 performs the same validation on an already extracted body, and
-`json_escape(value)` produces a JSON string literal for safe responses. JSON
-failures are ordinary strings so a handler can choose whether to return a
-client error or catch the failure. The server uses blocking I/O; the
+`json_escape(value)` produces a JSON string literal for safe responses.
+`json_object(body)` decodes a JSON object into a typed `map<string, string>`;
+each value is retained as its JSON text so applications can validate or
+convert fields explicitly. JSON failures are ordinary strings so a handler can
+choose whether to return a client error or catch the failure. The server uses
+blocking I/O; the
 controllable `server(address)`, `run(server, router)`, and `shutdown(server)`
 APIs provide an explicit lifecycle for applications that need one.
 
