@@ -352,6 +352,7 @@ fn signatures(
         ("http_router_get_response", vec![Type::I64, Type::String, Type::Function(vec![Type::I64], Box::new(Type::I64))], Type::String),
         ("http_router_post_response", vec![Type::I64, Type::String, Type::Function(vec![Type::I64], Box::new(Type::I64))], Type::String),
         ("http_router_use_request", vec![Type::I64, Type::Function(vec![Type::I64], Box::new(Type::I64))], Type::String),
+        ("http_router_use_session", vec![Type::I64, Type::I64, Type::String], Type::String),
         ("http_router_dispatch_request", vec![Type::I64, Type::String], Type::Tuple(vec![Type::I32, Type::String])),
         ("http_router_dispatch_request_pool", vec![Type::I64, Type::I64, Type::String], Type::Tuple(vec![Type::I32, Type::String])),
         ("http_router_dispatch_response", vec![Type::I64, Type::String], Type::I64),
