@@ -997,3 +997,32 @@ function main() -> i32 {
     xenith::native::codegen::link_host(&object, &executable).unwrap();
     assert_eq!(Command::new(executable).status().unwrap().code(), Some(166));
 }
+
+#[test]
+fn xenith_http_validation_supports_nested_paths_and_wildcard_items() {
+    let directory = tempfile::tempdir().unwrap();
+    let source = r#"
+grab { validate, required, string, rules } from "std::http"
+function main() -> i32 {
+    let input: map<string, string> = {
+        "user.name": "Ada",
+        "items.0.sku": "A-1",
+        "items.1.sku": "B-2"
+    }
+    let errors: map<string, string> = validate(input, {
+        "user.name": rules(required, string),
+        "items.*.sku": rules(required, string)
+    })
+    return len(errors)
+}
+"#;
+    let main = directory.path().join("main.xen");
+    fs::write(&main, source).unwrap();
+    let (program, _) = xenith::native::project::load_program(&main).unwrap();
+    let typed = xenith::native::check::check(&program).unwrap();
+    let object = directory.path().join("main.o");
+    let executable = directory.path().join("main");
+    xenith::native::codegen::emit_object(&typed, &object).unwrap();
+    xenith::native::codegen::link_host(&object, &executable).unwrap();
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(0));
+}

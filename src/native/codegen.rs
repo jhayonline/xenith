@@ -3339,7 +3339,7 @@ fn lower(
             if name == "validate" {
                 let input = lower(b, &arguments[0], v, ids, m, l).0[0];
                 let schema = lower(b, &arguments[1], v, ids, m, l).0[0];
-                let result = runtime_call(b, m, "xenith_http_validate", vec![AbiParam::new(types::I64); 2], vec![AbiParam::new(types::I64)], &[input, schema])[0];
+                let result = runtime_call(b, m, "xenith_http_validate_nested", vec![AbiParam::new(types::I64); 2], vec![AbiParam::new(types::I64)], &[input, schema])[0];
                 return (vec![result], Type::Map(Box::new(Type::String), Box::new(Type::String)));
             }
             if name == "http_rule_required" || name == "http_rule_optional" || name == "http_rule_string" || name == "http_rule_i64" || name == "http_rule_email" {
