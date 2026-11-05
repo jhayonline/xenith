@@ -120,6 +120,10 @@ function main() -> i32 {
 handlers can pass that handle to the normal `std::db` APIs without manually
 acquiring or releasing connections.
 
+For the blocking TCP server, use `run_with_pool` or
+`run_for_with_pool`. They apply the same request scope to every accepted
+connection, including cleanup when reading or writing the request fails.
+
 For responses that need headers, use a response handle. `response_new` creates
 one, `response_header` adds a header, and the accessors read it back. Response
 routes return the handle directly, while `use_request` middleware may return
