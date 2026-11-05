@@ -312,6 +312,10 @@ fn standard_native_source(name: &str) -> Option<&'static str> {
              export function run_workers(server: i64, router: i64, workers: i64) -> string { return http_server_run_workers(server, router, workers) }\n\
              export function run_workers_with_pool(server: i64, router: i64, pool: i64, workers: i64) -> string { return http_server_run_workers_pool(server, router, pool, workers) }",
         ),
+        "auth" => Some(
+            "export function hash_password(password: string) -> string { return auth_hash_password(password) }\n\
+             export function verify_password(password: string, encoded: string) -> bool { return auth_verify_password(password, encoded) }",
+        ),
         _ => None,
     }
 }

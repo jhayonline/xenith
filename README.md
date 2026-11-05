@@ -140,6 +140,21 @@ Cookie names and values are validated against header injection and malformed
 attributes. Cookie APIs return a recoverable error string, so applications can
 handle invalid input with `try`/`catch` where appropriate.
 
+Password hashing is available through `std::auth`. It uses the host's vetted
+`crypt` implementation with a random salt and a salted SHA-512 password format;
+the encoded value is safe to store in the database, while verification never
+requires recovering the plaintext:
+
+```xenith
+grab { hash_password, verify_password } from "std::auth"
+
+function check_login(password: string, stored: string) -> bool {
+    return verify_password(password, stored)
+}
+```
+
+Hashing failures are returned through Xenith's recoverable error channel.
+
 For the blocking TCP server, use `run_with_pool` or
 `run_for_with_pool`. They apply the same request scope to every accepted
 connection, including cleanup when reading or writing the request fails.

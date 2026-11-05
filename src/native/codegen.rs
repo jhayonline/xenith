@@ -2167,6 +2167,22 @@ fn lower(
                     return (values, Type::Named(model.to_string()));
                 }
             }
+            if name == "auth_hash_password" {
+                let password = lower(b, &arguments[0], v, ids, m, l).0;
+                let output_ptr = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let output_len = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let error_ptr = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let error_len = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let args = [password[0], password[1], b.ins().stack_addr(types::I64, output_ptr, 0), b.ins().stack_addr(types::I64, output_len, 0), b.ins().stack_addr(types::I64, error_ptr, 0), b.ins().stack_addr(types::I64, error_len, 0)];
+                let _ = runtime_call(b, m, "xenith_auth_hash_password", vec![AbiParam::new(types::I64); 6], vec![], &args);
+                return (vec![b.ins().load(types::I64, MemFlags::new(), args[2], 0), b.ins().load(types::I64, MemFlags::new(), args[3], 0)], Type::String);
+            }
+            if name == "auth_verify_password" {
+                let password = lower(b, &arguments[0], v, ids, m, l).0;
+                let encoded = lower(b, &arguments[1], v, ids, m, l).0;
+                let result = runtime_call(b, m, "xenith_auth_verify_password", vec![AbiParam::new(types::I64); 4], vec![AbiParam::new(types::I8)], &[password[0], password[1], encoded[0], encoded[1]])[0];
+                return (vec![result], Type::Bool);
+            }
             if name == "fs_read" {
                 let path = lower(b, &arguments[0], v, ids, m, l).0;
                 let data_ptr = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
@@ -3559,6 +3575,7 @@ pub fn link_host(object: &Path, executable: &Path) -> Result<(), NativeError> {
         .arg(runtime)
         .arg("-pthread")
         .arg("-lsqlite3")
+        .arg("-lcrypt")
         .arg("-o")
         .arg(executable)
         .output()
