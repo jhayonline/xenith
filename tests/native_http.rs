@@ -14,12 +14,13 @@ fn http_parser_decodes_request_line_headers_and_body() {
 fn xenith_http_validation_errors_expose_code_and_message() {
     let directory = tempfile::tempdir().unwrap();
     let source = r#"
-grab { validate, validation_error, required, rules } from "std::http"
+grab { validate, validation_error, validation_response, response_status, required, rules } from "std::http"
 function main() -> i32 {
     let input: map<string, string> = {}
     let errors: map<string, string> = validate(input, {"name": rules(required)})
     let detail: tuple<string, string> = validation_error(errors, "name")
-    if (detail[0] == "required" && detail[1] == "field is required") { return 1 }
+    let response: i64 = validation_response(errors)
+    if (detail[0] == "required" && detail[1] == "field is required" && response_status(response) == 422) { return 1 }
     return 0
 }
 "#;
