@@ -834,3 +834,29 @@ function main() -> i32 {
     xenith::native::codegen::link_host(&object, &executable).unwrap();
     assert_eq!(Command::new(executable).status().unwrap().code(), Some(0));
 }
+
+#[test]
+fn xenith_http_rule_validation_uses_composable_native_syntax() {
+    let directory = tempfile::tempdir().unwrap();
+    let source = r#"
+grab { validate, required, optional, string, i64, email, rules } from "std::http"
+function main() -> i32 {
+    let input: map<string, string> = {"name": "Ada", "email": "ada@example.com", "age": "36"}
+    let result: map<string, string> = validate(input, {
+        "name": rules(required, string),
+        "email": rules(required, email),
+        "age": rules(optional, i64)
+    })
+    return len(result)
+}
+"#;
+    let main = directory.path().join("main.xen");
+    fs::write(&main, source).unwrap();
+    let (program, _) = xenith::native::project::load_program(&main).unwrap();
+    let typed = xenith::native::check::check(&program).unwrap();
+    let object = directory.path().join("main.o");
+    let executable = directory.path().join("main");
+    xenith::native::codegen::emit_object(&typed, &object).unwrap();
+    xenith::native::codegen::link_host(&object, &executable).unwrap();
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(0));
+}

@@ -1174,6 +1174,9 @@ impl Parser {
         if let Some(literal) = non_decimal_integer_literal(&s, span) {
             return literal;
         }
+        if matches!(s.as_str(), "string" | "i64") {
+            return Ok(Expr::Name(s));
+        }
         if let Some(n) = s.strip_suffix("i64").or_else(|| s.strip_suffix("i32")) {
             if n.chars().enumerate().all(|(index, character)| {
                 character.is_ascii_digit() || (index == 0 && character == '-')
@@ -1405,8 +1408,6 @@ fn is_identifier(name: &str) -> bool {
                 | "true"
                 | "false"
                 | "i32"
-                | "i64"
                 | "bool"
-                | "string"
         )
 }

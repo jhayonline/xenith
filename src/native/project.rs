@@ -289,6 +289,15 @@ fn standard_native_source(name: &str) -> Option<&'static str> {
              export function require_query(request: i64, key: string) -> tuple<string, string> { return http_require_query(request, key) }\n\
              export function require_param(request: i64, pattern: string, name: string) -> tuple<string, string> { return http_require_param(request, pattern, name) }\n\
              export function json_validate_schema(body: string, schema: map<string, string>) -> string { return http_json_validate_schema(body, schema) }\n\
+             export function validate(input: map<string, string>, schema: map<string, i64>) -> map<string, string> { return http_validate(input, schema) }\n\
+             export function required() -> i64 { return 1i64 }\n\
+             export function optional() -> i64 { return 2i64 }\n\
+             export function string() -> i64 { return 4i64 }\n\
+             export function i64() -> i64 { return 8i64 }\n\
+             export function email() -> i64 { return 16i64 }\n\
+             export function min(value: i64) -> i64 { return value }\n\
+             export function max(value: i64) -> i64 { return value }\n\
+             export function rules(first: i64) -> i64 { return first }\n\
              export function response_new(status: i32, body: string) -> i64 { return http_response_new(status, body) }\n\
              export function response_header(response: i64, name: string, value: string) -> string { return http_response_header(response, name, value) }\n\
              export function response_cookie(response: i64, name: string, value: string, max_age: i64, secure: bool, http_only: bool) -> string { return http_response_cookie(response, name, value, max_age, secure, http_only) }\n\

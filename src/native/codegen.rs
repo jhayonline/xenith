@@ -1879,6 +1879,11 @@ fn lower(
             (vec![b.block_params(merge)[0]], Type::Bool)
         }
         Expr::Name(n) => {
+            if n == "required" { return (vec![b.ins().iconst(types::I64, 1)], Type::I64); }
+            if n == "optional" { return (vec![b.ins().iconst(types::I64, 2)], Type::I64); }
+            if n == "string" { return (vec![b.ins().iconst(types::I64, 4)], Type::I64); }
+            if n == "i64" { return (vec![b.ins().iconst(types::I64, 8)], Type::I64); }
+            if n == "email" { return (vec![b.ins().iconst(types::I64, 16)], Type::I64); }
             if let Some(value) = v.get(n) {
                 return value.clone();
             }
@@ -3169,6 +3174,38 @@ fn lower(
                 let _ = runtime_call(b, m, "xenith_env_exit", vec![AbiParam::new(types::I32)], vec![], &[code]);
                 return (vec![b.ins().iconst(types::I8, 0)], Type::Null);
             }
+            if name == "required" || name == "optional" || name == "string" || name == "i64" || name == "email" || name == "min" || name == "max" || name == "rules" {
+                if name == "required" { return (vec![b.ins().iconst(types::I64, 1)], Type::I64); }
+                if name == "optional" { return (vec![b.ins().iconst(types::I64, 2)], Type::I64); }
+                if name == "string" { return (vec![b.ins().iconst(types::I64, 4)], Type::I64); }
+                if name == "i64" { return (vec![b.ins().iconst(types::I64, 8)], Type::I64); }
+                if name == "email" { return (vec![b.ins().iconst(types::I64, 16)], Type::I64); }
+                if name == "min" || name == "max" {
+                    let value = lower(b, &arguments[0], v, ids, m, l).0[0];
+                    let shifted = b.ins().ishl_imm(value, 32);
+                    return (vec![b.ins().bor_imm(shifted, if name == "min" { 0x100000000i64 } else { 0x200000000i64 })], Type::I64);
+                }
+                let mut result = b.ins().iconst(types::I64, 0);
+                for argument in arguments {
+                    let lowered = lower(b, argument, v, ids, m, l).0[0];
+                    result = b.ins().bor(result, lowered);
+                }
+                return (vec![result], Type::I64);
+            }
+            if name == "http_rule_required" || name == "http_rule_optional" || name == "http_rule_string" || name == "http_rule_i64" || name == "http_rule_email" {
+                let value = runtime_call(b, m, name, vec![], vec![AbiParam::new(types::I64)], &[])[0];
+                return (vec![value], Type::I64);
+            }
+            if name == "http_rule_min" || name == "http_rule_max" || name == "http_rules" {
+                let args = arguments.iter().flat_map(|argument| lower(b, argument, v, ids, m, l).0).collect::<Vec<_>>();
+                let value = runtime_call(b, m, name, vec![AbiParam::new(types::I64); args.len()], vec![AbiParam::new(types::I64)], &args)[0];
+                return (vec![value], Type::I64);
+            }
+            if name == "http_validate" {
+                let args = arguments.iter().flat_map(|argument| lower(b, argument, v, ids, m, l).0).collect::<Vec<_>>();
+                let value = runtime_call(b, m, name, vec![AbiParam::new(types::I64); args.len()], vec![AbiParam::new(types::I64)], &args)[0];
+                return (vec![value], Type::Map(Box::new(Type::String), Box::new(Type::String)));
+            }
             if let Some((_, Type::Function(parameters, result))) = v.get(name) {
                 let mut args = Vec::new();
                 args.push(v[name].0[1]);
@@ -3232,6 +3269,44 @@ fn lower(
                     ),
                     _ => unreachable!(),
                 };
+            }
+            if name == "required" || name == "optional" || name == "string" || name == "i64" || name == "email" || name == "min" || name == "max" || name == "rules" {
+                if name == "required" { return (vec![b.ins().iconst(types::I64, 1)], Type::I64); }
+                if name == "optional" { return (vec![b.ins().iconst(types::I64, 2)], Type::I64); }
+                if name == "string" { return (vec![b.ins().iconst(types::I64, 4)], Type::I64); }
+                if name == "i64" { return (vec![b.ins().iconst(types::I64, 8)], Type::I64); }
+                if name == "email" { return (vec![b.ins().iconst(types::I64, 16)], Type::I64); }
+                if name == "min" || name == "max" {
+                    let value = lower(b, &arguments[0], v, ids, m, l).0[0];
+                    let shifted = b.ins().ishl_imm(value, 32);
+                    return (vec![b.ins().bor_imm(shifted, if name == "min" { 0x100000000i64 } else { 0x200000000i64 })], Type::I64);
+                }
+                let mut result = b.ins().iconst(types::I64, 0);
+                for argument in arguments {
+                    let lowered = lower(b, argument, v, ids, m, l).0[0];
+                    result = b.ins().bor(result, lowered);
+                }
+                return (vec![result], Type::I64);
+            }
+            if name == "validate" {
+                let input = lower(b, &arguments[0], v, ids, m, l).0[0];
+                let schema = lower(b, &arguments[1], v, ids, m, l).0[0];
+                let result = runtime_call(b, m, "xenith_http_validate", vec![AbiParam::new(types::I64); 2], vec![AbiParam::new(types::I64)], &[input, schema])[0];
+                return (vec![result], Type::Map(Box::new(Type::String), Box::new(Type::String)));
+            }
+            if name == "http_rule_required" || name == "http_rule_optional" || name == "http_rule_string" || name == "http_rule_i64" || name == "http_rule_email" {
+                let value = runtime_call(b, m, name, vec![], vec![AbiParam::new(types::I64)], &[])[0];
+                return (vec![value], Type::I64);
+            }
+            if name == "http_validate" {
+                let args = arguments.iter().flat_map(|argument| lower(b, argument, v, ids, m, l).0).collect::<Vec<_>>();
+                let value = runtime_call(b, m, name, vec![AbiParam::new(types::I64); args.len()], vec![AbiParam::new(types::I64)], &args)[0];
+                return (vec![value], Type::Map(Box::new(Type::String), Box::new(Type::String)));
+            }
+            if name == "http_rule_min" || name == "http_rule_max" || name == "http_rules" {
+                let args = arguments.iter().flat_map(|argument| lower(b, argument, v, ids, m, l).0).collect::<Vec<_>>();
+                let value = runtime_call(b, m, name, vec![AbiParam::new(types::I64); args.len()], vec![AbiParam::new(types::I64)], &args)[0];
+                return (vec![value], Type::I64);
             }
             if name == "append" {
                 let (list, Type::List(element)) = lower(b, &arguments[0], v, ids, m, l) else {

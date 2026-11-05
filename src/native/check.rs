@@ -378,6 +378,15 @@ fn signatures(
         ("http_require_query", vec![Type::I64, Type::String], Type::Tuple(vec![Type::String, Type::String])),
         ("http_require_param", vec![Type::I64, Type::String, Type::String], Type::Tuple(vec![Type::String, Type::String])),
         ("http_json_validate_schema", vec![Type::String, Type::Map(Box::new(Type::String), Box::new(Type::String))], Type::String),
+        ("http_validate", vec![Type::Map(Box::new(Type::String), Box::new(Type::String)), Type::Map(Box::new(Type::String), Box::new(Type::I64))], Type::Map(Box::new(Type::String), Box::new(Type::String))),
+        ("http_rule_required", vec![], Type::I64),
+        ("http_rule_optional", vec![], Type::I64),
+        ("http_rule_string", vec![], Type::I64),
+        ("http_rule_i64", vec![], Type::I64),
+        ("http_rule_email", vec![], Type::I64),
+        ("http_rule_min", vec![Type::I64], Type::I64),
+        ("http_rule_max", vec![Type::I64], Type::I64),
+        ("http_rules", vec![Type::I64], Type::I64),
         ("http_response_new", vec![Type::I32, Type::String], Type::I64),
         ("http_response_header", vec![Type::I64, Type::String, Type::String], Type::String),
         ("http_response_cookie", vec![Type::I64, Type::String, Type::String, Type::I64, Type::Bool, Type::Bool], Type::String),
@@ -1411,6 +1420,28 @@ fn expr(
                     });
                 }
                 return Some(Type::I32);
+            }
+            if matches!(name.as_str(), "required" | "optional" | "string" | "i64" | "email") {
+                if !arguments.is_empty() { errors.push(Diagnostic { message: format!("rule `{name}` takes no arguments"), span: None }); }
+                return Some(Type::I64);
+            }
+            if name == "min" || name == "max" {
+                if arguments.len() != 1 || expr(&arguments[0], names, signatures, layouts, errors) != Some(Type::I32) && expr(&arguments[0], names, signatures, layouts, errors) != Some(Type::I64) {
+                    errors.push(Diagnostic { message: format!("rule `{name}` expects one integer"), span: None });
+                }
+                return Some(Type::I64);
+            }
+            if name == "rules" {
+                for argument in arguments { expr(argument, names, signatures, layouts, errors); }
+                return Some(Type::I64);
+            }
+            if name == "validate" {
+                if arguments.len() != 2 { errors.push(Diagnostic { message: "validate expects input and schema".into(), span: None }); return Some(Type::Map(Box::new(Type::String), Box::new(Type::String))); }
+                let input = expr(&arguments[0], names, signatures, layouts, errors);
+                let schema = expr(&arguments[1], names, signatures, layouts, errors);
+                if input != Some(Type::Map(Box::new(Type::String), Box::new(Type::String))) { errors.push(Diagnostic { message: "validate input must be map<string, string>".into(), span: None }); }
+                if schema != Some(Type::Map(Box::new(Type::String), Box::new(Type::I64))) { errors.push(Diagnostic { message: "validate schema must map field names to rules".into(), span: None }); }
+                return Some(Type::Map(Box::new(Type::String), Box::new(Type::String)));
             }
             if name == "append" {
                 if arguments.len() != 2 {
