@@ -1026,3 +1026,32 @@ function main() -> i32 {
     xenith::native::codegen::link_host(&object, &executable).unwrap();
     assert_eq!(Command::new(executable).status().unwrap().code(), Some(0));
 }
+
+#[test]
+fn xenith_http_validate_json_flattens_nested_objects_and_arrays() {
+    let directory = tempfile::tempdir().unwrap();
+    unsafe { std::env::set_var("XENITH_TEST_JSON", r#"{"user":{"name":"Ada"},"items":[{"sku":"A-1"},{"sku":"B-2"}]}"#); }
+    let source = r#"
+grab { validate_json, required, string, rules } from "std::http"
+grab { get } from "std::env"
+function main() -> i32 {
+    let env_value: tuple<string, bool> = get("XENITH_TEST_JSON")
+    let body: string = env_value[0]
+    let errors: map<string, string> = validate_json(body, {
+        "user.name": rules(required, string),
+        "items.*.sku": rules(required, string)
+    })
+    return len(errors)
+}
+"#;
+    let main = directory.path().join("main.xen");
+    fs::write(&main, source).unwrap();
+    let (program, _) = xenith::native::project::load_program(&main).unwrap();
+    let typed = xenith::native::check::check(&program).unwrap();
+    let object = directory.path().join("main.o");
+    let executable = directory.path().join("main");
+    xenith::native::codegen::emit_object(&typed, &object).unwrap();
+    xenith::native::codegen::link_host(&object, &executable).unwrap();
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(0));
+    unsafe { std::env::remove_var("XENITH_TEST_JSON"); }
+}
