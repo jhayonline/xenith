@@ -31,6 +31,27 @@ function main() -> i32 {
 }
 
 #[test]
+fn auth_roles_grant_check_and_revoke() {
+    let directory = tempfile::tempdir().unwrap();
+    let executable = compile(r#"
+grab { open, close } from "std::db"
+grab { role_grant, role_revoke, user_has_role } from "std::auth"
+function main() -> i32 {
+    let database: i64 = open(":memory:")
+    let granted: string = role_grant(database, 7i64, "admin")
+    if (len(granted) != 0) { return 10 }
+    if (!user_has_role(database, 7i64, "admin")) { return 20 }
+    let revoked: string = role_revoke(database, 7i64, "admin")
+    if (len(revoked) != 0) { return 30 }
+    if (user_has_role(database, 7i64, "admin")) { return 40 }
+    close(database)
+    return 0
+}
+"#, &directory);
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(0));
+}
+
+#[test]
 fn auth_signed_session_cookies_verify_and_reject_tampering() {
     let directory = tempfile::tempdir().unwrap();
     let executable = compile(r#"

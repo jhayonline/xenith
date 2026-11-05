@@ -268,6 +268,7 @@ fn standard_native_source(name: &str) -> Option<&'static str> {
              export function post_response(router: i64, pattern: string, handler: fn(i64) -> i64) -> string { return http_router_post_response(router, pattern, handler) }\n\
              export function use_request(router: i64, middleware: fn(i64) -> i64) -> string { return http_router_use_request(router, middleware) }\n\
              export function use_session(router: i64, database: i64, secret: string) -> string { return http_router_use_session(router, database, secret) }\n\
+             export function use_role(router: i64, database: i64, secret: string, role: string) -> string { return http_router_use_role(router, database, secret, role) }\n\
              export function dispatch(router: i64, method: string, path: string, body: string) -> tuple<i32, string> { return http_router_dispatch(router, method, path, body) }\n\
              export function dispatch_request(router: i64, request: string) -> tuple<i32, string> { return http_router_dispatch_request(router, request) }\n\
              export function dispatch_request_pool(router: i64, pool: i64, request: string) -> tuple<i32, string> { return http_router_dispatch_request_pool(router, pool, request) }\n\
@@ -322,7 +323,10 @@ fn standard_native_source(name: &str) -> Option<&'static str> {
              export function session_revoke(database: i64, token: string) -> string { return auth_session_revoke(database, token) }\n\
              export function session_cookie_create(database: i64, user_id: i64, ttl_seconds: i64, secret: string) -> string { return auth_session_cookie_create(database, user_id, ttl_seconds, secret) }\n\
              export function session_cookie_user(database: i64, cookie: string, secret: string) -> i64 { return auth_session_cookie_user(database, cookie, secret) }\n\
-             export function session_request_user(database: i64, request: i64, secret: string) -> i64 { return auth_session_request_user(database, request, secret) }",
+             export function session_request_user(database: i64, request: i64, secret: string) -> i64 { return auth_session_request_user(database, request, secret) }\n\
+             export function role_grant(database: i64, user_id: i64, role: string) -> string { return auth_role_grant(database, user_id, role) }\n\
+             export function role_revoke(database: i64, user_id: i64, role: string) -> string { return auth_role_revoke(database, user_id, role) }\n\
+             export function user_has_role(database: i64, user_id: i64, role: string) -> bool { return auth_user_has_role(database, user_id, role) }",
         ),
         _ => None,
     }
