@@ -2743,6 +2743,13 @@ fn lower(
                 let map = runtime_call(b, m, "xenith_db_find_map", vec![AbiParam::new(types::I64); 2], vec![AbiParam::new(types::I64)], &[store, id])[0];
                 return (vec![map], Type::Map(Box::new(Type::String), Box::new(Type::String)));
             }
+            if name == "db_find_model" {
+                let store = lower(b, &arguments[0], v, ids, m, l).0[0];
+                let id = lower(b, &arguments[1], v, ids, m, l).0[0];
+                let schema = lower(b, &arguments[2], v, ids, m, l).0[0];
+                let map = runtime_call(b, m, "xenith_db_find_model", vec![AbiParam::new(types::I64); 3], vec![AbiParam::new(types::I64)], &[store, id, schema])[0];
+                return (vec![map], Type::Map(Box::new(Type::String), Box::new(Type::String)));
+            }
             if name == "db_related" {
                 let store = lower(b, &arguments[0], v, ids, m, l).0[0];
                 let column = lower(b, &arguments[1], v, ids, m, l).0;
@@ -2814,14 +2821,14 @@ fn lower(
                 let value = runtime_call(b, m, "xenith_db_insert", vec![AbiParam::new(types::I64); 2], vec![AbiParam::new(types::I64)], &[store, row])[0];
                 return (vec![value], Type::I64);
             }
-            if name == "db_insert_validated" {
+            if name == "db_insert_validated" || name == "db_insert_model" {
                 let store = lower(b, &arguments[0], v, ids, m, l).0[0];
                 let schema = lower(b, &arguments[1], v, ids, m, l).0[0];
                 let row = lower(b, &arguments[2], v, ids, m, l).0[0];
                 let value = runtime_call(b, m, "xenith_db_insert_validated", vec![AbiParam::new(types::I64); 3], vec![AbiParam::new(types::I64)], &[store, schema, row])[0];
                 return (vec![value], Type::I64);
             }
-            if name == "db_update_validated" {
+            if name == "db_update_validated" || name == "db_update_model" {
                 let store = lower(b, &arguments[0], v, ids, m, l).0[0];
                 let id = lower(b, &arguments[1], v, ids, m, l).0[0];
                 let schema = lower(b, &arguments[2], v, ids, m, l).0[0];

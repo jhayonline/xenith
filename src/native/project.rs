@@ -224,6 +224,7 @@ fn standard_native_source(name: &str) -> Option<&'static str> {
              export function store(handle: i64, table: string) -> i64 { return db_store(handle, table) }\n\
              export function find(store: i64, id: i64) -> tuple<string, string> { return db_find(store, id) }\n\
              export function find_map(store: i64, id: i64) -> map<string, string> { return db_find_map(store, id) }\n\
+             export function find_model(store: i64, id: i64, model: map<string, string>) -> map<string, string> { return db_find_model(store, id, model) }\n\
              export function related(store: i64, foreign_key: string, id: i64) -> list<map<string, string>> { return db_related(store, foreign_key, id) }\n\
              export function as_i64(row: map<string, string>, key: string) -> i64 { return db_map_i64(row, key) }\n\
              export function as_i32(row: map<string, string>, key: string) -> i32 { return db_map_i32(row, key) }\n\
@@ -235,7 +236,9 @@ fn standard_native_source(name: &str) -> Option<&'static str> {
              export function set_string(row: map<string, string>, key: string, value: string) -> null { return db_set_string(row, key, value) }\n\
              export function validate(schema: map<string, string>, row: map<string, string>) -> string { return db_validate(schema, row) }\n\
              export function insert_validated(store: i64, schema: map<string, string>, row: map<string, string>) -> i64 { return db_insert_validated(store, schema, row) }\n\
+             export function insert_model(store: i64, model: map<string, string>, row: map<string, string>) -> i64 { return db_insert_model(store, model, row) }\n\
              export function update_validated(store: i64, id: i64, schema: map<string, string>, row: map<string, string>) -> string { return db_update_validated(store, id, schema, row) }\n\
+             export function update_model(store: i64, id: i64, model: map<string, string>, row: map<string, string>) -> string { return db_update_model(store, id, model, row) }\n\
              export function insert(store: i64, row: map<string, string>) -> i64 { return db_insert(store, row) }\n\
              export function delete(store: i64, id: i64) -> string { return db_delete(store, id) }\n\
              export function update(store: i64, id: i64, row: map<string, string>) -> string { return db_update(store, id, row) }\n\

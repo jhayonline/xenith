@@ -335,6 +335,18 @@ Supported field kinds are `string`, `i32`, `i64`, `bool`, and `bytes`. Schema,
 field, and migration failures return recoverable error strings; application code
 never needs to embed SQL for schema creation.
 
+Typed model helpers reuse the same schema maps for validated CRUD:
+
+```xenith
+let model: map<string, string> = {"id": "i64", "name": "string"}
+let id: i64 = insert_model(users, model, {"id": "1", "name": "Ada"})
+let row: map<string, string> = find_model(users, id, model)
+let error: string = update_model(users, id, model, {"id": "1", "name": "Grace"})
+```
+
+Rows are validated against the declared field types before writes and reads;
+database failures remain recoverable through `try`/`catch`.
+
 ## Standard library and imports
 
 Native projects can import the filesystem and environment modules:
