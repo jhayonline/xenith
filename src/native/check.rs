@@ -380,6 +380,8 @@ fn signatures(
         ("http_json_validate_schema", vec![Type::String, Type::Map(Box::new(Type::String), Box::new(Type::String))], Type::String),
         ("http_validate", vec![Type::Map(Box::new(Type::String), Box::new(Type::String)), Type::Map(Box::new(Type::String), Box::new(Type::I64))], Type::Map(Box::new(Type::String), Box::new(Type::String))),
         ("http_validate_json", vec![Type::String, Type::Map(Box::new(Type::String), Box::new(Type::I64))], Type::Map(Box::new(Type::String), Box::new(Type::String))),
+        ("http_validate_query", vec![Type::I64, Type::Map(Box::new(Type::String), Box::new(Type::I64))], Type::Map(Box::new(Type::String), Box::new(Type::String))),
+        ("http_validate_params", vec![Type::I64, Type::String, Type::Map(Box::new(Type::String), Box::new(Type::I64))], Type::Map(Box::new(Type::String), Box::new(Type::String))),
         ("http_validate_status", vec![Type::Map(Box::new(Type::String), Box::new(Type::String))], Type::I32),
         ("http_rule_required", vec![], Type::I64),
         ("http_rule_optional", vec![], Type::I64),

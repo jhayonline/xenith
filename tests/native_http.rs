@@ -574,12 +574,45 @@ function show(request: i64) -> tuple<i32, string> {
     let id: string = request_param(request, "/users/:id", "id")
     return (200, "{method}:{path}:{body}:{host}:{query}:{id}")
 }
+
 function main() -> i32 {
     let routes: i64 = router()
     get_request(routes, "/users/:id", show)
     let response: tuple<i32, string> = dispatch_request(routes, "GET /users/42?page=2 HTTP/1.1")
     router_close(routes)
     if (response[0] == 200 && response[1] == "GET:/users/42?page=2:::2:42") { return 1 }
+    return 0
+}
+"#;
+    let main = directory.path().join("main.xen");
+    fs::write(&main, source).unwrap();
+    let (program, _) = xenith::native::project::load_program(&main).unwrap();
+    let typed = xenith::native::check::check(&program).unwrap();
+    let object = directory.path().join("main.o");
+    let executable = directory.path().join("main");
+    xenith::native::codegen::emit_object(&typed, &object).unwrap();
+    xenith::native::codegen::link_host(&object, &executable).unwrap();
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(1));
+}
+
+#[test]
+fn xenith_http_validates_query_and_path_parameters() {
+    let directory = tempfile::tempdir().unwrap();
+    let source = r#"
+grab { router, get_request, dispatch_request, validate_query, validate_params, validate_status, required, string, rules, router_close } from "std::http"
+function show(request: i64) -> tuple<i32, string> {
+    let query_errors: map<string, string> = validate_query(request, {"page": rules(required, string)})
+    let path_errors: map<string, string> = validate_params(request, "/users/:id", {"id": rules(required, string)})
+    if (validate_status(query_errors) == 0 && validate_status(path_errors) == 0) { return (200, "ok") }
+    return (422, "invalid")
+}
+function main() -> i32 {
+    let routes: i64 = router()
+    get_request(routes, "/users/:id", show)
+    let valid: tuple<i32, string> = dispatch_request(routes, "GET /users/42?page=2 HTTP/1.1")
+    let invalid: tuple<i32, string> = dispatch_request(routes, "GET /users/42 HTTP/1.1")
+    router_close(routes)
+    if (valid[0] == 200 && invalid[0] == 422) { return 1 }
     return 0
 }
 "#;
