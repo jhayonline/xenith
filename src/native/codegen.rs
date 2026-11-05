@@ -3226,6 +3226,12 @@ fn lower(
                 let value = runtime_call(b, m, name, vec![AbiParam::new(types::I64); 4], vec![AbiParam::new(types::I64)], &[request, pattern[0], pattern[1], schema])[0];
                 return (vec![value], Type::Map(Box::new(Type::String), Box::new(Type::String)));
             }
+            if name == "http_validate_form" {
+                let request = lower(b, &arguments[0], v, ids, m, l).0[0];
+                let schema = lower(b, &arguments[1], v, ids, m, l).0[0];
+                let value = runtime_call(b, m, name, vec![AbiParam::new(types::I64); 2], vec![AbiParam::new(types::I64)], &[request, schema])[0];
+                return (vec![value], Type::Map(Box::new(Type::String), Box::new(Type::String)));
+            }
             if name == "http_validate_status" {
                 let errors = lower(b, &arguments[0], v, ids, m, l).0[0];
                 let value = runtime_call(b, m, name, vec![AbiParam::new(types::I64)], vec![AbiParam::new(types::I32)], &[errors])[0];

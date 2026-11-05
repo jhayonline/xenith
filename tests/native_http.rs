@@ -628,6 +628,36 @@ function main() -> i32 {
 }
 
 #[test]
+fn xenith_http_validates_form_body() {
+    let directory = tempfile::tempdir().unwrap();
+    let source = r#"
+grab { router, post_request, dispatch_request, validate_form, validate_status, required, string, rules, router_close } from "std::http"
+function create(request: i64) -> tuple<i32, string> {
+    let errors: map<string, string> = validate_form(request, {"name": rules(required, string), "email": rules(required, string)})
+    if (validate_status(errors) == 0) { return (201, "created") }
+    return (422, "invalid")
+}
+function main() -> i32 {
+    let routes: i64 = router()
+    post_request(routes, "/users", create)
+    let invalid: tuple<i32, string> = dispatch_request(routes, "POST /users HTTP/1.1\r\nContent-Type: application/x-www-form-urlencoded\r\n\r\nname=Ada")
+    router_close(routes)
+    return invalid[0]
+    return 0
+}
+"#;
+    let main = directory.path().join("main.xen");
+    fs::write(&main, source).unwrap();
+    let (program, _) = xenith::native::project::load_program(&main).unwrap();
+    let typed = xenith::native::check::check(&program).unwrap();
+    let object = directory.path().join("main.o");
+    let executable = directory.path().join("main");
+    xenith::native::codegen::emit_object(&typed, &object).unwrap();
+    xenith::native::codegen::link_host(&object, &executable).unwrap();
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(166));
+}
+
+#[test]
 fn xenith_http_typed_responses_and_request_middleware() {
     let directory = tempfile::tempdir().unwrap();
     let source = r#"
