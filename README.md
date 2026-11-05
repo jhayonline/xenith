@@ -375,6 +375,15 @@ struct Post { id: i64, user_id: i64, title: string }
 let posts: list<Post> = Post.related(post_store, "user_id", user.id)
 ```
 
+Typed ordering, pagination, and compound queries are available on the same
+model surface:
+
+```xenith
+let recent: list<User> = User.order(user_store, "created_at", true)
+let page: list<User> = User.page(user_store, 20i64, 40i64)
+let matches: list<User> = User.query(user_store, "active", "true", "name", false, 20i64, 0i64)
+```
+
 ## Standard library and imports
 
 Native projects can import the filesystem and environment modules:

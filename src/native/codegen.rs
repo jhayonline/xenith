@@ -2095,7 +2095,7 @@ fn lower(
                 return (vec![pointer, length], Type::String);
             }
             if let Some((model, method)) = name.split_once("__") {
-                if (method == "all" || method == "filter" || method == "related") && l.contains_key(model) {
+                if (method == "all" || method == "filter" || method == "related" || method == "order" || method == "page" || method == "query") && l.contains_key(model) {
                     let store = lower(b, &arguments[0], v, ids, m, l).0[0];
                     let rows = if method == "all" {
                         runtime_call(b, m, "xenith_db_all", vec![AbiParam::new(types::I64)], vec![AbiParam::new(types::I64)], &[store])[0]
@@ -2103,10 +2103,26 @@ fn lower(
                         let column = lower(b, &arguments[1], v, ids, m, l).0;
                         let value = lower(b, &arguments[2], v, ids, m, l).0;
                         runtime_call(b, m, "xenith_db_filter", vec![AbiParam::new(types::I64); 5], vec![AbiParam::new(types::I64)], &[store, column[0], column[1], value[0], value[1]])[0]
-                    } else {
+                    } else if method == "related" {
                         let column = lower(b, &arguments[1], v, ids, m, l).0;
                         let id = lower(b, &arguments[2], v, ids, m, l).0[0];
                         runtime_call(b, m, "xenith_db_related", vec![AbiParam::new(types::I64); 4], vec![AbiParam::new(types::I64)], &[store, column[0], column[1], id])[0]
+                    } else if method == "order" {
+                        let column = lower(b, &arguments[1], v, ids, m, l).0;
+                        let descending = lower(b, &arguments[2], v, ids, m, l).0[0];
+                        runtime_call(b, m, "xenith_db_order", vec![AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I8)], vec![AbiParam::new(types::I64)], &[store, column[0], column[1], descending])[0]
+                    } else if method == "page" {
+                        let limit = lower(b, &arguments[1], v, ids, m, l).0[0];
+                        let offset = lower(b, &arguments[2], v, ids, m, l).0[0];
+                        runtime_call(b, m, "xenith_db_page", vec![AbiParam::new(types::I64); 3], vec![AbiParam::new(types::I64)], &[store, limit, offset])[0]
+                    } else {
+                        let filter_column = lower(b, &arguments[1], v, ids, m, l).0;
+                        let filter_value = lower(b, &arguments[2], v, ids, m, l).0;
+                        let order_column = lower(b, &arguments[3], v, ids, m, l).0;
+                        let descending = lower(b, &arguments[4], v, ids, m, l).0[0];
+                        let limit = lower(b, &arguments[5], v, ids, m, l).0[0];
+                        let offset = lower(b, &arguments[6], v, ids, m, l).0[0];
+                        runtime_call(b, m, "xenith_db_query", vec![AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I8), AbiParam::new(types::I64), AbiParam::new(types::I64)], vec![AbiParam::new(types::I64)], &[store, filter_column[0], filter_column[1], filter_value[0], filter_value[1], order_column[0], order_column[1], descending, limit, offset])[0]
                     };
                     let fields = &l[model].fields;
                     let count = fields.len() as i64;
