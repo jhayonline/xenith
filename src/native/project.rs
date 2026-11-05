@@ -267,6 +267,7 @@ fn standard_native_source(name: &str) -> Option<&'static str> {
              export function get_response(router: i64, pattern: string, handler: fn(i64) -> i64) -> string { return http_router_get_response(router, pattern, handler) }\n\
              export function post_response(router: i64, pattern: string, handler: fn(i64) -> i64) -> string { return http_router_post_response(router, pattern, handler) }\n\
              export function use_request(router: i64, middleware: fn(i64) -> i64) -> string { return http_router_use_request(router, middleware) }\n\
+             export function use_validation(router: i64, mode: string, pattern: string, schema: map<string, i64>) -> string { return http_router_use_validation(router, mode, pattern, schema) }\n\
              export function use_session(router: i64, database: i64, secret: string) -> string { return http_router_use_session(router, database, secret) }\n\
              export function use_role(router: i64, database: i64, secret: string, role: string) -> string { return http_router_use_role(router, database, secret, role) }\n\
              export function use_csrf(router: i64, database: i64, secret: string) -> string { return http_router_use_csrf(router, database, secret) }\n\

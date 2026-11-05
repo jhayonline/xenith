@@ -1028,6 +1028,35 @@ function main() -> i32 {
 }
 
 #[test]
+fn xenith_http_validation_middleware_rejects_invalid_json_before_handler() {
+    let directory = tempfile::tempdir().unwrap();
+    let source = r#"
+grab { router, use_validation, post_response, dispatch_response, response_new, response_status, response_close, required, string, rules, router_close } from "std::http"
+function create(request: i64) -> i64 { return response_new(201, "created") }
+function main() -> i32 {
+    let routes: i64 = router()
+    let setup: string = use_validation(routes, "json", "", {"name": rules(required, string)})
+    if (len(setup) != 0) { return 10 }
+    post_response(routes, "/users", create)
+    let result: i64 = dispatch_response(routes, "POST /users HTTP/1.1\r\nHost: localhost\r\n\r\n")
+    let status: i32 = response_status(result)
+    response_close(result)
+    router_close(routes)
+    return status - 422
+}
+"#;
+    let main = directory.path().join("main.xen");
+    fs::write(&main, source).unwrap();
+    let (program, _) = xenith::native::project::load_program(&main).unwrap();
+    let typed = xenith::native::check::check(&program).unwrap();
+    let object = directory.path().join("main.o");
+    let executable = directory.path().join("main");
+    xenith::native::codegen::emit_object(&typed, &object).unwrap();
+    xenith::native::codegen::link_host(&object, &executable).unwrap();
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(0));
+}
+
+#[test]
 fn xenith_http_validate_json_flattens_nested_objects_and_arrays() {
     let directory = tempfile::tempdir().unwrap();
     unsafe { std::env::set_var("XENITH_TEST_JSON", r#"{"user":{"name":"Ada"},"items":[{"sku":"A-1"},{"sku":"B-2"}]}"#); }

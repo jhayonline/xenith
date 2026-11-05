@@ -357,6 +357,7 @@ fn signatures(
         ("http_router_get_response", vec![Type::I64, Type::String, Type::Function(vec![Type::I64], Box::new(Type::I64))], Type::String),
         ("http_router_post_response", vec![Type::I64, Type::String, Type::Function(vec![Type::I64], Box::new(Type::I64))], Type::String),
         ("http_router_use_request", vec![Type::I64, Type::Function(vec![Type::I64], Box::new(Type::I64))], Type::String),
+        ("http_router_use_validation", vec![Type::I64, Type::String, Type::String, Type::Map(Box::new(Type::String), Box::new(Type::I64))], Type::String),
         ("http_router_use_session", vec![Type::I64, Type::I64, Type::String], Type::String),
         ("http_router_use_role", vec![Type::I64, Type::I64, Type::String, Type::String], Type::String),
         ("http_router_use_csrf", vec![Type::I64, Type::I64, Type::String], Type::String),
