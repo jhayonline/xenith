@@ -2095,14 +2095,18 @@ fn lower(
                 return (vec![pointer, length], Type::String);
             }
             if let Some((model, method)) = name.split_once("__") {
-                if (method == "all" || method == "filter") && l.contains_key(model) {
+                if (method == "all" || method == "filter" || method == "related") && l.contains_key(model) {
                     let store = lower(b, &arguments[0], v, ids, m, l).0[0];
                     let rows = if method == "all" {
                         runtime_call(b, m, "xenith_db_all", vec![AbiParam::new(types::I64)], vec![AbiParam::new(types::I64)], &[store])[0]
-                    } else {
+                    } else if method == "filter" {
                         let column = lower(b, &arguments[1], v, ids, m, l).0;
                         let value = lower(b, &arguments[2], v, ids, m, l).0;
                         runtime_call(b, m, "xenith_db_filter", vec![AbiParam::new(types::I64); 5], vec![AbiParam::new(types::I64)], &[store, column[0], column[1], value[0], value[1]])[0]
+                    } else {
+                        let column = lower(b, &arguments[1], v, ids, m, l).0;
+                        let id = lower(b, &arguments[2], v, ids, m, l).0[0];
+                        runtime_call(b, m, "xenith_db_related", vec![AbiParam::new(types::I64); 4], vec![AbiParam::new(types::I64)], &[store, column[0], column[1], id])[0]
                     };
                     let fields = &l[model].fields;
                     let count = fields.len() as i64;

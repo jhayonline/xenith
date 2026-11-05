@@ -368,6 +368,13 @@ let matching: list<User> = User.filter(user_store, "name", "Ada")
 The returned list is heap-backed and owns copied string fields, so it remains
 valid after the temporary database row maps are released.
 
+Relations use the same typed hydration:
+
+```xenith
+struct Post { id: i64, user_id: i64, title: string }
+let posts: list<Post> = Post.related(post_store, "user_id", user.id)
+```
+
 ## Standard library and imports
 
 Native projects can import the filesystem and environment modules:

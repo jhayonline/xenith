@@ -1468,7 +1468,7 @@ fn expr(
                     return Some(Type::Bool);
                 }
                 if let Some((receiver, method)) = name.split_once("__") {
-                    if (method == "find" || method == "all" || method == "filter") && layouts.contains_key(receiver) {
+                    if (method == "find" || method == "all" || method == "filter" || method == "related") && layouts.contains_key(receiver) {
                         let expected = if method == "find" { 2 } else if method == "all" { 1 } else { 3 };
                         if arguments.len() != expected { errors.push(Diagnostic { message: format!("model `{receiver}.{method}` expects {expected} arguments"), span: None }); }
                         for argument in arguments { expr(argument, names, signatures, layouts, errors); }

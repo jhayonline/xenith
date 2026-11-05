@@ -55,6 +55,25 @@ function main() -> i32 {
 }
 
 #[test]
+fn std_db_model_related_hydrates_struct_lists() {
+    let directory = tempfile::tempdir().unwrap();
+    let executable = compile(r#"
+grab { open, store, execute, close } from "std::db"
+struct Post { id: i64, user_id: i64, title: string }
+function main() -> i32 {
+    let database: i64 = open(":memory:")
+    execute(database, "CREATE TABLE posts (id INTEGER PRIMARY KEY, user_id INTEGER, title TEXT); INSERT INTO posts VALUES (1, 7, 'Welcome'); INSERT INTO posts VALUES (2, 8, 'Other')")
+    let posts: i64 = store(database, "posts")
+    let mine: list<Post> = Post.related(posts, "user_id", 7i64)
+    close(database)
+    if (len(mine) != 1) { return 10 }
+    return 0
+}
+"#, &directory);
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(0));
+}
+
+#[test]
 fn std_db_typed_model_helpers_validate_and_map_rows() {
     let directory = tempfile::tempdir().unwrap();
     let executable = compile(r#"
