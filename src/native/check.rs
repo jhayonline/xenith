@@ -374,6 +374,7 @@ fn signatures(
         ("http_require_header", vec![Type::I64, Type::String], Type::Tuple(vec![Type::String, Type::String])),
         ("http_require_query", vec![Type::I64, Type::String], Type::Tuple(vec![Type::String, Type::String])),
         ("http_require_param", vec![Type::I64, Type::String, Type::String], Type::Tuple(vec![Type::String, Type::String])),
+        ("http_json_validate_schema", vec![Type::String, Type::Map(Box::new(Type::String), Box::new(Type::String))], Type::String),
         ("http_response_new", vec![Type::I32, Type::String], Type::I64),
         ("http_response_header", vec![Type::I64, Type::String, Type::String], Type::String),
         ("http_response_cookie", vec![Type::I64, Type::String, Type::String, Type::I64, Type::Bool, Type::Bool], Type::String),

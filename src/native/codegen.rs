@@ -2591,6 +2591,15 @@ fn lower(
                 let _ = runtime_call(b, m, runtime_name, vec![AbiParam::new(types::I64); args.len()], vec![], &args);
                 return (vec![b.ins().load(types::I64, MemFlags::new(), args[args.len() - 4], 0), b.ins().load(types::I64, MemFlags::new(), args[args.len() - 3], 0), b.ins().load(types::I64, MemFlags::new(), args[args.len() - 2], 0), b.ins().load(types::I64, MemFlags::new(), args[args.len() - 1], 0)], Type::Tuple(vec![Type::String, Type::String]));
             }
+            if name == "http_json_validate_schema" {
+                let body = lower(b, &arguments[0], v, ids, m, l).0;
+                let schema = lower(b, &arguments[1], v, ids, m, l).0[0];
+                let output_ptr = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let output_len = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let args = [body[0], body[1], schema, b.ins().stack_addr(types::I64, output_ptr, 0), b.ins().stack_addr(types::I64, output_len, 0)];
+                let _ = runtime_call(b, m, "xenith_http_json_validate_schema", vec![AbiParam::new(types::I64); 5], vec![], &args);
+                return (vec![b.ins().load(types::I64, MemFlags::new(), args[3], 0), b.ins().load(types::I64, MemFlags::new(), args[4], 0)], Type::String);
+            }
             if name == "http_response_new" {
                 let status = lower(b, &arguments[0], v, ids, m, l).0[0];
                 let body = lower(b, &arguments[1], v, ids, m, l).0;
