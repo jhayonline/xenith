@@ -120,6 +120,26 @@ function main() -> i32 {
 handlers can pass that handle to the normal `std::db` APIs without manually
 acquiring or releasing connections.
 
+Request-context handlers can read cookies without parsing the `Cookie` header,
+and typed responses can set a hardened cookie. `response_cookie` always emits
+`Path=/` and `SameSite=Lax`; pass `true` for `secure` and `http_only` for
+session cookies used by web applications:
+
+```xenith
+grab { get_response, request_cookie, response_new, response_cookie } from "std::http"
+
+function login(request: i64) -> i64 {
+    let session: string = request_cookie(request, "session")
+    let response: i64 = response_new(200, session)
+    response_cookie(response, "session", "signed-token", 3600i64, true, true)
+    return response
+}
+```
+
+Cookie names and values are validated against header injection and malformed
+attributes. Cookie APIs return a recoverable error string, so applications can
+handle invalid input with `try`/`catch` where appropriate.
+
 For the blocking TCP server, use `run_with_pool` or
 `run_for_with_pool`. They apply the same request scope to every accepted
 connection, including cleanup when reading or writing the request fails.

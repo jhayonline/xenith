@@ -605,6 +605,7 @@ function show(request: i64) -> i64 {
     response_header(result, "X-Test", "yes")
     return result
 }
+
 function main() -> i32 {
     let routes: i64 = router()
     use_request(routes, continue_request)
@@ -630,4 +631,44 @@ function main() -> i32 {
     xenith::native::codegen::emit_object(&typed, &object).unwrap();
     xenith::native::codegen::link_host(&object, &executable).unwrap();
     assert_eq!(Command::new(executable).status().unwrap().code(), Some(1));
+}
+
+#[test]
+fn xenith_http_cookies_extract_and_set_secure_attributes() {
+    let directory = tempfile::tempdir().unwrap();
+    let source = r#"
+grab { router, get_response, dispatch_response, request_cookie, response_new, response_cookie, response_header, response_header_value, response_status, response_close, router_close } from "std::http"
+function show(request: i64) -> i64 {
+    let absent: string = request_cookie(request, "session")
+    if (len(absent) != 0) { return response_new(400, "unexpected cookie") }
+    let result: i64 = response_new(200, "ok")
+    let cookie_error: string = response_cookie(result, "session", "next", 3600i64, true, true)
+    if (len(cookie_error) != 0) { return response_new(500, cookie_error) }
+    let cookie: string = response_header_value(result, "Set-Cookie")
+    if (cookie != "session=next; Max-Age=3600; Path=/; Secure; HttpOnly; SameSite=Lax") { return response_new(500, "bad cookie") }
+    response_header(result, "X-Test", "yes")
+    return result
+}
+function main() -> i32 {
+    let routes: i64 = router()
+    get_response(routes, "/", show)
+    let result: i64 = dispatch_response(routes, "GET / HTTP/1.1\r\nCookie: session=abc; theme=dark\r\n\r\n")
+    let marker: string = response_header_value(result, "X-Test")
+    let status: i32 = response_status(result)
+    response_close(result)
+    router_close(routes)
+    if (status != 200) { return 10 }
+    if (len(marker) != 3) { return 20 }
+    return 0
+}
+"#;
+    let main = directory.path().join("main.xen");
+    fs::write(&main, source).unwrap();
+    let (program, _) = xenith::native::project::load_program(&main).unwrap();
+    let typed = xenith::native::check::check(&program).unwrap();
+    let object = directory.path().join("main.o");
+    let executable = directory.path().join("main");
+    xenith::native::codegen::emit_object(&typed, &object).unwrap();
+    xenith::native::codegen::link_host(&object, &executable).unwrap();
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(0));
 }

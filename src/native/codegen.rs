@@ -2464,7 +2464,7 @@ fn lower(
                 let _ = runtime_call(b, m, runtime_name, vec![AbiParam::new(types::I64); 3], vec![], &args);
                 return (vec![b.ins().load(types::I64, MemFlags::new(), args[1], 0), b.ins().load(types::I64, MemFlags::new(), args[2], 0)], Type::String);
             }
-            if name == "http_request_header" || name == "http_request_query" || name == "http_request_param" {
+            if name == "http_request_header" || name == "http_request_cookie" || name == "http_request_query" || name == "http_request_param" {
                 let request = lower(b, &arguments[0], v, ids, m, l).0[0];
                 let second = lower(b, &arguments[1], v, ids, m, l).0;
                 let mut args = vec![request, second[0], second[1]];
@@ -2476,7 +2476,7 @@ fn lower(
                 let value_len = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
                 args.push(b.ins().stack_addr(types::I64, value_ptr, 0));
                 args.push(b.ins().stack_addr(types::I64, value_len, 0));
-                let runtime_name = if name == "http_request_header" { "xenith_http_request_header" } else if name == "http_request_query" { "xenith_http_request_query" } else { "xenith_http_request_param" };
+                let runtime_name = if name == "http_request_header" { "xenith_http_request_header" } else if name == "http_request_cookie" { "xenith_http_request_cookie" } else if name == "http_request_query" { "xenith_http_request_query" } else { "xenith_http_request_param" };
                 let _ = runtime_call(b, m, runtime_name, vec![AbiParam::new(types::I64); args.len()], vec![], &args);
                 return (vec![b.ins().load(types::I64, MemFlags::new(), args[args.len() - 2], 0), b.ins().load(types::I64, MemFlags::new(), args[args.len() - 1], 0)], Type::String);
             }
@@ -2495,6 +2495,19 @@ fn lower(
                 let args = [response, name_value[0], name_value[1], value[0], value[1], b.ins().stack_addr(types::I64, error_ptr, 0), b.ins().stack_addr(types::I64, error_len, 0)];
                 let _ = runtime_call(b, m, "xenith_http_response_header", vec![AbiParam::new(types::I64); 7], vec![], &args);
                 return (vec![b.ins().load(types::I64, MemFlags::new(), args[5], 0), b.ins().load(types::I64, MemFlags::new(), args[6], 0)], Type::String);
+            }
+            if name == "http_response_cookie" {
+                let response = lower(b, &arguments[0], v, ids, m, l).0[0];
+                let cookie_name = lower(b, &arguments[1], v, ids, m, l).0;
+                let value = lower(b, &arguments[2], v, ids, m, l).0;
+                let max_age = lower(b, &arguments[3], v, ids, m, l).0[0];
+                let secure = lower(b, &arguments[4], v, ids, m, l).0[0];
+                let http_only = lower(b, &arguments[5], v, ids, m, l).0[0];
+                let error_ptr = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let error_len = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let args = [response, cookie_name[0], cookie_name[1], value[0], value[1], max_age, secure, http_only, b.ins().stack_addr(types::I64, error_ptr, 0), b.ins().stack_addr(types::I64, error_len, 0)];
+                let _ = runtime_call(b, m, "xenith_http_response_cookie", vec![AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I8), AbiParam::new(types::I8), AbiParam::new(types::I64), AbiParam::new(types::I64)], vec![], &args);
+                return (vec![b.ins().load(types::I64, MemFlags::new(), args[8], 0), b.ins().load(types::I64, MemFlags::new(), args[9], 0)], Type::String);
             }
             if name == "http_response_status" {
                 let response = lower(b, &arguments[0], v, ids, m, l).0[0];

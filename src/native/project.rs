@@ -279,10 +279,12 @@ fn standard_native_source(name: &str) -> Option<&'static str> {
              export function request_path(request: i64) -> string { return http_request_path(request) }\n\
              export function request_body(request: i64) -> string { return http_request_body(request) }\n\
              export function request_header(request: i64, name: string) -> string { return http_request_header(request, name) }\n\
+             export function request_cookie(request: i64, name: string) -> string { return http_request_cookie(request, name) }\n\
              export function request_query(request: i64, key: string) -> string { return http_request_query(request, key) }\n\
              export function request_param(request: i64, pattern: string, name: string) -> string { return http_request_param(request, pattern, name) }\n\
              export function response_new(status: i32, body: string) -> i64 { return http_response_new(status, body) }\n\
              export function response_header(response: i64, name: string, value: string) -> string { return http_response_header(response, name, value) }\n\
+             export function response_cookie(response: i64, name: string, value: string, max_age: i64, secure: bool, http_only: bool) -> string { return http_response_cookie(response, name, value, max_age, secure, http_only) }\n\
              export function response_status(response: i64) -> i32 { return http_response_status(response) }\n\
              export function response_body(response: i64) -> string { return http_response_body(response) }\n\
              export function response_header_value(response: i64, name: string) -> string { return http_response_header_value(response, name) }\n\
