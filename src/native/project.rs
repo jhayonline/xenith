@@ -199,6 +199,10 @@ fn standard_native_source(name: &str) -> Option<&'static str> {
         ),
         "db" => Some(
             "export function open(path: string) -> i64 { return db_open(path) }\n\
+             export function schema(table: string) -> i64 { return db_schema(table) }\n\
+             export function field(schema: i64, name: string, kind: string) -> string { return db_field(schema, name, kind) }\n\
+             export function migrate(handle: i64, name: string, schema: i64) -> string { return db_migrate(handle, name, schema) }\n\
+             export function schema_close(schema: i64) -> null { return db_schema_close(schema) }\n\
              export function execute(handle: i64, sql: string) -> string { return db_exec(handle, sql) }\n\
              export function store(handle: i64, table: string) -> i64 { return db_store(handle, table) }\n\
              export function find(store: i64, id: i64) -> tuple<string, string> { return db_find(store, id) }\n\

@@ -60,6 +60,39 @@ function main() -> i32 {
     close(handle)
     return len(error)
 }
+
+"#;
+    let main = directory.path().join("main.xen");
+    std::fs::write(&main, source).unwrap();
+    let (program, _) = xenith::native::project::load_program(&main).unwrap();
+    let typed = check(&program).unwrap();
+    let object = directory.path().join("main.o");
+    let executable = directory.path().join("main");
+    emit_object(&typed, &object).unwrap();
+    link_host(&object, &executable).unwrap();
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(0));
+}
+
+#[test]
+fn std_db_schema_builder_applies_idempotent_migrations_without_sql() {
+    let directory = tempfile::tempdir().unwrap();
+    let source = r#"
+grab { open, schema, field, migrate, store, insert, close, schema_close } from "std::db"
+function main() -> i32 {
+    let handle: i64 = open(":memory:")
+    let definition: i64 = schema("users")
+    let first: string = field(definition, "name", "string")
+    let second: string = field(definition, "age", "i32")
+    let applied: string = migrate(handle, "create_users", definition)
+    let repeated: string = migrate(handle, "create_users", definition)
+    let users: i64 = store(handle, "users")
+    let row: map<string, string> = {"name": "Ada", "age": "36"}
+    let id: i64 = insert(users, row)
+    schema_close(definition)
+    close(handle)
+    if (first == "" && second == "" && applied == "" && repeated == "" && id == 1i64) { return 0 }
+    return 1
+}
 "#;
     let main = directory.path().join("main.xen");
     std::fs::write(&main, source).unwrap();

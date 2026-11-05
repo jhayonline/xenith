@@ -269,6 +269,31 @@ Native diagnostics include an error code, name, message, source location, and
 beginner-friendly help text. Allocation and filesystem failures use the shared
 recoverable native status ABI.
 
+## SQL-free database schemas
+
+`std::db` keeps migration definitions in ordinary Xenith code. The schema
+builder validates field names and types, generates the SQLite DDL natively, and
+records migration names so applying the same migration again is a no-op:
+
+```xenith
+grab { open, schema, field, migrate, store, insert, close, schema_close } from "std::db"
+
+let database: i64 = open("app.db")
+let users: i64 = schema("users")
+field(users, "name", "string")
+field(users, "age", "i32")
+migrate(database, "create_users", users)
+
+let table: i64 = store(database, "users")
+insert(table, {"name": "Ada", "age": "36"})
+schema_close(users)
+close(database)
+```
+
+Supported field kinds are `string`, `i32`, `i64`, `bool`, and `bytes`. Schema,
+field, and migration failures return recoverable error strings; application code
+never needs to embed SQL for schema creation.
+
 ## Standard library and imports
 
 Native projects can import the filesystem and environment modules:

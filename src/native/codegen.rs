@@ -2540,6 +2540,36 @@ fn lower(
                 let handle = runtime_call(b, m, "xenith_db_open", vec![AbiParam::new(types::I64); 2], vec![AbiParam::new(types::I64)], &path)[0];
                 return (vec![handle], Type::I64);
             }
+            if name == "db_schema" {
+                let table = lower(b, &arguments[0], v, ids, m, l).0;
+                let schema = runtime_call(b, m, "xenith_db_schema", vec![AbiParam::new(types::I64); 2], vec![AbiParam::new(types::I64)], &table)[0];
+                return (vec![schema], Type::I64);
+            }
+            if name == "db_field" {
+                let schema = lower(b, &arguments[0], v, ids, m, l).0[0];
+                let field = lower(b, &arguments[1], v, ids, m, l).0;
+                let kind = lower(b, &arguments[2], v, ids, m, l).0;
+                let error_ptr = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let error_len = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let args = [schema, field[0], field[1], kind[0], kind[1], b.ins().stack_addr(types::I64, error_ptr, 0), b.ins().stack_addr(types::I64, error_len, 0)];
+                let _ = runtime_call(b, m, "xenith_db_field", vec![AbiParam::new(types::I64); 7], vec![], &args);
+                return (vec![b.ins().load(types::I64, MemFlags::new(), args[5], 0), b.ins().load(types::I64, MemFlags::new(), args[6], 0)], Type::String);
+            }
+            if name == "db_migrate" {
+                let handle = lower(b, &arguments[0], v, ids, m, l).0[0];
+                let migration = lower(b, &arguments[1], v, ids, m, l).0;
+                let schema = lower(b, &arguments[2], v, ids, m, l).0[0];
+                let error_ptr = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let error_len = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let args = [handle, migration[0], migration[1], schema, b.ins().stack_addr(types::I64, error_ptr, 0), b.ins().stack_addr(types::I64, error_len, 0)];
+                let _ = runtime_call(b, m, "xenith_db_migrate", vec![AbiParam::new(types::I64); 6], vec![], &args);
+                return (vec![b.ins().load(types::I64, MemFlags::new(), args[4], 0), b.ins().load(types::I64, MemFlags::new(), args[5], 0)], Type::String);
+            }
+            if name == "db_schema_close" {
+                let schema = lower(b, &arguments[0], v, ids, m, l).0[0];
+                let _ = runtime_call(b, m, "xenith_db_schema_close", vec![AbiParam::new(types::I64)], vec![], &[schema]);
+                return (vec![b.ins().iconst(types::I8, 0)], Type::Null);
+            }
             if name == "db_exec" {
                 let handle = lower(b, &arguments[0], v, ids, m, l).0[0];
                 let sql = lower(b, &arguments[1], v, ids, m, l).0;
