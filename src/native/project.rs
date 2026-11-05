@@ -238,7 +238,16 @@ fn standard_native_source(name: &str) -> Option<&'static str> {
              export function get(router: i64, pattern: string, handler: fn(string, string, string) -> tuple<i32, string>) -> string { return http_router_get(router, pattern, handler) }\n\
              export function post(router: i64, pattern: string, handler: fn(string, string, string) -> tuple<i32, string>) -> string { return http_router_post(router, pattern, handler) }\n\
              export function use(router: i64, middleware: fn(string, string, string) -> tuple<i32, string>) -> string { return http_router_use(router, middleware) }\n\
+             export function get_request(router: i64, pattern: string, handler: fn(i64) -> tuple<i32, string>) -> string { return http_router_get_request(router, pattern, handler) }\n\
+             export function post_request(router: i64, pattern: string, handler: fn(i64) -> tuple<i32, string>) -> string { return http_router_post_request(router, pattern, handler) }\n\
              export function dispatch(router: i64, method: string, path: string, body: string) -> tuple<i32, string> { return http_router_dispatch(router, method, path, body) }\n\
+             export function dispatch_request(router: i64, request: string) -> tuple<i32, string> { return http_router_dispatch_request(router, request) }\n\
+             export function request_method(request: i64) -> string { return http_request_method(request) }\n\
+             export function request_path(request: i64) -> string { return http_request_path(request) }\n\
+             export function request_body(request: i64) -> string { return http_request_body(request) }\n\
+             export function request_header(request: i64, name: string) -> string { return http_request_header(request, name) }\n\
+             export function request_query(request: i64, key: string) -> string { return http_request_query(request, key) }\n\
+             export function request_param(request: i64, pattern: string, name: string) -> string { return http_request_param(request, pattern, name) }\n\
              export function router_close(router: i64) -> null { return http_router_close(router) }\n\
              export function serve(router: i64, address: string) -> string { return http_serve(router, address) }\n\
              export function query(path: string, key: string) -> string { return http_query(path, key) }\n\

@@ -65,6 +65,33 @@ return a typed `404` response. Router middleware uses the same ordinary
 function type: return status `0` to continue, or a real HTTP status to
 short-circuit the request.
 
+For handlers that need structured request data, use the request-context routes.
+They receive an opaque, read-only request handle and can extract the method,
+full path, body, headers, query values, and named route parameters without
+manually parsing HTTP:
+
+```xenith
+grab { router, get_request, dispatch_request, request_query, request_param,
+       router_close, json } from "std::http"
+
+function show_user(request: i64) -> tuple<i32, string> {
+    let id: string = request_param(request, "/users/:id", "id")
+    let page: string = request_query(request, "page")
+    return json(200, "user {id}, page {page}")
+}
+
+function main() -> i32 {
+    let routes: i64 = router()
+    get_request(routes, "/users/:id", show_user)
+    let response: tuple<i32, string> = dispatch_request(routes, "GET /users/42?page=1 HTTP/1.1")
+    router_close(routes)
+    return response[0]
+}
+```
+
+The same request-context handlers are used by the blocking server APIs, so a
+route can move from tests to production without changing its signature.
+
 ```xenith
 function require_token(method: string, path: string, body: string) -> tuple<i32, string> {
     if (path == "/private") {
