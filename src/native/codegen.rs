@@ -3240,7 +3240,13 @@ fn lower(
             if name == "http_validate_form" {
                 let request = lower(b, &arguments[0], v, ids, m, l).0[0];
                 let schema = lower(b, &arguments[1], v, ids, m, l).0[0];
-                let value = runtime_call(b, m, name, vec![AbiParam::new(types::I64); 2], vec![AbiParam::new(types::I64)], &[request, schema])[0];
+                let value = runtime_call(b, m, "http_validate_form_nested", vec![AbiParam::new(types::I64); 2], vec![AbiParam::new(types::I64)], &[request, schema])[0];
+                return (vec![value], Type::Map(Box::new(Type::String), Box::new(Type::String)));
+            }
+            if name == "http_validate_form_body" {
+                let body = lower(b, &arguments[0], v, ids, m, l).0;
+                let schema = lower(b, &arguments[1], v, ids, m, l).0[0];
+                let value = runtime_call(b, m, name, vec![AbiParam::new(types::I64); 3], vec![AbiParam::new(types::I64)], &[body[0], body[1], schema])[0];
                 return (vec![value], Type::Map(Box::new(Type::String), Box::new(Type::String)));
             }
             if name == "http_validate_status" {

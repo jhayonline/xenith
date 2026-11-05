@@ -1084,3 +1084,24 @@ function main() -> i32 {
     assert_eq!(Command::new(executable).status().unwrap().code(), Some(0));
     unsafe { std::env::remove_var("XENITH_TEST_JSON"); }
 }
+
+#[test]
+fn xenith_http_form_validation_normalizes_nested_bracket_paths() {
+    let directory = tempfile::tempdir().unwrap();
+    let source = r#"
+grab { validate_form_body, required, string, rules } from "std::http"
+function main() -> i32 {
+    let errors: map<string, string> = validate_form_body("user[name]=Ada&items[0][sku]=A-1", {"user.name": rules(required, string), "items.*.sku": rules(required, string)})
+    return len(errors)
+}
+"#;
+    let main = directory.path().join("main.xen");
+    fs::write(&main, source).unwrap();
+    let (program, _) = xenith::native::project::load_program(&main).unwrap();
+    let typed = xenith::native::check::check(&program).unwrap();
+    let object = directory.path().join("main.o");
+    let executable = directory.path().join("main");
+    xenith::native::codegen::emit_object(&typed, &object).unwrap();
+    xenith::native::codegen::link_host(&object, &executable).unwrap();
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(0));
+}
