@@ -61,7 +61,21 @@ function main() -> i32 {
 ```
 
 Routes may contain `:parameter` segments, and `GET`/`POST` method mismatches
-return a typed `404` response. A real blocking server can own the socket loop:
+return a typed `404` response. Router middleware uses the same ordinary
+function type: return status `0` to continue, or a real HTTP status to
+short-circuit the request.
+
+```xenith
+function require_token(method: string, path: string, body: string) -> tuple<i32, string> {
+    if (path == "/private") {
+        return (401, "unauthorized")
+    }
+    return (0, "")
+}
+```
+
+Register it with `use(routes, require_token)` before adding routes. A real
+blocking server can own the socket loop:
 
 ```xenith
 function server_main() -> i32 {

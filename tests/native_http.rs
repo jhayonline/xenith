@@ -404,3 +404,38 @@ function main() -> i32 {
     xenith::native::codegen::link_host(&object, &executable).unwrap();
     assert!(Command::new(executable).status().unwrap().code().unwrap() > 0);
 }
+
+#[test]
+fn xenith_http_router_middleware_can_short_circuit_or_continue() {
+    let directory = tempfile::tempdir().unwrap();
+    let source = r#"
+grab { router, get, use, dispatch, router_close } from "std::http"
+function auth(method: string, path: string, body: string) -> tuple<i32, string> {
+    if (path == "/private") { return (401, "unauthorized") }
+    return (0, "")
+}
+function hello(method: string, path: string, body: string) -> tuple<i32, string> {
+    return (200, "ok")
+}
+function main() -> i32 {
+    let routes: i64 = router()
+    use(routes, auth)
+    get(routes, "/private", hello)
+    get(routes, "/public", hello)
+    let denied: tuple<i32, string> = dispatch(routes, "GET", "/private", "")
+    let allowed: tuple<i32, string> = dispatch(routes, "GET", "/public", "")
+    router_close(routes)
+    if (denied[0] == 401 && allowed[0] == 200 && allowed[1] == "ok") { return 1 }
+    return 0
+}
+"#;
+    let main = directory.path().join("main.xen");
+    fs::write(&main, source).unwrap();
+    let (program, _) = xenith::native::project::load_program(&main).unwrap();
+    let typed = xenith::native::check::check(&program).unwrap();
+    let object = directory.path().join("main.o");
+    let executable = directory.path().join("main");
+    xenith::native::codegen::emit_object(&typed, &object).unwrap();
+    xenith::native::codegen::link_host(&object, &executable).unwrap();
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(1));
+}
