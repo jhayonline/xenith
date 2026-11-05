@@ -174,6 +174,21 @@ function main() -> i32 {
 }
 ```
 
+For browser or API clients, signed session-cookie helpers combine the opaque
+session token with a keyed signature:
+
+```xenith
+grab { session_cookie_create, session_cookie_user } from "std::auth"
+
+let cookie: string = session_cookie_create(database, 42i64, 3600i64, config.session_secret)
+let authenticated_user: i64 = session_cookie_user(database, cookie, config.session_secret)
+```
+
+Malformed, tampered, expired, or revoked cookies resolve to user ID `0`. Keep
+the signing secret in environment-backed configuration. Request handlers can
+authenticate in one call with `session_request_user(database, request,
+config.session_secret)`.
+
 For the blocking TCP server, use `run_with_pool` or
 `run_for_with_pool`. They apply the same request scope to every accepted
 connection, including cleanup when reading or writing the request fails.

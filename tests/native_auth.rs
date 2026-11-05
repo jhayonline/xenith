@@ -31,6 +31,26 @@ function main() -> i32 {
 }
 
 #[test]
+fn auth_signed_session_cookies_verify_and_reject_tampering() {
+    let directory = tempfile::tempdir().unwrap();
+    let executable = compile(r#"
+grab { open, close } from "std::db"
+grab { session_open, session_cookie_create, session_cookie_user } from "std::auth"
+function main() -> i32 {
+    let database: i64 = open(":memory:")
+    session_open(database)
+    let cookie: string = session_cookie_create(database, 7i64, 3600i64, "application-secret")
+    if (len(cookie) < 80) { return 10 }
+    if (session_cookie_user(database, cookie, "application-secret") != 7i64) { return 20 }
+    if (session_cookie_user(database, cookie, "wrong-secret") != 0i64) { return 30 }
+    close(database)
+    return 0
+}
+"#, &directory);
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(0));
+}
+
+#[test]
 fn auth_sessions_create_lookup_expire_and_revoke() {
     let directory = tempfile::tempdir().unwrap();
     let executable = compile(r#"

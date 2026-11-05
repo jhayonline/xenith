@@ -2167,7 +2167,7 @@ fn lower(
                     return (values, Type::Named(model.to_string()));
                 }
             }
-            if name == "auth_session_open" || name == "auth_session_create" || name == "auth_session_revoke" {
+            if name == "auth_session_open" || name == "auth_session_create" || name == "auth_session_revoke" || name == "auth_session_cookie_create" {
                 let database = lower(b, &arguments[0], v, ids, m, l).0[0];
                 let mut args = vec![database];
                 if name == "auth_session_create" {
@@ -2175,13 +2175,17 @@ fn lower(
                     args.push(lower(b, &arguments[2], v, ids, m, l).0[0]);
                 } else if name == "auth_session_revoke" {
                     args.extend(lower(b, &arguments[1], v, ids, m, l).0);
+                } else if name == "auth_session_cookie_create" {
+                    args.push(lower(b, &arguments[1], v, ids, m, l).0[0]);
+                    args.push(lower(b, &arguments[2], v, ids, m, l).0[0]);
+                    args.extend(lower(b, &arguments[3], v, ids, m, l).0);
                 }
                 let output_ptr = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
                 let output_len = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
                 let error_ptr = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
                 let error_len = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
                 args.extend([b.ins().stack_addr(types::I64, output_ptr, 0), b.ins().stack_addr(types::I64, output_len, 0), b.ins().stack_addr(types::I64, error_ptr, 0), b.ins().stack_addr(types::I64, error_len, 0)]);
-                let runtime_name = if name == "auth_session_open" { "xenith_auth_session_open" } else if name == "auth_session_create" { "xenith_auth_session_create" } else { "xenith_auth_session_revoke" };
+                let runtime_name = if name == "auth_session_open" { "xenith_auth_session_open" } else if name == "auth_session_create" { "xenith_auth_session_create" } else if name == "auth_session_revoke" { "xenith_auth_session_revoke" } else { "xenith_auth_session_cookie_create" };
                 let _ = runtime_call(b, m, runtime_name, vec![AbiParam::new(types::I64); args.len()], vec![], &args);
                 return (vec![b.ins().load(types::I64, MemFlags::new(), args[args.len() - 4], 0), b.ins().load(types::I64, MemFlags::new(), args[args.len() - 3], 0)], Type::String);
             }
@@ -2189,6 +2193,15 @@ fn lower(
                 let database = lower(b, &arguments[0], v, ids, m, l).0[0];
                 let token = lower(b, &arguments[1], v, ids, m, l).0;
                 let result = runtime_call(b, m, "xenith_auth_session_user", vec![AbiParam::new(types::I64); 3], vec![AbiParam::new(types::I64)], &[database, token[0], token[1]])[0];
+                return (vec![result], Type::I64);
+            }
+            if name == "auth_session_cookie_user" || name == "auth_session_request_user" {
+                let database = lower(b, &arguments[0], v, ids, m, l).0[0];
+                let target = lower(b, &arguments[1], v, ids, m, l).0;
+                let secret = lower(b, &arguments[2], v, ids, m, l).0;
+                let runtime_name = if name == "auth_session_cookie_user" { "xenith_auth_session_cookie_user" } else { "xenith_auth_session_request_user" };
+                let args = if name == "auth_session_cookie_user" { vec![database, target[0], target[1], secret[0], secret[1]] } else { vec![database, target[0], secret[0], secret[1]] };
+                let result = runtime_call(b, m, runtime_name, vec![AbiParam::new(types::I64); args.len()], vec![AbiParam::new(types::I64)], &args)[0];
                 return (vec![result], Type::I64);
             }
             if name == "auth_hash_password" {
