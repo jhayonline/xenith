@@ -106,6 +106,43 @@ function main() -> i32 {
 }
 
 #[test]
+fn std_db_schema_builder_applies_constraints_defaults_and_indexes() {
+    let directory = tempfile::tempdir().unwrap();
+    let source = r#"
+grab { open, schema, field, nullable, default_value, unique, index, migrate, store, insert, find_map, as_string, close, schema_close } from "std::db"
+function main() -> i32 {
+    let handle: i64 = open(":memory:")
+    let definition: i64 = schema("users")
+    let first: string = field(definition, "email", "string")
+    let second: string = field(definition, "name", "string")
+    let third: string = nullable(definition, "bio")
+    let fourth: string = default_value(definition, "name", "Guest")
+    let fifth: string = unique(definition, "email")
+    let sixth: string = index(definition, "name")
+    let applied: string = migrate(handle, "create_users_constraints", definition)
+    let users: i64 = store(handle, "users")
+    let row: map<string, string> = {"email": "ada@example.com"}
+    let id: i64 = insert(users, row)
+    let found: map<string, string> = find_map(users, id)
+    let name: string = as_string(found, "name")
+    schema_close(definition)
+    close(handle)
+    if (name == "Guest") { return 0 }
+    return 1
+}
+"#;
+    let main = directory.path().join("main.xen");
+    std::fs::write(&main, source).unwrap();
+    let (program, _) = xenith::native::project::load_program(&main).unwrap();
+    let typed = check(&program).unwrap();
+    let object = directory.path().join("main.o");
+    let executable = directory.path().join("main");
+    emit_object(&typed, &object).unwrap();
+    link_host(&object, &executable).unwrap();
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(0));
+}
+
+#[test]
 fn native_database_store_finds_a_row_as_json() {
     let source = r#"
 function main() -> i32 {

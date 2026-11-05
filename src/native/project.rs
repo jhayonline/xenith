@@ -210,6 +210,10 @@ fn standard_native_source(name: &str) -> Option<&'static str> {
             "export function open(path: string) -> i64 { return db_open(path) }\n\
              export function schema(table: string) -> i64 { return db_schema(table) }\n\
              export function field(schema: i64, name: string, kind: string) -> string { return db_field(schema, name, kind) }\n\
+             export function nullable(schema: i64, name: string) -> string { return db_nullable(schema, name) }\n\
+             export function default_value(schema: i64, name: string, value: string) -> string { return db_default(schema, name, value) }\n\
+             export function unique(schema: i64, name: string) -> string { return db_unique(schema, name) }\n\
+             export function index(schema: i64, name: string) -> string { return db_index(schema, name) }\n\
              export function migrate(handle: i64, name: string, schema: i64) -> string { return db_migrate(handle, name, schema) }\n\
              export function schema_close(schema: i64) -> null { return db_schema_close(schema) }\n\
              export function execute(handle: i64, sql: string) -> string { return db_exec(handle, sql) }\n\

@@ -2601,6 +2601,26 @@ fn lower(
                 let _ = runtime_call(b, m, "xenith_db_field", vec![AbiParam::new(types::I64); 7], vec![], &args);
                 return (vec![b.ins().load(types::I64, MemFlags::new(), args[5], 0), b.ins().load(types::I64, MemFlags::new(), args[6], 0)], Type::String);
             }
+            if name == "db_nullable" || name == "db_unique" || name == "db_index" {
+                let schema = lower(b, &arguments[0], v, ids, m, l).0[0];
+                let field = lower(b, &arguments[1], v, ids, m, l).0;
+                let error_ptr = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let error_len = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let args = [schema, field[0], field[1], b.ins().stack_addr(types::I64, error_ptr, 0), b.ins().stack_addr(types::I64, error_len, 0)];
+                let runtime_name = match name.as_str() { "db_nullable" => "xenith_db_nullable", "db_unique" => "xenith_db_unique", _ => "xenith_db_index" };
+                let _ = runtime_call(b, m, runtime_name, vec![AbiParam::new(types::I64); 5], vec![], &args);
+                return (vec![b.ins().load(types::I64, MemFlags::new(), args[3], 0), b.ins().load(types::I64, MemFlags::new(), args[4], 0)], Type::String);
+            }
+            if name == "db_default" {
+                let schema = lower(b, &arguments[0], v, ids, m, l).0[0];
+                let field = lower(b, &arguments[1], v, ids, m, l).0;
+                let value = lower(b, &arguments[2], v, ids, m, l).0;
+                let error_ptr = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let error_len = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let args = [schema, field[0], field[1], value[0], value[1], b.ins().stack_addr(types::I64, error_ptr, 0), b.ins().stack_addr(types::I64, error_len, 0)];
+                let _ = runtime_call(b, m, "xenith_db_default", vec![AbiParam::new(types::I64); 7], vec![], &args);
+                return (vec![b.ins().load(types::I64, MemFlags::new(), args[5], 0), b.ins().load(types::I64, MemFlags::new(), args[6], 0)], Type::String);
+            }
             if name == "db_migrate" {
                 let handle = lower(b, &arguments[0], v, ids, m, l).0[0];
                 let migration = lower(b, &arguments[1], v, ids, m, l).0;
@@ -2609,6 +2629,7 @@ fn lower(
                 let error_len = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
                 let args = [handle, migration[0], migration[1], schema, b.ins().stack_addr(types::I64, error_ptr, 0), b.ins().stack_addr(types::I64, error_len, 0)];
                 let _ = runtime_call(b, m, "xenith_db_migrate", vec![AbiParam::new(types::I64); 6], vec![], &args);
+                let _ = runtime_call(b, m, "xenith_db_apply_constraints", vec![AbiParam::new(types::I64); 4], vec![], &[handle, schema, args[4], args[5]]);
                 return (vec![b.ins().load(types::I64, MemFlags::new(), args[4], 0), b.ins().load(types::I64, MemFlags::new(), args[5], 0)], Type::String);
             }
             if name == "db_schema_close" {

@@ -350,6 +350,8 @@ Implemented native compiler capabilities include:
 - Native `std::fs` and `std::env` imports.
 - Native `std::config` imports for `.env`-style files, environment overrides,
   typed defaults, required values, and recoverable configuration errors.
+- Native database schema builders with typed fields, nullable/default options,
+  unique constraints, and indexes applied by migrations.
 - Source-aware diagnostics with codes, hints, function names, files, lines,
   columns, and byte offsets.
 
