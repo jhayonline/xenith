@@ -3182,6 +3182,7 @@ fn lower(
                 if name == "email" { return (vec![b.ins().iconst(types::I64, 16)], Type::I64); }
                 if name == "min" || name == "max" {
                     let value = lower(b, &arguments[0], v, ids, m, l).0[0];
+                    let value = b.ins().sextend(types::I64, value);
                     let shifted = b.ins().ishl_imm(value, 32);
                     return (vec![b.ins().bor_imm(shifted, if name == "min" { 0x100000000i64 } else { 0x200000000i64 })], Type::I64);
                 }
@@ -3278,6 +3279,7 @@ fn lower(
                 if name == "email" { return (vec![b.ins().iconst(types::I64, 16)], Type::I64); }
                 if name == "min" || name == "max" {
                     let value = lower(b, &arguments[0], v, ids, m, l).0[0];
+                    let value = b.ins().sextend(types::I64, value);
                     let shifted = b.ins().ishl_imm(value, 32);
                     return (vec![b.ins().bor_imm(shifted, if name == "min" { 0x100000000i64 } else { 0x200000000i64 })], Type::I64);
                 }
