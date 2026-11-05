@@ -866,7 +866,7 @@ function main() -> i32 {
 fn xenith_http_rule_validation_reports_each_failed_rule() {
     let directory = tempfile::tempdir().unwrap();
     let source = r#"
-grab { validate, required, string, i64, email, min, max, rules } from "std::http"
+grab { validate, validate_status, required, string, i64, email, min, max, rules } from "std::http"
 function main() -> i32 {
     let input: map<string, string> = {"name": "A", "email": "not-an-email", "age": "old", "extra": "x"}
     let result: map<string, string> = validate(input, {
@@ -874,7 +874,7 @@ function main() -> i32 {
         "email": rules(required, email),
         "age": rules(required, i64, min(18))
     })
-    return len(result)
+    return validate_status(result) - len(result)
 }
 "#;
     let main = directory.path().join("main.xen");
@@ -885,5 +885,5 @@ function main() -> i32 {
     let executable = directory.path().join("main");
     xenith::native::codegen::emit_object(&typed, &object).unwrap();
     xenith::native::codegen::link_host(&object, &executable).unwrap();
-    assert_eq!(Command::new(executable).status().unwrap().code(), Some(5));
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(162));
 }

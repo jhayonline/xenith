@@ -3207,6 +3207,11 @@ fn lower(
                 let value = runtime_call(b, m, name, vec![AbiParam::new(types::I64); args.len()], vec![AbiParam::new(types::I64)], &args)[0];
                 return (vec![value], Type::Map(Box::new(Type::String), Box::new(Type::String)));
             }
+            if name == "http_validate_status" {
+                let errors = lower(b, &arguments[0], v, ids, m, l).0[0];
+                let value = runtime_call(b, m, name, vec![AbiParam::new(types::I64)], vec![AbiParam::new(types::I32)], &[errors])[0];
+                return (vec![value], Type::I32);
+            }
             if let Some((_, Type::Function(parameters, result))) = v.get(name) {
                 let mut args = Vec::new();
                 args.push(v[name].0[1]);
