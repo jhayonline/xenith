@@ -480,6 +480,47 @@ function main() -> i32 {{
 }
 
 #[test]
+fn xenith_http_typed_response_route_serves_headers_over_tcp() {
+    let reservation = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = reservation.local_addr().unwrap().port();
+    drop(reservation);
+    let directory = tempfile::tempdir().unwrap();
+    let source = format!(r#"
+grab {{ server_with_config, router, get_response, run_for, response_new, response_header }} from "std::http"
+function health(request: i64) -> i64 {{
+    let result: i64 = response_new(201, "created")
+    response_header(result, "X-Test", "yes")
+    return result
+}}
+function main() -> i32 {{
+    let routes: i64 = router()
+    get_response(routes, "/health", health)
+    let server: i64 = server_with_config("127.0.0.1:{port}", 65536i64, 1000i64, 1000i64, 16i64)
+    let error: string = run_for(server, routes, 1i64)
+    return len(error)
+}}
+"#);
+    let main = directory.path().join("main.xen");
+    fs::write(&main, source).unwrap();
+    let (program, _) = xenith::native::project::load_program(&main).unwrap();
+    let typed = xenith::native::check::check(&program).unwrap();
+    let object = directory.path().join("main.o");
+    let executable = directory.path().join("main");
+    xenith::native::codegen::emit_object(&typed, &object).unwrap();
+    xenith::native::codegen::link_host(&object, &executable).unwrap();
+    let mut child = Command::new(&executable).spawn().unwrap();
+    thread::sleep(Duration::from_millis(100));
+    let mut client = TcpStream::connect(("127.0.0.1", port)).unwrap();
+    client.write_all(b"GET /health HTTP/1.1\r\nHost: localhost\r\n\r\n").unwrap();
+    let mut response = Vec::new();
+    client.read_to_end(&mut response).unwrap();
+    assert!(response.starts_with(b"HTTP/1.1 201"));
+    assert!(response.windows(b"X-Test: yes".len()).any(|window| window == b"X-Test: yes"));
+    assert!(response.ends_with(b"created"));
+    assert_eq!(child.wait().unwrap().code(), Some(0));
+}
+
+#[test]
 fn xenith_http_worker_pool_serves_requests_concurrently() {
     let reservation = TcpListener::bind("127.0.0.1:0").unwrap();
     let port = reservation.local_addr().unwrap().port();

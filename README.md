@@ -113,7 +113,10 @@ function health(request: i64) -> i64 {
 
 `dispatch_response` returns the owned handle; call `response_close` after
 reading it. The existing tuple-based `get`, `post`, `use`, and `dispatch`
-functions remain available for simple handlers.
+functions remain available for simple handlers. Response routes and
+request-aware middleware also work through `serve`, `run`, `run_for`, and
+`run_workers`; the server serializes their status and headers and closes the
+owned response after writing it.
 
 ```xenith
 function require_token(method: string, path: string, body: string) -> tuple<i32, string> {
