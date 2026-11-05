@@ -269,6 +269,7 @@ fn standard_native_source(name: &str) -> Option<&'static str> {
              export function use_request(router: i64, middleware: fn(i64) -> i64) -> string { return http_router_use_request(router, middleware) }\n\
              export function use_session(router: i64, database: i64, secret: string) -> string { return http_router_use_session(router, database, secret) }\n\
              export function use_role(router: i64, database: i64, secret: string, role: string) -> string { return http_router_use_role(router, database, secret, role) }\n\
+             export function use_csrf(router: i64, database: i64, secret: string) -> string { return http_router_use_csrf(router, database, secret) }\n\
              export function dispatch(router: i64, method: string, path: string, body: string) -> tuple<i32, string> { return http_router_dispatch(router, method, path, body) }\n\
              export function dispatch_request(router: i64, request: string) -> tuple<i32, string> { return http_router_dispatch_request(router, request) }\n\
              export function dispatch_request_pool(router: i64, pool: i64, request: string) -> tuple<i32, string> { return http_router_dispatch_request_pool(router, pool, request) }\n\
@@ -330,7 +331,9 @@ fn standard_native_source(name: &str) -> Option<&'static str> {
              export function session_request_user(database: i64, request: i64, secret: string) -> i64 { return auth_session_request_user(database, request, secret) }\n\
              export function role_grant(database: i64, user_id: i64, role: string) -> string { return auth_role_grant(database, user_id, role) }\n\
              export function role_revoke(database: i64, user_id: i64, role: string) -> string { return auth_role_revoke(database, user_id, role) }\n\
-             export function user_has_role(database: i64, user_id: i64, role: string) -> bool { return auth_user_has_role(database, user_id, role) }",
+             export function user_has_role(database: i64, user_id: i64, role: string) -> bool { return auth_user_has_role(database, user_id, role) }\n\
+             export function csrf_token(database: i64, user_id: i64, ttl_seconds: i64) -> string { return auth_csrf_token(database, user_id, ttl_seconds) }\n\
+             export function csrf_verify(database: i64, user_id: i64, token: string) -> bool { return auth_csrf_verify(database, user_id, token) }",
         ),
         _ => None,
     }

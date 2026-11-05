@@ -799,3 +799,38 @@ function main() -> i32 {
     xenith::native::codegen::link_host(&object, &executable).unwrap();
     assert_eq!(Command::new(executable).status().unwrap().code(), Some(0));
 }
+
+#[test]
+fn xenith_http_csrf_middleware_rejects_state_changes_without_a_token() {
+    let directory = tempfile::tempdir().unwrap();
+    let source = r#"
+grab { open, close } from "std::db"
+grab { session_open } from "std::auth"
+grab { router, use_csrf, post_response, dispatch_response, response_new, response_status, response_close, router_close } from "std::http"
+function create(request: i64) -> i64 { return response_new(201, "created") }
+function main() -> i32 {
+    let database: i64 = open(":memory:")
+    session_open(database)
+    let routes: i64 = router()
+    let setup: string = use_csrf(routes, database, "application-secret")
+    if (len(setup) != 0) { return 10 }
+    post_response(routes, "/users", create)
+    let result: i64 = dispatch_response(routes, "POST /users HTTP/1.1\r\nHost: localhost\r\n\r\n")
+    let status: i32 = response_status(result)
+    response_close(result)
+    router_close(routes)
+    close(database)
+    if (status != 403) { return 20 }
+    return 0
+}
+"#;
+    let main = directory.path().join("main.xen");
+    fs::write(&main, source).unwrap();
+    let (program, _) = xenith::native::project::load_program(&main).unwrap();
+    let typed = xenith::native::check::check(&program).unwrap();
+    let object = directory.path().join("main.o");
+    let executable = directory.path().join("main");
+    xenith::native::codegen::emit_object(&typed, &object).unwrap();
+    xenith::native::codegen::link_host(&object, &executable).unwrap();
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(0));
+}

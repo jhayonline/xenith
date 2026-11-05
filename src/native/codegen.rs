@@ -2224,6 +2224,25 @@ fn lower(
                 let _ = runtime_call(b, m, runtime_name, vec![AbiParam::new(types::I64); 8], vec![], &args);
                 return (vec![b.ins().load(types::I64, MemFlags::new(), args[4], 0), b.ins().load(types::I64, MemFlags::new(), args[5], 0)], Type::String);
             }
+            if name == "auth_csrf_token" {
+                let database = lower(b, &arguments[0], v, ids, m, l).0[0];
+                let user = lower(b, &arguments[1], v, ids, m, l).0[0];
+                let ttl = lower(b, &arguments[2], v, ids, m, l).0[0];
+                let output_ptr = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let output_len = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let error_ptr = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let error_len = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let args = [database, user, ttl, b.ins().stack_addr(types::I64, output_ptr, 0), b.ins().stack_addr(types::I64, output_len, 0), b.ins().stack_addr(types::I64, error_ptr, 0), b.ins().stack_addr(types::I64, error_len, 0)];
+                let _ = runtime_call(b, m, "xenith_auth_csrf_token", vec![AbiParam::new(types::I64); 7], vec![], &args);
+                return (vec![b.ins().load(types::I64, MemFlags::new(), args[3], 0), b.ins().load(types::I64, MemFlags::new(), args[4], 0)], Type::String);
+            }
+            if name == "auth_csrf_verify" {
+                let database = lower(b, &arguments[0], v, ids, m, l).0[0];
+                let user = lower(b, &arguments[1], v, ids, m, l).0[0];
+                let token = lower(b, &arguments[2], v, ids, m, l).0;
+                let result = runtime_call(b, m, "xenith_auth_csrf_verify", vec![AbiParam::new(types::I64); 4], vec![AbiParam::new(types::I8)], &[database, user, token[0], token[1]])[0];
+                return (vec![result], Type::Bool);
+            }
             if name == "auth_hash_password" {
                 let password = lower(b, &arguments[0], v, ids, m, l).0;
                 let output_ptr = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
@@ -2508,6 +2527,16 @@ fn lower(
                 let args = [router, database, secret[0], secret[1], role[0], role[1], b.ins().stack_addr(types::I64, error_ptr, 0), b.ins().stack_addr(types::I64, error_len, 0)];
                 let _ = runtime_call(b, m, "xenith_http_router_use_role", vec![AbiParam::new(types::I64); 8], vec![], &args);
                 return (vec![b.ins().load(types::I64, MemFlags::new(), args[6], 0), b.ins().load(types::I64, MemFlags::new(), args[7], 0)], Type::String);
+            }
+            if name == "http_router_use_csrf" {
+                let router = lower(b, &arguments[0], v, ids, m, l).0[0];
+                let database = lower(b, &arguments[1], v, ids, m, l).0[0];
+                let secret = lower(b, &arguments[2], v, ids, m, l).0;
+                let error_ptr = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let error_len = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let args = [router, database, secret[0], secret[1], b.ins().stack_addr(types::I64, error_ptr, 0), b.ins().stack_addr(types::I64, error_len, 0)];
+                let _ = runtime_call(b, m, "xenith_http_router_use_csrf", vec![AbiParam::new(types::I64); 6], vec![], &args);
+                return (vec![b.ins().load(types::I64, MemFlags::new(), args[4], 0), b.ins().load(types::I64, MemFlags::new(), args[5], 0)], Type::String);
             }
             if name == "http_router_dispatch_request" {
                 let router = lower(b, &arguments[0], v, ids, m, l).0[0];
