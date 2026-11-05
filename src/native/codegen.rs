@@ -2095,6 +2095,38 @@ fn lower(
                 return (vec![pointer, length], Type::String);
             }
             if let Some((model, method)) = name.split_once("__") {
+                if (method == "all" || method == "filter") && l.contains_key(model) {
+                    let store = lower(b, &arguments[0], v, ids, m, l).0[0];
+                    let rows = if method == "all" {
+                        runtime_call(b, m, "xenith_db_all", vec![AbiParam::new(types::I64)], vec![AbiParam::new(types::I64)], &[store])[0]
+                    } else {
+                        let column = lower(b, &arguments[1], v, ids, m, l).0;
+                        let value = lower(b, &arguments[2], v, ids, m, l).0;
+                        runtime_call(b, m, "xenith_db_filter", vec![AbiParam::new(types::I64); 5], vec![AbiParam::new(types::I64)], &[store, column[0], column[1], value[0], value[1]])[0]
+                    };
+                    let fields = &l[model].fields;
+                    let count = fields.len() as i64;
+                    let keys = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, (count.max(1) * 8) as u32, 3));
+                    let lens = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, (count.max(1) * 8) as u32, 3));
+                    let kinds = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, (count.max(1) * 8) as u32, 3));
+                    let offsets = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, (count.max(1) * 8) as u32, 3));
+                    for (index, (field, ty)) in fields.iter().enumerate() {
+                        let key = lower(b, &Expr::String(field.clone()), v, ids, m, l).0;
+                        let base = (index * 8) as i32;
+                        let key_slot = b.ins().stack_addr(types::I64, keys, base); b.ins().store(MemFlags::new(), key[0], key_slot, 0);
+                        let len_slot = b.ins().stack_addr(types::I64, lens, base); b.ins().store(MemFlags::new(), key[1], len_slot, 0);
+                        let kind = match ty { Type::I64 => 1, Type::I32 => 2, Type::Bool => 3, Type::String => 4, _ => 0 };
+                        let kind_value = b.ins().iconst(types::I8, kind); let kind_slot = b.ins().stack_addr(types::I64, kinds, base); b.ins().store(MemFlags::new(), kind_value, kind_slot, 0);
+                        let mut offset = 0u32;
+                        for (_, previous) in fields.iter().take(index) { offset += return_layout(previous, l).0; }
+                        let offset = return_layout(ty, l).1.first().map(|(_, field_offset)| offset + (*field_offset as u32)).unwrap_or(offset);
+                        let offset_value = b.ins().iconst(types::I64, offset as i64); let offset_slot = b.ins().stack_addr(types::I64, offsets, base); b.ins().store(MemFlags::new(), offset_value, offset_slot, 0);
+                    }
+                    let width = return_layout(&Type::Named(model.to_string()), l).0 as i64;
+                    let args = [rows, b.ins().iconst(types::I64, count), b.ins().stack_addr(types::I64, keys, 0), b.ins().stack_addr(types::I64, lens, 0), b.ins().stack_addr(types::I64, kinds, 0), b.ins().stack_addr(types::I64, offsets, 0), b.ins().iconst(types::I64, width)];
+                    let result = runtime_call(b, m, "xenith_db_hydrate_rows", vec![AbiParam::new(types::I64); 7], vec![AbiParam::new(types::I64)], &args)[0];
+                    return (vec![result], Type::List(Box::new(Type::Named(model.to_string()))));
+                }
                 if method == "find" && l.contains_key(model) {
                     let store = lower(b, &arguments[0], v, ids, m, l).0[0];
                     let id = lower(b, &arguments[1], v, ids, m, l).0[0];

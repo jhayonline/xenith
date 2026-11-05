@@ -358,6 +358,16 @@ let user: User = User.find(users, 1i64)
 Missing columns and invalid scalar values are reported as recoverable database
 errors.
 
+Collection queries hydrate the same struct layout:
+
+```xenith
+let users: list<User> = User.all(user_store)
+let matching: list<User> = User.filter(user_store, "name", "Ada")
+```
+
+The returned list is heap-backed and owns copied string fields, so it remains
+valid after the temporary database row maps are released.
+
 ## Standard library and imports
 
 Native projects can import the filesystem and environment modules:
