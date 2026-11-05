@@ -242,6 +242,9 @@ fn standard_native_source(name: &str) -> Option<&'static str> {
              export function serve(router: i64, address: string) -> string { return http_serve(router, address) }\n\
              export function query(path: string, key: string) -> string { return http_query(path, key) }\n\
              export function json(status: i32, body: string) -> tuple<i32, string> { return http_json(status, body) }\n\
+             export function json_body(request: string) -> tuple<string, string> { return http_json_body(request) }\n\
+             export function json_validate(body: string) -> string { return http_json_validate(body) }\n\
+             export function json_escape(value: string) -> string { return http_json_escape(value) }\n\
              export function header(request: string, name: string) -> string { return http_header(request, name) }\n\
              export function param(path: string, pattern: string, name: string) -> string { return http_param(path, pattern, name) }\n\
              export function server(address: string) -> i64 { return http_server_bind(address) }\n\

@@ -72,10 +72,17 @@ function server_main() -> i32 {
 }
 ```
 
-`query(path, key)` extracts a query value and `json(status, body)` constructs a
-typed response tuple. The server currently uses blocking I/O and runs until its
-process is stopped; graceful shutdown, headers, and richer JSON extraction are
-the next backend layer.
+`query(path, key)` extracts a query value, `header(request, name)` reads a
+request header, and `param(path, pattern, name)` extracts a named route
+parameter. `json(status, body)` constructs a typed response tuple. For request
+handlers, `json_body(request)` returns `(body, error)` after checking the HTTP
+header boundary and validating the complete JSON value; `json_validate(body)`
+performs the same validation on an already extracted body, and
+`json_escape(value)` produces a JSON string literal for safe responses. JSON
+failures are ordinary strings so a handler can choose whether to return a
+client error or catch the failure. The server uses blocking I/O; the
+controllable `server(address)`, `run(server, router)`, and `shutdown(server)`
+APIs provide an explicit lifecycle for applications that need one.
 
 ## The language in one screen
 

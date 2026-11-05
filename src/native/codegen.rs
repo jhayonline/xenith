@@ -2312,6 +2312,30 @@ fn lower(
                 let body = lower(b, &arguments[1], v, ids, m, l).0;
                 return (vec![status, body[0], body[1]], Type::Tuple(vec![Type::I32, Type::String]));
             }
+            if name == "http_json_body" || name == "http_json_validate" || name == "http_json_escape" {
+                let value = lower(b, &arguments[0], v, ids, m, l).0;
+                if name == "http_json_validate" {
+                    let error_ptr = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                    let error_len = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                    let args = [value[0], value[1], b.ins().stack_addr(types::I64, error_ptr, 0), b.ins().stack_addr(types::I64, error_len, 0)];
+                    let _ = runtime_call(b, m, "xenith_http_json_validate", vec![AbiParam::new(types::I64); 4], vec![], &args);
+                    return (vec![b.ins().load(types::I64, MemFlags::new(), args[2], 0), b.ins().load(types::I64, MemFlags::new(), args[3], 0)], Type::String);
+                }
+                if name == "http_json_escape" {
+                    let output_ptr = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                    let output_len = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                    let args = [value[0], value[1], b.ins().stack_addr(types::I64, output_ptr, 0), b.ins().stack_addr(types::I64, output_len, 0)];
+                    let _ = runtime_call(b, m, "xenith_http_json_escape", vec![AbiParam::new(types::I64); 4], vec![], &args);
+                    return (vec![b.ins().load(types::I64, MemFlags::new(), args[2], 0), b.ins().load(types::I64, MemFlags::new(), args[3], 0)], Type::String);
+                }
+                let body_ptr = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let body_len = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let error_ptr = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let error_len = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let args = [value[0], value[1], b.ins().stack_addr(types::I64, body_ptr, 0), b.ins().stack_addr(types::I64, body_len, 0), b.ins().stack_addr(types::I64, error_ptr, 0), b.ins().stack_addr(types::I64, error_len, 0)];
+                let _ = runtime_call(b, m, "xenith_http_json_body", vec![AbiParam::new(types::I64); 6], vec![], &args);
+                return (vec![b.ins().load(types::I64, MemFlags::new(), args[2], 0), b.ins().load(types::I64, MemFlags::new(), args[3], 0), b.ins().load(types::I64, MemFlags::new(), args[4], 0), b.ins().load(types::I64, MemFlags::new(), args[5], 0)], Type::Tuple(vec![Type::String, Type::String]));
+            }
             if name == "http_server_bind" {
                 let address = lower(b, &arguments[0], v, ids, m, l).0;
                 let value = runtime_call(b, m, "xenith_http_server_bind", vec![AbiParam::new(types::I64); 2], vec![AbiParam::new(types::I64)], &address)[0];
