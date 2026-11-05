@@ -2368,6 +2368,16 @@ fn lower(
                 let value = runtime_call(b, m, "xenith_http_server_bind", vec![AbiParam::new(types::I64); 2], vec![AbiParam::new(types::I64)], &address)[0];
                 return (vec![value], Type::I64);
             }
+            if name == "http_server_bind_config" {
+                let address = lower(b, &arguments[0], v, ids, m, l).0;
+                let max_request_size = lower(b, &arguments[1], v, ids, m, l).0[0];
+                let read_timeout_ms = lower(b, &arguments[2], v, ids, m, l).0[0];
+                let write_timeout_ms = lower(b, &arguments[3], v, ids, m, l).0[0];
+                let backlog = lower(b, &arguments[4], v, ids, m, l).0[0];
+                let args = vec![address[0], address[1], max_request_size, read_timeout_ms, write_timeout_ms, backlog];
+                let value = runtime_call(b, m, "xenith_http_server_bind_config", vec![AbiParam::new(types::I64); 6], vec![AbiParam::new(types::I64)], &args)[0];
+                return (vec![value], Type::I64);
+            }
             if name == "http_server_shutdown" {
                 let server = lower(b, &arguments[0], v, ids, m, l).0[0];
                 let _ = runtime_call(b, m, "xenith_http_server_shutdown", vec![AbiParam::new(types::I64)], vec![], &[server]);

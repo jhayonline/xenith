@@ -85,7 +85,11 @@ convert fields explicitly. JSON failures are ordinary strings so a handler can
 choose whether to return a client error or catch the failure. The server uses
 blocking I/O; the
 controllable `server(address)`, `run(server, router)`, and `shutdown(server)`
-APIs provide an explicit lifecycle for applications that need one.
+APIs provide an explicit lifecycle for applications that need one. For bounded
+production settings, `server_with_config(address, max_request_size,
+read_timeout_ms, write_timeout_ms, backlog)` applies request-size limits,
+socket timeouts, and the listener backlog while retaining the same handle and
+`run`/`shutdown` lifecycle.
 
 ## The language in one screen
 
