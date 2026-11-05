@@ -2574,6 +2574,23 @@ fn lower(
                 let _ = runtime_call(b, m, runtime_name, vec![AbiParam::new(types::I64); args.len()], vec![], &args);
                 return (vec![b.ins().load(types::I64, MemFlags::new(), args[args.len() - 2], 0), b.ins().load(types::I64, MemFlags::new(), args[args.len() - 1], 0)], Type::String);
             }
+            if name == "http_require_header" || name == "http_require_query" || name == "http_require_param" {
+                let request = lower(b, &arguments[0], v, ids, m, l).0[0];
+                let second = lower(b, &arguments[1], v, ids, m, l).0;
+                let mut args = vec![request, second[0], second[1]];
+                if name == "http_require_param" {
+                    let third = lower(b, &arguments[2], v, ids, m, l).0;
+                    args.extend(third);
+                }
+                let value_ptr = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let value_len = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let error_ptr = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let error_len = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                args.extend([b.ins().stack_addr(types::I64, value_ptr, 0), b.ins().stack_addr(types::I64, value_len, 0), b.ins().stack_addr(types::I64, error_ptr, 0), b.ins().stack_addr(types::I64, error_len, 0)]);
+                let runtime_name = if name == "http_require_header" { "xenith_http_require_header" } else if name == "http_require_query" { "xenith_http_require_query" } else { "xenith_http_require_param" };
+                let _ = runtime_call(b, m, runtime_name, vec![AbiParam::new(types::I64); args.len()], vec![], &args);
+                return (vec![b.ins().load(types::I64, MemFlags::new(), args[args.len() - 4], 0), b.ins().load(types::I64, MemFlags::new(), args[args.len() - 3], 0), b.ins().load(types::I64, MemFlags::new(), args[args.len() - 2], 0), b.ins().load(types::I64, MemFlags::new(), args[args.len() - 1], 0)], Type::Tuple(vec![Type::String, Type::String]));
+            }
             if name == "http_response_new" {
                 let status = lower(b, &arguments[0], v, ids, m, l).0[0];
                 let body = lower(b, &arguments[1], v, ids, m, l).0;
