@@ -2135,7 +2135,7 @@ fn lower(
                         let base = (index * 8) as i32;
                         let key_slot = b.ins().stack_addr(types::I64, keys, base); b.ins().store(MemFlags::new(), key[0], key_slot, 0);
                         let len_slot = b.ins().stack_addr(types::I64, lens, base); b.ins().store(MemFlags::new(), key[1], len_slot, 0);
-                        let kind = match ty { Type::I64 => 1, Type::I32 => 2, Type::Bool => 3, Type::String => 4, _ => 0 };
+                        let kind = match ty { Type::I64 => 1, Type::I32 => 2, Type::Bool => 3, Type::String => 4, Type::Bytes => 5, _ => 0 };
                         let kind_value = b.ins().iconst(types::I8, kind); let kind_slot = b.ins().stack_addr(types::I64, kinds, base); b.ins().store(MemFlags::new(), kind_value, kind_slot, 0);
                         let mut offset = 0u32;
                         for (_, previous) in fields.iter().take(index) { offset += return_layout(previous, l).0; }
@@ -2159,6 +2159,7 @@ fn lower(
                             Type::I32 => runtime_call(b, m, "xenith_db_map_i32", vec![AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64)], vec![AbiParam::new(types::I32)], &[map, key[0], key[1]])[0],
                             Type::Bool => runtime_call(b, m, "xenith_db_map_bool", vec![AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64)], vec![AbiParam::new(types::I8)], &[map, key[0], key[1]])[0],
                             Type::String => { let ptr = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3)); let len = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3)); let args = [map, key[0], key[1], b.ins().stack_addr(types::I64, ptr, 0), b.ins().stack_addr(types::I64, len, 0)]; let _ = runtime_call(b, m, "xenith_db_map_string", vec![AbiParam::new(types::I64); 5], vec![], &args); values.push(b.ins().load(types::I64, MemFlags::new(), args[3], 0)); b.ins().load(types::I64, MemFlags::new(), args[4], 0) }
+                            Type::Bytes => runtime_call(b, m, "xenith_db_map_bytes", vec![AbiParam::new(types::I64); 3], vec![AbiParam::new(types::I64)], &[map, key[0], key[1]])[0],
                             _ => { let location = b.ins().iconst(types::I64, 0); let _ = runtime_call(b, m, "xenith_error_set_offset", vec![AbiParam::new(types::I64)], vec![], &[location]); b.ins().iconst(types::I64, 0) }
                         };
                         values.push(value);

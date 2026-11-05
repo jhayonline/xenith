@@ -33,6 +33,26 @@ function main() -> i32 {
 }
 
 #[test]
+fn std_db_model_find_hydrates_bytes_fields() {
+    let directory = tempfile::tempdir().unwrap();
+    let executable = compile(r#"
+grab { open, store, execute, close } from "std::db"
+struct Asset { id: i64, payload: bytes }
+function main() -> i32 {
+    let database: i64 = open(":memory:")
+    execute(database, "CREATE TABLE assets (id INTEGER PRIMARY KEY, payload BLOB); INSERT INTO assets VALUES (1, 'abc')")
+    let assets: i64 = store(database, "assets")
+    let found: Asset = Asset.find(assets, 1i64)
+    close(database)
+    if (found.payload[0] != 97) { return 10 }
+    if (len(found.payload) != 3) { return 20 }
+    return 0
+}
+"#, &directory);
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(0));
+}
+
+#[test]
 fn std_db_model_all_and_filter_hydrate_struct_lists() {
     let directory = tempfile::tempdir().unwrap();
     let executable = compile(r#"
