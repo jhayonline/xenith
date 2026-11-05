@@ -266,7 +266,9 @@ fn standard_native_source(name: &str) -> Option<&'static str> {
              export function use_request(router: i64, middleware: fn(i64) -> i64) -> string { return http_router_use_request(router, middleware) }\n\
              export function dispatch(router: i64, method: string, path: string, body: string) -> tuple<i32, string> { return http_router_dispatch(router, method, path, body) }\n\
              export function dispatch_request(router: i64, request: string) -> tuple<i32, string> { return http_router_dispatch_request(router, request) }\n\
+             export function dispatch_request_pool(router: i64, pool: i64, request: string) -> tuple<i32, string> { return http_router_dispatch_request_pool(router, pool, request) }\n\
              export function dispatch_response(router: i64, request: string) -> i64 { return http_router_dispatch_response(router, request) }\n\
+             export function request_db() -> i64 { return http_request_db() }\n\
              export function request_method(request: i64) -> string { return http_request_method(request) }\n\
              export function request_path(request: i64) -> string { return http_request_path(request) }\n\
              export function request_body(request: i64) -> string { return http_request_body(request) }\n\

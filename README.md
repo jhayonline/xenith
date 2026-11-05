@@ -92,6 +92,34 @@ function main() -> i32 {
 The same request-context handlers are used by the blocking server APIs, so a
 route can move from tests to production without changing its signature.
 
+For request-scoped database access, dispatch through a bounded database pool.
+The pool acquires one connection before the handler runs and releases it after
+dispatch, including when the route returns an error status:
+
+```xenith
+grab { router, get_request, dispatch_request_pool, request_db, router_close } from "std::http"
+grab { pool_new, pool_close } from "std::db"
+
+function show(request: i64) -> tuple<i32, string> {
+    let database: i64 = request_db()
+    return (200, "ready")
+}
+
+function main() -> i32 {
+    let pool: i64 = pool_new("app.db", 1i64, 8i64)
+    let routes: i64 = router()
+    get_request(routes, "/users", show)
+    let response: tuple<i32, string> = dispatch_request_pool(routes, pool, "GET /users HTTP/1.1")
+    pool_close(pool)
+    router_close(routes)
+    return response[0]
+}
+```
+
+`request_db()` is only non-zero while a pooled request is being dispatched;
+handlers can pass that handle to the normal `std::db` APIs without manually
+acquiring or releasing connections.
+
 For responses that need headers, use a response handle. `response_new` creates
 one, `response_header` adds a header, and the accessors read it back. Response
 routes return the handle directly, while `use_request` middleware may return

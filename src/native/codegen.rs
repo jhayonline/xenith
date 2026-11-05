@@ -2352,6 +2352,21 @@ fn lower(
                 let _ = runtime_call(b, m, "xenith_http_router_dispatch_request", vec![AbiParam::new(types::I64); 6], vec![], &args);
                 return (vec![b.ins().load(types::I32, MemFlags::new(), args[3], 0), b.ins().load(types::I64, MemFlags::new(), args[4], 0), b.ins().load(types::I64, MemFlags::new(), args[5], 0)], Type::Tuple(vec![Type::I32, Type::String]));
             }
+            if name == "http_router_dispatch_request_pool" {
+                let router = lower(b, &arguments[0], v, ids, m, l).0[0];
+                let pool = lower(b, &arguments[1], v, ids, m, l).0[0];
+                let request = lower(b, &arguments[2], v, ids, m, l).0;
+                let status = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 4, 3));
+                let response_ptr = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let response_len = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let args = [router, pool, request[0], request[1], b.ins().stack_addr(types::I64, status, 0), b.ins().stack_addr(types::I64, response_ptr, 0), b.ins().stack_addr(types::I64, response_len, 0)];
+                let _ = runtime_call(b, m, "xenith_http_router_dispatch_request_pool", vec![AbiParam::new(types::I64); 7], vec![], &args);
+                return (vec![b.ins().load(types::I32, MemFlags::new(), args[4], 0), b.ins().load(types::I64, MemFlags::new(), args[5], 0), b.ins().load(types::I64, MemFlags::new(), args[6], 0)], Type::Tuple(vec![Type::I32, Type::String]));
+            }
+            if name == "http_request_db" {
+                let value = runtime_call(b, m, "xenith_http_request_db", vec![], vec![AbiParam::new(types::I64)], &[])[0];
+                return (vec![value], Type::I64);
+            }
             if name == "http_router_dispatch_response" {
                 let router = lower(b, &arguments[0], v, ids, m, l).0[0];
                 let request = lower(b, &arguments[1], v, ids, m, l).0;
