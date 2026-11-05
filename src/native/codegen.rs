@@ -3248,6 +3248,11 @@ fn lower(
                 let _ = runtime_call(b, m, name, vec![AbiParam::new(types::I64); 7], vec![], &args);
                 return (vec![b.ins().load(types::I64, MemFlags::new(), args[3], 0), b.ins().load(types::I64, MemFlags::new(), args[4], 0), b.ins().load(types::I64, MemFlags::new(), args[5], 0), b.ins().load(types::I64, MemFlags::new(), args[6], 0)], Type::Tuple(vec![Type::String, Type::String]));
             }
+            if name == "http_validation_response" {
+                let errors = lower(b, &arguments[0], v, ids, m, l).0[0];
+                let value = runtime_call(b, m, name, vec![AbiParam::new(types::I64)], vec![AbiParam::new(types::I64)], &[errors])[0];
+                return (vec![value], Type::I64);
+            }
             if let Some((_, Type::Function(parameters, result))) = v.get(name) {
                 let mut args = Vec::new();
                 args.push(v[name].0[1]);
