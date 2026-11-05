@@ -103,7 +103,9 @@ APIs provide an explicit lifecycle for applications that need one. For bounded
 production settings, `server_with_config(address, max_request_size,
 read_timeout_ms, write_timeout_ms, backlog)` applies request-size limits,
 socket timeouts, and the listener backlog while retaining the same handle and
-`run`/`shutdown` lifecycle.
+`run`/`shutdown` lifecycle. `run_for(server, router, max_requests)` processes
+a bounded number of requests and returns; passing `0` keeps processing until a
+server error or shutdown.
 
 ## The language in one screen
 

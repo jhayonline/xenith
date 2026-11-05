@@ -255,7 +255,8 @@ fn standard_native_source(name: &str) -> Option<&'static str> {
              export function server(address: string) -> i64 { return http_server_bind(address) }\n\
              export function server_with_config(address: string, max_request_size: i64, read_timeout_ms: i64, write_timeout_ms: i64, backlog: i64) -> i64 { return http_server_bind_config(address, max_request_size, read_timeout_ms, write_timeout_ms, backlog) }\n\
              export function shutdown(server: i64) -> null { return http_server_shutdown(server) }\n\
-             export function run(server: i64, router: i64) -> string { return http_server_run(server, router) }",
+             export function run(server: i64, router: i64) -> string { return http_server_run(server, router) }\n\
+             export function run_for(server: i64, router: i64, max_requests: i64) -> string { return http_server_run_for(server, router, max_requests) }",
         ),
         _ => None,
     }

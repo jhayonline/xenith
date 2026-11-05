@@ -330,6 +330,7 @@ fn signatures(
         ("http_server_bind_config", vec![Type::String, Type::I64, Type::I64, Type::I64, Type::I64], Type::I64),
         ("http_server_shutdown", vec![Type::I64], Type::Null),
         ("http_server_run", vec![Type::I64, Type::I64], Type::String),
+        ("http_server_run_for", vec![Type::I64, Type::I64, Type::I64], Type::String),
     ] {
         signatures.insert(name.into(), FunctionSignature { parameters, result });
     }
