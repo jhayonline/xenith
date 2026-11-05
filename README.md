@@ -92,6 +92,29 @@ function main() -> i32 {
 The same request-context handlers are used by the blocking server APIs, so a
 route can move from tests to production without changing its signature.
 
+For responses that need headers, use a response handle. `response_new` creates
+one, `response_header` adds a header, and the accessors read it back. Response
+routes return the handle directly, while `use_request` middleware may return
+`0` to continue or a response handle to short-circuit:
+
+```xenith
+grab { router, get_response, use_request, dispatch_response,
+       response_new, response_header, response_status, response_close,
+       router_close } from "std::http"
+
+function auth(request: i64) -> i64 { return 0i64 }
+
+function health(request: i64) -> i64 {
+    let result: i64 = response_new(200, "ok")
+    response_header(result, "Content-Type", "text/plain")
+    return result
+}
+```
+
+`dispatch_response` returns the owned handle; call `response_close` after
+reading it. The existing tuple-based `get`, `post`, `use`, and `dispatch`
+functions remain available for simple handlers.
+
 ```xenith
 function require_token(method: string, path: string, body: string) -> tuple<i32, string> {
     if (path == "/private") {

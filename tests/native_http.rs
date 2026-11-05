@@ -552,3 +552,41 @@ function main() -> i32 {
     xenith::native::codegen::link_host(&object, &executable).unwrap();
     assert_eq!(Command::new(executable).status().unwrap().code(), Some(1));
 }
+
+#[test]
+fn xenith_http_typed_responses_and_request_middleware() {
+    let directory = tempfile::tempdir().unwrap();
+    let source = r#"
+grab { router, get_response, use_request, dispatch_response, response_new, response_header, response_status, response_body, response_header_value, response_close, router_close } from "std::http"
+function continue_request(request: i64) -> i64 { return 0i64 }
+function show(request: i64) -> i64 {
+    let result: i64 = response_new(201, "created")
+    response_header(result, "X-Test", "yes")
+    return result
+}
+function main() -> i32 {
+    let routes: i64 = router()
+    use_request(routes, continue_request)
+    get_response(routes, "/users", show)
+    let result: i64 = dispatch_response(routes, "GET /users HTTP/1.1")
+    let status: i32 = response_status(result)
+    let body: string = response_body(result)
+    let header: string = response_header_value(result, "X-Test")
+    response_close(result)
+    router_close(routes)
+    if (status != 201) { return 10 }
+    if (len(body) != 7) { return 20 }
+    if (len(header) != 3) { return 30 }
+    return 1
+}
+"#;
+    let main = directory.path().join("main.xen");
+    fs::write(&main, source).unwrap();
+    let (program, _) = xenith::native::project::load_program(&main).unwrap();
+    let typed = xenith::native::check::check(&program).unwrap();
+    let object = directory.path().join("main.o");
+    let executable = directory.path().join("main");
+    xenith::native::codegen::emit_object(&typed, &object).unwrap();
+    xenith::native::codegen::link_host(&object, &executable).unwrap();
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(1));
+}

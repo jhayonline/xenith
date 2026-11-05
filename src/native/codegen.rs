@@ -2276,6 +2276,26 @@ fn lower(
                 let _ = runtime_call(b, m, runtime_name, vec![AbiParam::new(types::I64); 7], vec![], &args);
                 return (vec![b.ins().load(types::I64, MemFlags::new(), args[5], 0), b.ins().load(types::I64, MemFlags::new(), args[6], 0)], Type::String);
             }
+            if name == "http_router_get_response" || name == "http_router_post_response" {
+                let router = lower(b, &arguments[0], v, ids, m, l).0[0];
+                let pattern = lower(b, &arguments[1], v, ids, m, l).0;
+                let handler = lower(b, &arguments[2], v, ids, m, l).0;
+                let error_ptr = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let error_len = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let args = [router, pattern[0], pattern[1], handler[0], handler[1], b.ins().stack_addr(types::I64, error_ptr, 0), b.ins().stack_addr(types::I64, error_len, 0)];
+                let runtime_name = if name == "http_router_get_response" { "xenith_http_router_get_response" } else { "xenith_http_router_post_response" };
+                let _ = runtime_call(b, m, runtime_name, vec![AbiParam::new(types::I64); 7], vec![], &args);
+                return (vec![b.ins().load(types::I64, MemFlags::new(), args[5], 0), b.ins().load(types::I64, MemFlags::new(), args[6], 0)], Type::String);
+            }
+            if name == "http_router_use_request" {
+                let router = lower(b, &arguments[0], v, ids, m, l).0[0];
+                let middleware = lower(b, &arguments[1], v, ids, m, l).0;
+                let error_ptr = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let error_len = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let args = [router, middleware[0], middleware[1], b.ins().stack_addr(types::I64, error_ptr, 0), b.ins().stack_addr(types::I64, error_len, 0)];
+                let _ = runtime_call(b, m, "xenith_http_router_use_request", vec![AbiParam::new(types::I64); 5], vec![], &args);
+                return (vec![b.ins().load(types::I64, MemFlags::new(), args[3], 0), b.ins().load(types::I64, MemFlags::new(), args[4], 0)], Type::String);
+            }
             if name == "http_router_dispatch_request" {
                 let router = lower(b, &arguments[0], v, ids, m, l).0[0];
                 let request = lower(b, &arguments[1], v, ids, m, l).0;
@@ -2285,6 +2305,13 @@ fn lower(
                 let args = [router, request[0], request[1], b.ins().stack_addr(types::I64, status, 0), b.ins().stack_addr(types::I64, response_ptr, 0), b.ins().stack_addr(types::I64, response_len, 0)];
                 let _ = runtime_call(b, m, "xenith_http_router_dispatch_request", vec![AbiParam::new(types::I64); 6], vec![], &args);
                 return (vec![b.ins().load(types::I32, MemFlags::new(), args[3], 0), b.ins().load(types::I64, MemFlags::new(), args[4], 0), b.ins().load(types::I64, MemFlags::new(), args[5], 0)], Type::Tuple(vec![Type::I32, Type::String]));
+            }
+            if name == "http_router_dispatch_response" {
+                let router = lower(b, &arguments[0], v, ids, m, l).0[0];
+                let request = lower(b, &arguments[1], v, ids, m, l).0;
+                let args = [router, request[0], request[1]];
+                let response = runtime_call(b, m, "xenith_http_router_dispatch_response", vec![AbiParam::new(types::I64); 3], vec![AbiParam::new(types::I64)], &args)[0];
+                return (vec![response], Type::I64);
             }
             if name == "http_request_method" || name == "http_request_path" || name == "http_request_body" {
                 let request = lower(b, &arguments[0], v, ids, m, l).0[0];
@@ -2310,6 +2337,47 @@ fn lower(
                 let runtime_name = if name == "http_request_header" { "xenith_http_request_header" } else if name == "http_request_query" { "xenith_http_request_query" } else { "xenith_http_request_param" };
                 let _ = runtime_call(b, m, runtime_name, vec![AbiParam::new(types::I64); args.len()], vec![], &args);
                 return (vec![b.ins().load(types::I64, MemFlags::new(), args[args.len() - 2], 0), b.ins().load(types::I64, MemFlags::new(), args[args.len() - 1], 0)], Type::String);
+            }
+            if name == "http_response_new" {
+                let status = lower(b, &arguments[0], v, ids, m, l).0[0];
+                let body = lower(b, &arguments[1], v, ids, m, l).0;
+                let response = runtime_call(b, m, "xenith_http_response_new", vec![AbiParam::new(types::I32), AbiParam::new(types::I64), AbiParam::new(types::I64)], vec![AbiParam::new(types::I64)], &[status, body[0], body[1]])[0];
+                return (vec![response], Type::I64);
+            }
+            if name == "http_response_header" {
+                let response = lower(b, &arguments[0], v, ids, m, l).0[0];
+                let name_value = lower(b, &arguments[1], v, ids, m, l).0;
+                let value = lower(b, &arguments[2], v, ids, m, l).0;
+                let error_ptr = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let error_len = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let args = [response, name_value[0], name_value[1], value[0], value[1], b.ins().stack_addr(types::I64, error_ptr, 0), b.ins().stack_addr(types::I64, error_len, 0)];
+                let _ = runtime_call(b, m, "xenith_http_response_header", vec![AbiParam::new(types::I64); 7], vec![], &args);
+                return (vec![b.ins().load(types::I64, MemFlags::new(), args[5], 0), b.ins().load(types::I64, MemFlags::new(), args[6], 0)], Type::String);
+            }
+            if name == "http_response_status" {
+                let response = lower(b, &arguments[0], v, ids, m, l).0[0];
+                return (vec![runtime_call(b, m, "xenith_http_response_status", vec![AbiParam::new(types::I64)], vec![AbiParam::new(types::I32)], &[response])[0]], Type::I32);
+            }
+            if name == "http_response_body" || name == "http_response_header_value" {
+                let response = lower(b, &arguments[0], v, ids, m, l).0[0];
+                if name == "http_response_body" {
+                    let ptr = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                    let len = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                    let args = [response, b.ins().stack_addr(types::I64, ptr, 0), b.ins().stack_addr(types::I64, len, 0)];
+                    let _ = runtime_call(b, m, "xenith_http_response_body", vec![AbiParam::new(types::I64); 3], vec![], &args);
+                    return (vec![b.ins().load(types::I64, MemFlags::new(), args[1], 0), b.ins().load(types::I64, MemFlags::new(), args[2], 0)], Type::String);
+                }
+                let key = lower(b, &arguments[1], v, ids, m, l).0;
+                let ptr = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let len = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let args = [response, key[0], key[1], b.ins().stack_addr(types::I64, ptr, 0), b.ins().stack_addr(types::I64, len, 0)];
+                let _ = runtime_call(b, m, "xenith_http_response_header_value", vec![AbiParam::new(types::I64); 5], vec![], &args);
+                return (vec![b.ins().load(types::I64, MemFlags::new(), args[3], 0), b.ins().load(types::I64, MemFlags::new(), args[4], 0)], Type::String);
+            }
+            if name == "http_response_close" {
+                let response = lower(b, &arguments[0], v, ids, m, l).0[0];
+                let _ = runtime_call(b, m, "xenith_http_response_close", vec![AbiParam::new(types::I64)], vec![], &[response]);
+                return (vec![b.ins().iconst(types::I8, 0)], Type::Null);
             }
             if name == "http_router_dispatch" {
                 let router = lower(b, &arguments[0], v, ids, m, l).0[0];
