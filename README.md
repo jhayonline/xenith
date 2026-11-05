@@ -352,6 +352,8 @@ Implemented native compiler capabilities include:
   typed defaults, required values, and recoverable configuration errors.
 - Native database schema builders with typed fields, nullable/default options,
   unique constraints, and indexes applied by migrations.
+- Bounded native database pools with checked-out handles, safe release, and
+  recoverable exhaustion errors.
 - Source-aware diagnostics with codes, hints, function names, files, lines,
   columns, and byte offsets.
 

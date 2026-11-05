@@ -208,6 +208,10 @@ fn standard_native_source(name: &str) -> Option<&'static str> {
         ),
         "db" => Some(
             "export function open(path: string) -> i64 { return db_open(path) }\n\
+             export function pool_new(path: string, minimum: i64, maximum: i64) -> i64 { return db_pool_new(path, minimum, maximum) }\n\
+             export function pool_acquire(pool: i64) -> i64 { return db_pool_acquire(pool) }\n\
+             export function pool_release(pool: i64, handle: i64) -> null { return db_pool_release(pool, handle) }\n\
+             export function pool_close(pool: i64) -> null { return db_pool_close(pool) }\n\
              export function schema(table: string) -> i64 { return db_schema(table) }\n\
              export function field(schema: i64, name: string, kind: string) -> string { return db_field(schema, name, kind) }\n\
              export function nullable(schema: i64, name: string) -> string { return db_nullable(schema, name) }\n\

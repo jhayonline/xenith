@@ -2586,6 +2586,29 @@ fn lower(
                 let handle = runtime_call(b, m, "xenith_db_open", vec![AbiParam::new(types::I64); 2], vec![AbiParam::new(types::I64)], &path)[0];
                 return (vec![handle], Type::I64);
             }
+            if name == "db_pool_new" || name == "pool_new" {
+                let path = lower(b, &arguments[0], v, ids, m, l).0;
+                let minimum = lower(b, &arguments[1], v, ids, m, l).0[0];
+                let maximum = lower(b, &arguments[2], v, ids, m, l).0[0];
+                let pool = runtime_call(b, m, "xenith_db_pool_new", vec![AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64)], vec![AbiParam::new(types::I64)], &[path[0], path[1], minimum, maximum])[0];
+                return (vec![pool], Type::I64);
+            }
+            if name == "db_pool_acquire" || name == "pool_acquire" {
+                let pool = lower(b, &arguments[0], v, ids, m, l).0[0];
+                let handle = runtime_call(b, m, "xenith_db_pool_acquire", vec![AbiParam::new(types::I64)], vec![AbiParam::new(types::I64)], &[pool])[0];
+                return (vec![handle], Type::I64);
+            }
+            if name == "db_pool_release" || name == "pool_release" {
+                let pool = lower(b, &arguments[0], v, ids, m, l).0[0];
+                let handle = lower(b, &arguments[1], v, ids, m, l).0[0];
+                let _ = runtime_call(b, m, "xenith_db_pool_release", vec![AbiParam::new(types::I64), AbiParam::new(types::I64)], vec![], &[pool, handle]);
+                return (vec![b.ins().iconst(types::I8, 0)], Type::Null);
+            }
+            if name == "db_pool_close" || name == "pool_close" {
+                let pool = lower(b, &arguments[0], v, ids, m, l).0[0];
+                let _ = runtime_call(b, m, "xenith_db_pool_close", vec![AbiParam::new(types::I64)], vec![], &[pool]);
+                return (vec![b.ins().iconst(types::I8, 0)], Type::Null);
+            }
             if name == "db_schema" {
                 let table = lower(b, &arguments[0], v, ids, m, l).0;
                 let schema = runtime_call(b, m, "xenith_db_schema", vec![AbiParam::new(types::I64); 2], vec![AbiParam::new(types::I64)], &table)[0];
