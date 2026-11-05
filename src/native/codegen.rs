@@ -2206,6 +2206,52 @@ fn lower(
                 let _ = runtime_call(b, m, "xenith_env_get", vec![AbiParam::new(types::I64); 5], vec![], &args);
                 return (vec![b.ins().load(types::I64, MemFlags::new(), args[2], 0), b.ins().load(types::I64, MemFlags::new(), args[3], 0), b.ins().load(types::I8, MemFlags::new(), args[4], 0)], Type::Tuple(vec![Type::String, Type::Bool]));
             }
+            if name == "config_load" {
+                let path = lower(b, &arguments[0], v, ids, m, l).0;
+                let value = runtime_call(b, m, "xenith_config_load", vec![AbiParam::new(types::I64); 2], vec![AbiParam::new(types::I64)], &path)[0];
+                return (vec![value], Type::I64);
+            }
+            if name == "load_config" {
+                let path = lower(b, &arguments[0], v, ids, m, l).0;
+                let value = runtime_call(b, m, "xenith_config_load", vec![AbiParam::new(types::I64); 2], vec![AbiParam::new(types::I64)], &path)[0];
+                return (vec![value], Type::I64);
+            }
+            if name == "config_get_string" || name == "config_required" || name == "config_string" || name == "required_config" {
+                let config = lower(b, &arguments[0], v, ids, m, l).0[0];
+                let key = lower(b, &arguments[1], v, ids, m, l).0;
+                let value_ptr = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let value_len = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                if name == "config_get_string" || name == "config_string" {
+                    let fallback = lower(b, &arguments[2], v, ids, m, l).0;
+                    let args = [config, key[0], key[1], fallback[0], fallback[1], b.ins().stack_addr(types::I64, value_ptr, 0), b.ins().stack_addr(types::I64, value_len, 0)];
+                    let _ = runtime_call(b, m, "xenith_config_get_string", vec![AbiParam::new(types::I64); 7], vec![], &args);
+                } else {
+                    let args = [config, key[0], key[1], b.ins().stack_addr(types::I64, value_ptr, 0), b.ins().stack_addr(types::I64, value_len, 0)];
+                    let _ = runtime_call(b, m, "xenith_config_required", vec![AbiParam::new(types::I64); 5], vec![], &args);
+                }
+                let value_ptr_addr = b.ins().stack_addr(types::I64, value_ptr, 0);
+                let value_len_addr = b.ins().stack_addr(types::I64, value_len, 0);
+                return (vec![b.ins().load(types::I64, MemFlags::new(), value_ptr_addr, 0), b.ins().load(types::I64, MemFlags::new(), value_len_addr, 0)], Type::String);
+            }
+            if name == "config_get_i32" || name == "config_get_i64" || name == "config_get_bool" || name == "config_i32" || name == "config_i64" || name == "config_bool" {
+                let config = lower(b, &arguments[0], v, ids, m, l).0[0];
+                let key = lower(b, &arguments[1], v, ids, m, l).0;
+                let fallback = lower(b, &arguments[2], v, ids, m, l).0[0];
+                let (runtime_name, result_type) = match name.as_str() { "config_get_i32" | "config_i32" => ("xenith_config_get_i32", types::I32), "config_get_i64" | "config_i64" => ("xenith_config_get_i64", types::I64), _ => ("xenith_config_get_bool", types::I8) };
+                let value = runtime_call(b, m, runtime_name, vec![AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(result_type)], vec![AbiParam::new(result_type)], &[config, key[0], key[1], fallback])[0];
+                let result = if name == "config_get_i32" || name == "config_i32" { Type::I32 } else if name == "config_get_i64" || name == "config_i64" { Type::I64 } else { Type::Bool };
+                return (vec![value], result);
+            }
+            if name == "config_close" {
+                let config = lower(b, &arguments[0], v, ids, m, l).0[0];
+                let _ = runtime_call(b, m, "xenith_config_close", vec![AbiParam::new(types::I64)], vec![], &[config]);
+                return (vec![b.ins().iconst(types::I8, 0)], Type::Null);
+            }
+            if name == "close_config" {
+                let config = lower(b, &arguments[0], v, ids, m, l).0[0];
+                let _ = runtime_call(b, m, "xenith_config_close", vec![AbiParam::new(types::I64)], vec![], &[config]);
+                return (vec![b.ins().iconst(types::I8, 0)], Type::Null);
+            }
             if name == "http_bind" {
                 let address = lower(b, &arguments[0], v, ids, m, l).0;
                 let value = runtime_call(b, m, "xenith_http_bind", vec![AbiParam::new(types::I64); 2], vec![AbiParam::new(types::I64)], &address)[0];

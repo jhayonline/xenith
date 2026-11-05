@@ -181,6 +181,15 @@ fn standard_native_source(name: &str) -> Option<&'static str> {
              export function cwd() -> tuple<string, string> { return env_cwd() }\n\
              export function exit(code: i32) -> null { return env_exit(code) }",
         ),
+        "config" => Some(
+            "export function load_config(path: string) -> i64 { return config_load(path) }\n\
+             export function config_string(config: i64, key: string, fallback: string) -> string { return config_get_string(config, key, fallback) }\n\
+             export function config_i32(config: i64, key: string, fallback: i32) -> i32 { return config_get_i32(config, key, fallback) }\n\
+             export function config_i64(config: i64, key: string, fallback: i64) -> i64 { return config_get_i64(config, key, fallback) }\n\
+             export function config_bool(config: i64, key: string, fallback: bool) -> bool { return config_get_bool(config, key, fallback) }\n\
+             export function required_config(config: i64, key: string) -> string { return config_required(config, key) }\n\
+             export function close_config(config: i64) -> null { return config_close(config) }",
+        ),
         "fs" => Some(
             "export function read(path: string) -> tuple<string, string> { return fs_read(path) }\n\
              export function write(path: string, contents: string) -> string { return fs_write(path, contents) }\n\

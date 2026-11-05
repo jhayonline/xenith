@@ -348,8 +348,30 @@ Implemented native compiler capabilities include:
 - Parenthesized `if` and `for` conditions.
 - Filesystem and environment runtime APIs with recoverable failures.
 - Native `std::fs` and `std::env` imports.
+- Native `std::config` imports for `.env`-style files, environment overrides,
+  typed defaults, required values, and recoverable configuration errors.
 - Source-aware diagnostics with codes, hints, function names, files, lines,
   columns, and byte offsets.
+
+Configuration stays in ordinary Xenith code and does not add language
+keywords:
+
+```xenith
+grab { load_config, config_string, config_i32, config_bool, close_config } from "std::config"
+
+function main() -> i32 {
+    let config: i64 = load_config(".env")
+    let host: string = config_string(config, "HOST", "127.0.0.1")
+    let port: i32 = config_i32(config, "PORT", 8080)
+    let debug: bool = config_bool(config, "DEBUG", false)
+    close_config(config)
+    return port
+}
+```
+
+Values from the process environment override file values. Use `required_config` when
+an absent setting should become a recoverable `try`/`catch` error instead of
+using a default.
 
 The major work still ahead includes:
 
