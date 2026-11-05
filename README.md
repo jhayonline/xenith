@@ -105,7 +105,9 @@ read_timeout_ms, write_timeout_ms, backlog)` applies request-size limits,
 socket timeouts, and the listener backlog while retaining the same handle and
 `run`/`shutdown` lifecycle. `run_for(server, router, max_requests)` processes
 a bounded number of requests and returns; passing `0` keeps processing until a
-server error or shutdown.
+server error or shutdown. `run_workers(server, router, workers)` runs the same
+blocking accept/dispatch loop across a fixed native worker pool for concurrent
+request handling.
 
 ## The language in one screen
 
