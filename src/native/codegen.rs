@@ -3207,6 +3207,12 @@ fn lower(
                 let value = runtime_call(b, m, name, vec![AbiParam::new(types::I64); args.len()], vec![AbiParam::new(types::I64)], &args)[0];
                 return (vec![value], Type::Map(Box::new(Type::String), Box::new(Type::String)));
             }
+            if name == "http_validate_json" {
+                let body = lower(b, &arguments[0], v, ids, m, l).0;
+                let schema = lower(b, &arguments[1], v, ids, m, l).0[0];
+                let value = runtime_call(b, m, name, vec![AbiParam::new(types::I64); 3], vec![AbiParam::new(types::I64)], &[body[0], body[1], schema])[0];
+                return (vec![value], Type::Map(Box::new(Type::String), Box::new(Type::String)));
+            }
             if name == "http_validate_status" {
                 let errors = lower(b, &arguments[0], v, ids, m, l).0[0];
                 let value = runtime_call(b, m, name, vec![AbiParam::new(types::I64)], vec![AbiParam::new(types::I32)], &[errors])[0];

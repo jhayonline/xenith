@@ -876,6 +876,7 @@ function main() -> i32 {
     })
     return validate_status(result) - len(result)
 }
+
 "#;
     let main = directory.path().join("main.xen");
     fs::write(&main, source).unwrap();
@@ -886,4 +887,25 @@ function main() -> i32 {
     xenith::native::codegen::emit_object(&typed, &object).unwrap();
     xenith::native::codegen::link_host(&object, &executable).unwrap();
     assert_eq!(Command::new(executable).status().unwrap().code(), Some(162));
+}
+
+#[test]
+fn xenith_http_validate_json_reuses_rule_validation_and_reports_bad_json() {
+    let directory = tempfile::tempdir().unwrap();
+    let source = r#"
+grab { validate_json, validate_status, required, string, rules } from "std::http"
+function main() -> i32 {
+    let errors: map<string, string> = validate_json("not-json", {"name": rules(required, string)})
+    return validate_status(errors)
+}
+"#;
+    let main = directory.path().join("main.xen");
+    fs::write(&main, source).unwrap();
+    let (program, _) = xenith::native::project::load_program(&main).unwrap();
+    let typed = xenith::native::check::check(&program).unwrap();
+    let object = directory.path().join("main.o");
+    let executable = directory.path().join("main");
+    xenith::native::codegen::emit_object(&typed, &object).unwrap();
+    xenith::native::codegen::link_host(&object, &executable).unwrap();
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(166));
 }

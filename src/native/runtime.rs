@@ -393,6 +393,7 @@ void *xenith_list_append(void *raw, int64_t width, const void *value) { XenithLi
 int32_t xenith_map_remove(void *raw, const unsigned char *key, int64_t key_len) { XenithMap *map = raw; for (int64_t i = 0; i < map->length; i++) if (map->entries[i].key_len == key_len && !memcmp(map->entries[i].key, key, key_len)) { free(map->entries[i].value); for (int64_t j = i + 1; j < map->length; j++) map->entries[j - 1] = map->entries[j]; map->length -= 1; return 1; } return 0; }
 int8_t xenith_map_contains(void *raw, const unsigned char *key, int64_t key_len) { XenithMap *map = raw; for (int64_t i = 0; i < map->length; i++) if (map->entries[i].key_len == key_len && !memcmp(map->entries[i].key, key, key_len)) return 1; return 0; }
 int64_t http_validate(void *input, void *schema) { return xenith_http_validate(input, schema); }
+int64_t http_validate_json(const unsigned char *body, int64_t body_len, void *schema) { void *row = NULL; unsigned char *error = xenith_empty_text; int64_t error_len = 0; xenith_http_json_object(body, body_len, &row, &error, &error_len); if (error_len || xenith_error_pending()) { XenithMap *errors = xenith_map_new(1, 16); if (xenith_error_pending()) return (int64_t)(intptr_t)errors; xenith_http_validate_error(errors, (const unsigned char *)"_json", 5, "invalid JSON object"); errors->length = 1; return (int64_t)(intptr_t)errors; } return xenith_http_validate(row, schema); }
 int32_t http_validate_status(void *errors) { XenithMap *map = errors; return map && map->length > 0 ? 422 : 0; }
 "#;
 
