@@ -295,6 +295,7 @@ fn standard_native_source(name: &str) -> Option<&'static str> {
              export function validate_params(request: i64, pattern: string, schema: map<string, i64>) -> map<string, string> { return http_validate_params(request, pattern, schema) }\n\
              export function validate_form(request: i64, schema: map<string, i64>) -> map<string, string> { return http_validate_form(request, schema) }\n\
              export function validate_status(errors: map<string, string>) -> i32 { return http_validate_status(errors) }\n\
+             export function validation_error(errors: map<string, string>, field: string) -> tuple<string, string> { return http_validation_error(errors, field) }\n\
              export function required() -> i64 { return 1i64 }\n\
              export function optional() -> i64 { return 2i64 }\n\
              export function string() -> i64 { return 4i64 }\n\

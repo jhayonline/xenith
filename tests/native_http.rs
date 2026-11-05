@@ -11,6 +11,30 @@ fn http_parser_decodes_request_line_headers_and_body() {
 }
 
 #[test]
+fn xenith_http_validation_errors_expose_code_and_message() {
+    let directory = tempfile::tempdir().unwrap();
+    let source = r#"
+grab { validate, validation_error, required, rules } from "std::http"
+function main() -> i32 {
+    let input: map<string, string> = {}
+    let errors: map<string, string> = validate(input, {"name": rules(required)})
+    let detail: tuple<string, string> = validation_error(errors, "name")
+    if (detail[0] == "required" && detail[1] == "field is required") { return 1 }
+    return 0
+}
+"#;
+    let main = directory.path().join("main.xen");
+    fs::write(&main, source).unwrap();
+    let (program, _) = xenith::native::project::load_program(&main).unwrap();
+    let typed = xenith::native::check::check(&program).unwrap();
+    let object = directory.path().join("main.o");
+    let executable = directory.path().join("main");
+    xenith::native::codegen::emit_object(&typed, &object).unwrap();
+    xenith::native::codegen::link_host(&object, &executable).unwrap();
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(1));
+}
+
+#[test]
 fn http_parser_rejects_incomplete_or_malformed_requests() {
     assert!(matches!(parse_request(b"GET / HTTP/1.1\r\n"), Err(HttpError::Incomplete)));
     assert!(matches!(parse_request(b"NOPE\r\n\r\n"), Err(HttpError::Malformed(_))));

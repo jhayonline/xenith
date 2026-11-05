@@ -3237,6 +3237,17 @@ fn lower(
                 let value = runtime_call(b, m, name, vec![AbiParam::new(types::I64)], vec![AbiParam::new(types::I32)], &[errors])[0];
                 return (vec![value], Type::I32);
             }
+            if name == "http_validation_error" {
+                let errors = lower(b, &arguments[0], v, ids, m, l).0[0];
+                let field = lower(b, &arguments[1], v, ids, m, l).0;
+                let code_ptr = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let code_len = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let message_ptr = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let message_len = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let args = [errors, field[0], field[1], b.ins().stack_addr(types::I64, code_ptr, 0), b.ins().stack_addr(types::I64, code_len, 0), b.ins().stack_addr(types::I64, message_ptr, 0), b.ins().stack_addr(types::I64, message_len, 0)];
+                let _ = runtime_call(b, m, name, vec![AbiParam::new(types::I64); 7], vec![], &args);
+                return (vec![b.ins().load(types::I64, MemFlags::new(), args[3], 0), b.ins().load(types::I64, MemFlags::new(), args[4], 0), b.ins().load(types::I64, MemFlags::new(), args[5], 0), b.ins().load(types::I64, MemFlags::new(), args[6], 0)], Type::Tuple(vec![Type::String, Type::String]));
+            }
             if let Some((_, Type::Function(parameters, result))) = v.get(name) {
                 let mut args = Vec::new();
                 args.push(v[name].0[1]);
