@@ -2367,6 +2367,14 @@ fn lower(
                 let value = runtime_call(b, m, "xenith_http_request_db", vec![], vec![AbiParam::new(types::I64)], &[])[0];
                 return (vec![value], Type::I64);
             }
+            if name == "http_request_begin" || name == "http_request_commit" || name == "http_request_rollback" {
+                let output_ptr = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let output_len = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let runtime_name = if name == "http_request_begin" { "xenith_http_request_begin" } else if name == "http_request_commit" { "xenith_http_request_commit" } else { "xenith_http_request_rollback" };
+                let args = [b.ins().stack_addr(types::I64, output_ptr, 0), b.ins().stack_addr(types::I64, output_len, 0)];
+                let _ = runtime_call(b, m, runtime_name, vec![AbiParam::new(types::I64); 2], vec![], &args);
+                return (vec![b.ins().load(types::I64, MemFlags::new(), args[0], 0), b.ins().load(types::I64, MemFlags::new(), args[1], 0)], Type::String);
+            }
             if name == "http_router_dispatch_response" {
                 let router = lower(b, &arguments[0], v, ids, m, l).0[0];
                 let request = lower(b, &arguments[1], v, ids, m, l).0;

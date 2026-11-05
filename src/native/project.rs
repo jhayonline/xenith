@@ -269,6 +269,9 @@ fn standard_native_source(name: &str) -> Option<&'static str> {
              export function dispatch_request_pool(router: i64, pool: i64, request: string) -> tuple<i32, string> { return http_router_dispatch_request_pool(router, pool, request) }\n\
              export function dispatch_response(router: i64, request: string) -> i64 { return http_router_dispatch_response(router, request) }\n\
              export function request_db() -> i64 { return http_request_db() }\n\
+             export function request_begin() -> string { return http_request_begin() }\n\
+             export function request_commit() -> string { return http_request_commit() }\n\
+             export function request_rollback() -> string { return http_request_rollback() }\n\
              export function request_method(request: i64) -> string { return http_request_method(request) }\n\
              export function request_path(request: i64) -> string { return http_request_path(request) }\n\
              export function request_body(request: i64) -> string { return http_request_body(request) }\n\

@@ -75,3 +75,31 @@ function main() -> i32 {{
     assert!(response.ends_with(b"db"));
     assert_eq!(child.wait().unwrap().code(), Some(0));
 }
+
+#[test]
+fn xenith_http_request_transactions_use_the_active_connection() {
+    let directory = tempfile::tempdir().unwrap();
+    let executable = compile(r#"
+grab { router, get_request, dispatch_request_pool, request_begin, request_commit, request_rollback, router_close } from "std::http"
+grab { pool_new, pool_close } from "std::db"
+function transact(request: i64) -> tuple<i32, string> {
+    let began: string = request_begin()
+    let rolled_back: string = request_rollback()
+    let began_again: string = request_begin()
+    let committed: string = request_commit()
+    if (began != "" || rolled_back != "" || began_again != "" || committed != "") { return (500, "transaction error") }
+    return (200, "ok")
+}
+function main() -> i32 {
+    let pool: i64 = pool_new(":memory:", 1i64, 1i64)
+    let routes: i64 = router()
+    get_request(routes, "/", transact)
+    let response: tuple<i32, string> = dispatch_request_pool(routes, pool, "GET / HTTP/1.1")
+    pool_close(pool)
+    router_close(routes)
+    if (response[0] == 200 && response[1] == "ok") { return 0 }
+    return 1
+}
+"#, &directory);
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(0));
+}

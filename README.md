@@ -124,6 +124,11 @@ For the blocking TCP server, use `run_with_pool` or
 `run_for_with_pool`. They apply the same request scope to every accepted
 connection, including cleanup when reading or writing the request fails.
 
+Inside a pooled handler, `request_begin()`, `request_commit()`, and
+`request_rollback()` control a transaction on that request's connection. The
+server wrapper rolls back automatically when request processing reports an
+error and releases the connection in all cases.
+
 For responses that need headers, use a response handle. `response_new` creates
 one, `response_header` adds a header, and the accessors read it back. Response
 routes return the handle directly, while `use_request` middleware may return
