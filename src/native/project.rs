@@ -304,7 +304,8 @@ fn standard_native_source(name: &str) -> Option<&'static str> {
              export function run_with_pool(server: i64, router: i64, pool: i64) -> string { return http_server_run_pool(server, router, pool) }\n\
              export function run_for(server: i64, router: i64, max_requests: i64) -> string { return http_server_run_for(server, router, max_requests) }\n\
              export function run_for_with_pool(server: i64, router: i64, pool: i64, max_requests: i64) -> string { return http_server_run_for_pool(server, router, pool, max_requests) }\n\
-             export function run_workers(server: i64, router: i64, workers: i64) -> string { return http_server_run_workers(server, router, workers) }",
+             export function run_workers(server: i64, router: i64, workers: i64) -> string { return http_server_run_workers(server, router, workers) }\n\
+             export function run_workers_with_pool(server: i64, router: i64, pool: i64, workers: i64) -> string { return http_server_run_workers_pool(server, router, pool, workers) }",
         ),
         _ => None,
     }

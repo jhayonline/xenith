@@ -129,6 +129,10 @@ Inside a pooled handler, `request_begin()`, `request_commit()`, and
 server wrapper rolls back automatically when request processing reports an
 error and releases the connection in all cases.
 
+For concurrent serving, `run_workers_with_pool` gives each worker the same
+request-scoped database and transaction guarantees while sharing the bounded
+pool safely across threads.
+
 For responses that need headers, use a response handle. `response_new` creates
 one, `response_header` adds a header, and the accessors read it back. Response
 routes return the handle directly, while `use_request` middleware may return

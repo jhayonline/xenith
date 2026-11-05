@@ -2606,6 +2606,17 @@ fn lower(
                 let _ = runtime_call(b, m, runtime_name, vec![AbiParam::new(types::I64); args.len()], vec![], &args);
                 return (vec![b.ins().load(types::I64, MemFlags::new(), args[args.len()-2], 0), b.ins().load(types::I64, MemFlags::new(), args[args.len()-1], 0)], Type::String);
             }
+            if name == "http_server_run_workers_pool" {
+                let server = lower(b, &arguments[0], v, ids, m, l).0[0];
+                let router = lower(b, &arguments[1], v, ids, m, l).0[0];
+                let pool = lower(b, &arguments[2], v, ids, m, l).0[0];
+                let workers = lower(b, &arguments[3], v, ids, m, l).0[0];
+                let error_ptr = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let error_len = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let args = [server, router, pool, workers, b.ins().stack_addr(types::I64, error_ptr, 0), b.ins().stack_addr(types::I64, error_len, 0)];
+                let _ = runtime_call(b, m, "xenith_http_server_run_workers_pool", vec![AbiParam::new(types::I64); 6], vec![], &args);
+                return (vec![b.ins().load(types::I64, MemFlags::new(), args[4], 0), b.ins().load(types::I64, MemFlags::new(), args[5], 0)], Type::String);
+            }
             if name == "http_server_run_workers" {
                 let server = lower(b, &arguments[0], v, ids, m, l).0[0];
                 let router = lower(b, &arguments[1], v, ids, m, l).0[0];

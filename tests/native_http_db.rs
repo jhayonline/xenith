@@ -18,6 +18,42 @@ fn compile(source: &str, directory: &tempfile::TempDir) -> std::path::PathBuf {
 }
 
 #[test]
+fn xenith_http_worker_pool_with_database_serves_concurrent_requests() {
+    let reservation = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = reservation.local_addr().unwrap().port();
+    drop(reservation);
+    let directory = tempfile::tempdir().unwrap();
+    let source = format!(r#"
+grab {{ server_with_config, router, get_request, run_workers_with_pool, request_db }} from "std::http"
+grab {{ pool_new }} from "std::db"
+function show(request: i64) -> tuple<i32, string> {{
+    if (request_db() != 0i64) {{ return (200, "db") }}
+    return (500, "missing")
+}}
+function main() -> i32 {{
+    let routes: i64 = router()
+    get_request(routes, "/", show)
+    let pool: i64 = pool_new(":memory:", 2i64, 2i64)
+    let server: i64 = server_with_config("127.0.0.1:{port}", 65536i64, 1000i64, 1000i64, 16i64)
+    let error: string = run_workers_with_pool(server, routes, pool, 2i64)
+    return len(error)
+}}
+"#);
+    let executable = compile(&source, &directory);
+    let mut child = Command::new(&executable).spawn().unwrap();
+    thread::sleep(Duration::from_millis(100));
+    for _ in 0..2 {
+        let mut client = TcpStream::connect(("127.0.0.1", port)).unwrap();
+        client.write_all(b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n").unwrap();
+        let mut response = Vec::new();
+        client.read_to_end(&mut response).unwrap();
+        assert!(response.ends_with(b"db"));
+    }
+    child.kill().unwrap();
+    let _ = child.wait();
+}
+
+#[test]
 fn xenith_http_request_dispatch_exposes_pooled_database() {
     let directory = tempfile::tempdir().unwrap();
     let executable = compile(r#"
@@ -90,6 +126,7 @@ function transact(request: i64) -> tuple<i32, string> {
     if (began != "" || rolled_back != "" || began_again != "" || committed != "") { return (500, "transaction error") }
     return (200, "ok")
 }
+
 function main() -> i32 {
     let pool: i64 = pool_new(":memory:", 1i64, 1i64)
     let routes: i64 = router()
