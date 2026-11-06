@@ -6961,6 +6961,13 @@ fn lower(
                     let mapped = runtime_call(b, m, "xenith_list_map_string", vec![AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64)], vec![AbiParam::new(types::I64)], &[list[0], callback[0], callback[1]]);
                     return (mapped, Type::List(Box::new(Type::String)));
                 }
+                if matches!(*element, Type::Named(_)) && parameters.len() == 1 && parameters[0] == *element && matches!(*result, Type::I32 | Type::I64) {
+                    let (offsets, widths, count) = lane_metadata(b, &element, l);
+                    let count_value = b.ins().iconst(types::I64, count);
+                    let runtime_name = if *result == Type::I32 { "xenith_list_map_lanes_i32" } else { "xenith_list_map_lanes_i64" };
+                    let mapped = runtime_call(b, m, runtime_name, vec![AbiParam::new(types::I64); 6], vec![AbiParam::new(types::I64)], &[list[0], callback[0], callback[1], count_value, offsets, widths]);
+                    return (mapped, Type::List(result));
+                }
                 unreachable!("map callback type is not supported by the native fast path")
             }
             if name == "filter" && !ids.contains_key(name) {
