@@ -980,6 +980,29 @@ impl Parser {
     fn condition(&mut self) -> Result<Expr, Vec<Diagnostic>> {
         self.expr()
     }
+
+    fn has_generic_suffix(&self) -> bool {
+        if self.peek() != Some("<") {
+            return false;
+        }
+        let mut depth = 0usize;
+        for index in self.i..self.tokens.len() {
+            match self.tokens[index].as_str() {
+                "<" => depth += 1,
+                ">" => {
+                    depth = depth.saturating_sub(1);
+                    if depth == 0 {
+                        return matches!(
+                            self.tokens.get(index + 1).map(String::as_str),
+                            Some("(") | Some("{") | Some("::") | Some(".")
+                        );
+                    }
+                }
+                _ => {}
+            }
+        }
+        false
+    }
     fn logical_or(&mut self) -> Result<Expr, Vec<Diagnostic>> {
         let mut left = self.logical_and()?;
         while self.tokens.get(self.i).map(String::as_str) == Some("||") {
@@ -1328,7 +1351,7 @@ impl Parser {
             return Err(vec![Diagnostic::at("invalid identifier", span)]);
         }
         let mut s = s;
-        if self.peek() == Some("<") {
+        if self.has_generic_suffix() {
             self.take();
             let mut arguments = vec![self.ty()?];
             while self.peek() == Some(",") { self.take(); arguments.push(self.ty()?); }
@@ -1393,7 +1416,7 @@ impl Parser {
                 variant,
                 arguments,
             })
-        } else if self.peek() == Some("<") {
+        } else if self.has_generic_suffix() {
             self.take();
             let mut arguments = vec![self.ty()?];
             while self.peek() == Some(",") { self.take(); arguments.push(self.ty()?); }
