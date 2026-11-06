@@ -6910,6 +6910,20 @@ fn lower(
                 );
                 return (result, Type::List(element));
             }
+            if name == "map" {
+                let (list, Type::List(element)) = lower(b, &arguments[0], v, ids, m, l) else { unreachable!() };
+                let (callback, Type::Function(parameters, result)) = lower(b, &arguments[1], v, ids, m, l) else { unreachable!() };
+                if *element != Type::I32 || parameters != vec![Type::I32] || *result != Type::I32 { unreachable!("map currently supports i32 -> i32 callbacks") }
+                let mapped = runtime_call(b, m, "xenith_list_map_i32", vec![AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64)], vec![AbiParam::new(types::I64)], &[list[0], callback[0], callback[1]]);
+                return (mapped, Type::List(Box::new(Type::I32)));
+            }
+            if name == "filter" {
+                let (list, Type::List(element)) = lower(b, &arguments[0], v, ids, m, l) else { unreachable!() };
+                let (callback, Type::Function(parameters, result)) = lower(b, &arguments[1], v, ids, m, l) else { unreachable!() };
+                if *element != Type::I32 || parameters != vec![Type::I32] || *result != Type::Bool { unreachable!("filter currently supports i32 -> bool predicates") }
+                let filtered = runtime_call(b, m, "xenith_list_filter_i32", vec![AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64)], vec![AbiParam::new(types::I64)], &[list[0], callback[0], callback[1]]);
+                return (filtered, Type::List(Box::new(Type::I32)));
+            }
             if name == "remove" {
                 let (map, _) = lower(b, &arguments[0], v, ids, m, l);
                 let key = lower(b, &arguments[1], v, ids, m, l).0;

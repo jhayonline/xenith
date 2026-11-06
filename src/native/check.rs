@@ -2973,6 +2973,33 @@ fn expr(
                 }
                 return Some(Type::Map(Box::new(Type::String), Box::new(Type::String)));
             }
+            if name == "map" {
+                if arguments.len() != 2 {
+                    errors.push(Diagnostic { message: "map expects a list and a callback".into(), span: None });
+                    return None;
+                }
+                let list_type = expr(&arguments[0], names, signatures, layouts, errors);
+                let callback_type = expr(&arguments[1], names, signatures, layouts, errors);
+                if let (Some(Type::List(element)), Some(Type::Function(parameters, result))) = (list_type, callback_type) {
+                    if parameters.len() != 1 || parameters[0] != *element {
+                        errors.push(Diagnostic { message: "map callback must accept the list element type".into(), span: None });
+                    }
+                    return Some(Type::List(result));
+                }
+                errors.push(Diagnostic { message: "map expects a typed list and callback".into(), span: None });
+                return None;
+            }
+            if name == "filter" {
+                if arguments.len() != 2 { errors.push(Diagnostic { message: "filter expects a list and a predicate".into(), span: None }); return None; }
+                let list_type = expr(&arguments[0], names, signatures, layouts, errors);
+                let callback_type = expr(&arguments[1], names, signatures, layouts, errors);
+                if let (Some(Type::List(element)), Some(Type::Function(parameters, result))) = (list_type, callback_type) {
+                    if parameters != vec![*element.clone()] || *result != Type::Bool { errors.push(Diagnostic { message: "filter predicate must accept the list element and return bool".into(), span: None }); }
+                    return Some(Type::List(element));
+                }
+                errors.push(Diagnostic { message: "filter expects a typed list and predicate".into(), span: None });
+                return None;
+            }
             if name == "append" {
                 if arguments.len() != 2 {
                     errors.push(Diagnostic {

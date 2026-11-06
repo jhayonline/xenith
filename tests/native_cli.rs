@@ -100,6 +100,24 @@ fn native_generic_structs_support_multiple_and_nested_type_arguments() {
     assert_eq!(output.status.code(), Some(42), "{}", String::from_utf8_lossy(&output.stderr));
 }
 
+#[test]
+fn native_map_specializes_a_typed_integer_callback() {
+    let dir = fixture_project(
+        "function main() -> i32 { let values: list<i32> = [1, 2, 3] let doubled: list<i32> = map(values, fn(value: i32) -> i32 => value * 2) return doubled[1] }",
+    );
+    let output = xenith(&dir.path().join("app")).arg("run").output().unwrap();
+    assert_eq!(output.status.code(), Some(4), "{}", String::from_utf8_lossy(&output.stderr));
+}
+
+#[test]
+fn native_filter_specializes_a_typed_integer_predicate() {
+    let dir = fixture_project(
+        "function main() -> i32 { let values: list<i32> = [1, 2, 3] let evens: list<i32> = filter(values, fn(value: i32) -> bool => value > 1) return evens[0] }",
+    );
+    let output = xenith(&dir.path().join("app")).arg("run").output().unwrap();
+    assert_eq!(output.status.code(), Some(2), "{}", String::from_utf8_lossy(&output.stderr));
+}
+
 fn fixture_project(source: &str) -> tempfile::TempDir {
     let dir = tempfile::tempdir().unwrap();
     xenith(dir.path()).args(["new", "app"]).status().unwrap();
