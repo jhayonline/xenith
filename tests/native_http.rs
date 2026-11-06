@@ -792,7 +792,7 @@ fn xenith_http_session_middleware_rejects_missing_cookie() {
     let source = r#"
 grab { open, close } from "std::db"
 grab { session_open } from "std::auth"
-grab { router, use_session, get_response, dispatch_response, response_new, response_status, response_close, router_close } from "std::http"
+grab { router, use_session, get_response, dispatch_response, response_new, response_status, response_body, response_close, router_close } from "std::http"
 function show(request: i64) -> i64 { return response_new(200, "ok") }
 function main() -> i32 {
     let database: i64 = open(":memory:")
@@ -803,10 +803,12 @@ function main() -> i32 {
     get_response(routes, "/", show)
     let result: i64 = dispatch_response(routes, "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")
     let status: i32 = response_status(result)
+    let body: string = response_body(result)
     response_close(result)
     router_close(routes)
     close(database)
     if (status != 401) { return 20 }
+    if (len(body) != 93) { return 30 }
     return 0
 }
 "#;
@@ -827,7 +829,7 @@ fn xenith_http_role_middleware_rejects_unauthorized_requests() {
     let source = r#"
 grab { open, close } from "std::db"
 grab { session_open } from "std::auth"
-grab { router, use_role, get_response, dispatch_response, response_new, response_status, response_close, router_close } from "std::http"
+grab { router, use_role, get_response, dispatch_response, response_new, response_status, response_body, response_close, router_close } from "std::http"
 function show(request: i64) -> i64 { return response_new(200, "ok") }
 function main() -> i32 {
     let database: i64 = open(":memory:")
@@ -838,10 +840,12 @@ function main() -> i32 {
     get_response(routes, "/", show)
     let result: i64 = dispatch_response(routes, "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")
     let status: i32 = response_status(result)
+    let body: string = response_body(result)
     response_close(result)
     router_close(routes)
     close(database)
     if (status != 403) { return 20 }
+    if (len(body) != 91) { return 30 }
     return 0
 }
 "#;
@@ -919,7 +923,7 @@ fn xenith_http_csrf_middleware_rejects_state_changes_without_a_token() {
     let source = r#"
 grab { open, close } from "std::db"
 grab { session_open } from "std::auth"
-grab { router, use_csrf, post_response, dispatch_response, response_new, response_status, response_close, router_close } from "std::http"
+grab { router, use_csrf, post_response, dispatch_response, response_new, response_status, response_body, response_close, router_close } from "std::http"
 function create(request: i64) -> i64 { return response_new(201, "created") }
 function main() -> i32 {
     let database: i64 = open(":memory:")
@@ -930,10 +934,12 @@ function main() -> i32 {
     post_response(routes, "/users", create)
     let result: i64 = dispatch_response(routes, "POST /users HTTP/1.1\r\nHost: localhost\r\n\r\n")
     let status: i32 = response_status(result)
+    let body: string = response_body(result)
     response_close(result)
     router_close(routes)
     close(database)
     if (status != 403) { return 20 }
+    if (len(body) != 102) { return 30 }
     return 0
 }
 "#;
