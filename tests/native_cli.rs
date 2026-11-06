@@ -245,6 +245,15 @@ fn native_managed_struct_map_retains_input_and_output_strings() {
 }
 
 #[test]
+fn native_map_callbacks_can_return_scalar_structs_and_enums() {
+    let dir = fixture_project(
+        "struct Pair { id: i32, score: i64 } enum Flag { Off, On(i32) } function main() -> i32 { let pairs: list<Pair> = [Pair { id: 1, score: 10i64 }, Pair { id: 2, score: 20i64 }] let copied: list<Pair> = map(pairs, fn(value: Pair) -> Pair => value) let flags: list<Flag> = [Flag::Off, Flag::On(2)] let copied_flags: list<Flag> = map(flags, fn(value: Flag) -> Flag => value) if (copied[1].score == 20i64 && copied_flags[1] == Flag::On(2)) { return 42 } return 1 }",
+    );
+    let output = xenith(&dir.path().join("app")).arg("run").output().unwrap();
+    assert_eq!(output.status.code(), Some(42), "{}", String::from_utf8_lossy(&output.stderr));
+}
+
+#[test]
 fn native_collection_algorithms_handle_empty_lists() {
     let dir = fixture_project(
         "function main() -> i32 { let values: list<i32> = [] let doubled: list<i32> = map(values, fn(value: i32) -> i32 => value * 2) let filtered: list<i32> = filter(doubled, fn(value: i32) -> bool => value > 0) if (len(filtered) == 0 && find(filtered, fn(value: i32) -> bool => value > 0) == -1) { return 42 } return 1 }",

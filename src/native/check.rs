@@ -3046,6 +3046,7 @@ fn expr(
                     }
                     if !matches!((&*element, &*result), (Type::I32, Type::I32) | (Type::I64, Type::I64) | (Type::String, Type::String))
                         && !(map_collection_supported(&element, layouts) && matches!(&*result, Type::I32 | Type::I64 | Type::String))
+                        && !(matches!(&*result, Type::Named(_)) && scalar_collection_supported(&result, layouts))
                     {
                         errors.push(Diagnostic { message: "map supports scalar i32/i64, string, and struct or enum inputs with at most eight managed lanes mapped to i32, i64, or string".into(), span: None });
                     }

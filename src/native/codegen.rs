@@ -334,7 +334,7 @@ fn flat(ty: &Type, layouts: &HashMap<String, StructLayout>) -> Vec<cranelift_cod
 }
 
 fn indirect_return(ty: &Type, layouts: &HashMap<String, StructLayout>) -> bool {
-    flat(ty, layouts).len() > 2 || matches!(ty, Type::String)
+    flat(ty, layouts).len() > 2 || matches!(ty, Type::String | Type::Named(_))
 }
 
 fn return_layout(
@@ -6968,6 +6968,14 @@ fn lower(
                     let mapped = runtime_call(b, m, runtime_name, vec![AbiParam::new(types::I64); 6], vec![AbiParam::new(types::I64)], &[list[0], callback[0], callback[1], count_value, offsets, widths]);
                     return (mapped, Type::List(result));
                 }
+                if matches!(*element, Type::Named(_)) && matches!(*result, Type::Named(_)) && parameters.len() == 1 && parameters[0] == *element && scalar_collection_supported_type(&result, l) {
+                    let (offsets, widths, count) = lane_metadata(b, &element, l);
+                    let (output_width, _) = return_layout(&result, l);
+                    let count_value = b.ins().iconst(types::I64, count);
+                    let output_width_value = b.ins().iconst(types::I64, output_width as i64);
+                    let mapped = runtime_call(b, m, "xenith_list_map_lanes_raw", vec![AbiParam::new(types::I64); 7], vec![AbiParam::new(types::I64)], &[list[0], callback[0], callback[1], count_value, offsets, widths, output_width_value]);
+                    return (mapped, Type::List(result));
+                }
                 if matches!(*element, Type::Named(_)) && parameters.len() == 1 && parameters[0] == *element && *result == Type::String {
                     let (offsets, widths, count) = lane_metadata(b, &element, l);
                     let count_value = b.ins().iconst(types::I64, count);
@@ -7376,6 +7384,13 @@ fn lane_metadata(
         b.ins().stack_addr(types::I64, widths, 0),
         count,
     )
+}
+
+fn scalar_collection_supported_type(ty: &Type, layouts: &HashMap<String, StructLayout>) -> bool {
+    matches!(ty, Type::Named(_))
+        && !flat(ty, layouts).is_empty()
+        && flat(ty, layouts).len() <= 8
+        && flat(ty, layouts).iter().all(|lane| *lane == types::I8 || *lane == types::I32 || *lane == types::I64)
 }
 
 fn lower_index_assignment(
