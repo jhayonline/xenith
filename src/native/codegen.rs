@@ -7067,8 +7067,9 @@ fn lower(
                         let pointer = b.ins().stack_addr(types::I64, slot, 0);
                         for (value, (_, offset)) in key.into_iter().zip(lanes) { b.ins().store(MemFlags::new(), value, pointer, offset); }
                         let (offsets, widths, count) = lane_metadata(b, &element, l);
+                        let (_, kinds, _) = managed_lane_metadata(b, &element, l);
                         let count_value = b.ins().iconst(types::I64, count);
-                        return (runtime_call(b, m, "xenith_list_contains_lanes", vec![AbiParam::new(types::I64); 5], vec![AbiParam::new(types::I8)], &[collection[0], pointer, count_value, offsets, widths]), Type::Bool);
+                        return (runtime_call(b, m, "xenith_list_contains_managed", vec![AbiParam::new(types::I64); 6], vec![AbiParam::new(types::I8)], &[collection[0], pointer, count_value, offsets, widths, kinds]), Type::Bool);
                     }
                     let result = runtime_call(b, m, "xenith_list_contains_i32", vec![AbiParam::new(types::I64), AbiParam::new(types::I32)], vec![AbiParam::new(types::I8)], &[collection[0], key[0]]);
                     return (result, Type::Bool);

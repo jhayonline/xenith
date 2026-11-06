@@ -3068,7 +3068,7 @@ fn expr(
                     return Some(Type::Bytes);
                 }
                 if let (Some(Type::List(element)), Some(Type::Function(parameters, result))) = (list_type, callback_type) {
-                    if parameters != vec![*element.clone()] || *result != Type::Bool || (!scalar_collection_supported(&element, layouts) && *element != Type::String) { errors.push(Diagnostic { message: "filter supports i32, i64, string, and scalar-only struct or enum elements with at most eight lanes".into(), span: None }); }
+                    if parameters != vec![*element.clone()] || *result != Type::Bool || (!scalar_collection_supported(&element, layouts) && !map_collection_supported(&element, layouts) && *element != Type::String) { errors.push(Diagnostic { message: "filter supports i32, i64, string, and struct or enum elements with at most eight managed lanes".into(), span: None }); }
                     return Some(Type::List(element));
                 }
                 errors.push(Diagnostic { message: "filter expects a typed list and predicate".into(), span: None });
@@ -3087,7 +3087,7 @@ fn expr(
                     return Some(Type::I32);
                 }
                 if let (Some(Type::List(element)), Some(Type::Function(parameters, result))) = (list_type, callback_type) {
-                    if parameters != vec![*element.clone()] || *result != Type::Bool || (!scalar_collection_supported(&element, layouts) && *element != Type::String) { errors.push(Diagnostic { message: "find supports i32, i64, string, and scalar-only struct or enum elements with at most eight lanes".into(), span: None }); }
+                    if parameters != vec![*element.clone()] || *result != Type::Bool || (!scalar_collection_supported(&element, layouts) && !map_collection_supported(&element, layouts) && *element != Type::String) { errors.push(Diagnostic { message: "find supports i32, i64, string, and struct or enum elements with at most eight managed lanes".into(), span: None }); }
                     return Some(Type::I32);
                 }
                 errors.push(Diagnostic { message: "find expects a typed list and predicate".into(), span: None }); return None;
@@ -3169,7 +3169,7 @@ fn expr(
                     let key_type = expr(&arguments[1], names, signatures, layouts, errors);
                     if let Some(Type::List(element)) = map_type.clone() {
                         if key_type != Some(*element.clone()) { errors.push(Diagnostic { message: "contains value must match the list element type".into(), span: None }); }
-                        if !scalar_collection_supported(&element, layouts) && *element != Type::String { errors.push(Diagnostic { message: "contains supports scalar lists and scalar-only struct or enum elements with at most eight lanes".into(), span: None }); }
+                        if !scalar_collection_supported(&element, layouts) && !map_collection_supported(&element, layouts) && *element != Type::String { errors.push(Diagnostic { message: "contains supports scalar lists and struct or enum elements with at most eight managed lanes".into(), span: None }); }
                         return Some(Type::Bool);
                     }
                     if matches!(&map_type, Some(Type::Bytes)) {
