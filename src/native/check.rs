@@ -2984,8 +2984,8 @@ fn expr(
                     if parameters.len() != 1 || parameters[0] != *element {
                         errors.push(Diagnostic { message: "map callback must accept the list element type".into(), span: None });
                     }
-                    if !matches!((&*element, &*result), (Type::I32, Type::I32) | (Type::I64, Type::I64)) {
-                        errors.push(Diagnostic { message: "map currently supports i32 -> i32 and i64 -> i64 callbacks".into(), span: None });
+                    if !matches!((&*element, &*result), (Type::I32, Type::I32) | (Type::I64, Type::I64) | (Type::String, Type::String)) {
+                        errors.push(Diagnostic { message: "map currently supports i32 -> i32, i64 -> i64, and string -> string callbacks".into(), span: None });
                     }
                     return Some(Type::List(result));
                 }

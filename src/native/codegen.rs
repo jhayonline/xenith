@@ -334,7 +334,7 @@ fn flat(ty: &Type, layouts: &HashMap<String, StructLayout>) -> Vec<cranelift_cod
 }
 
 fn indirect_return(ty: &Type, layouts: &HashMap<String, StructLayout>) -> bool {
-    flat(ty, layouts).len() > 2
+    flat(ty, layouts).len() > 2 || matches!(ty, Type::String)
 }
 
 fn return_layout(
@@ -6712,21 +6712,52 @@ fn lower(
                     args.extend(lowered.0);
                 }
                 let mut signature = m.make_signature();
+                let indirect = indirect_return(result, l);
+                let return_buffer = if indirect {
+                    let (size, _) = return_layout(result, l);
+                    let slot = b.create_sized_stack_slot(StackSlotData::new(
+                        StackSlotKind::ExplicitSlot,
+                        size,
+                        3,
+                    ));
+                    let pointer = b
+                        .ins()
+                        .stack_addr(m.target_config().pointer_type(), slot, 0);
+                    args.insert(0, pointer);
+                    signature.params.push(AbiParam::special(
+                        m.target_config().pointer_type(),
+                        ArgumentPurpose::StructReturn,
+                    ));
+                    Some(pointer)
+                } else {
+                    None
+                };
                 signature.params.push(AbiParam::new(types::I64));
                 for parameter in parameters {
                     signature
                         .params
                         .extend(flat(parameter, l).into_iter().map(AbiParam::new));
                 }
-                signature
-                    .returns
-                    .extend(flat(result, l).into_iter().map(AbiParam::new));
+                if !indirect {
+                    signature
+                        .returns
+                        .extend(flat(result, l).into_iter().map(AbiParam::new));
+                }
                 let sig_ref = b.func.dfg.signatures.push(signature);
                 let call = b.ins().call_indirect(sig_ref, v[name].0[0], &args);
                 for (lowered, ty) in temporary_arguments {
                     release_managed(b, &lowered, &ty, m);
                 }
-                return (b.inst_results(call).to_vec(), (**result).clone());
+                let values = if let Some(return_buffer) = return_buffer {
+                    return_layout(result, l)
+                        .1
+                        .into_iter()
+                        .map(|(ty, offset)| b.ins().load(ty, MemFlags::new(), return_buffer, offset))
+                        .collect()
+                } else {
+                    b.inst_results(call).to_vec()
+                };
+                return (values, (**result).clone());
             }
             if name == "echo" {
                 let argument = lower(b, &arguments[0], v, ids, m, l).0;
@@ -6920,6 +6951,10 @@ fn lower(
                 if *element == Type::I64 && parameters == vec![Type::I64] && *result == Type::I64 {
                     let mapped = runtime_call(b, m, "xenith_list_map_i64", vec![AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64)], vec![AbiParam::new(types::I64)], &[list[0], callback[0], callback[1]]);
                     return (mapped, Type::List(Box::new(Type::I64)));
+                }
+                if *element == Type::String && parameters == vec![Type::String] && *result == Type::String {
+                    let mapped = runtime_call(b, m, "xenith_list_map_string", vec![AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64)], vec![AbiParam::new(types::I64)], &[list[0], callback[0], callback[1]]);
+                    return (mapped, Type::List(Box::new(Type::String)));
                 }
                 unreachable!("map callback type is not supported by the native fast path")
             }
