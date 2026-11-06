@@ -6924,6 +6924,21 @@ fn lower(
                 let filtered = runtime_call(b, m, "xenith_list_filter_i32", vec![AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64)], vec![AbiParam::new(types::I64)], &[list[0], callback[0], callback[1]]);
                 return (filtered, Type::List(Box::new(Type::I32)));
             }
+            if name == "find" {
+                let (list, Type::List(element)) = lower(b, &arguments[0], v, ids, m, l) else { unreachable!() };
+                let (callback, Type::Function(parameters, result)) = lower(b, &arguments[1], v, ids, m, l) else { unreachable!() };
+                if *element != Type::I32 || parameters != vec![Type::I32] || *result != Type::Bool { unreachable!("find currently supports i32 -> bool predicates") }
+                let found = runtime_call(b, m, "xenith_list_find_i32", vec![AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64)], vec![AbiParam::new(types::I32)], &[list[0], callback[0], callback[1]]);
+                return (found, Type::I32);
+            }
+            if name == "reduce" {
+                let (list, Type::List(element)) = lower(b, &arguments[0], v, ids, m, l) else { unreachable!() };
+                let initial = lower(b, &arguments[1], v, ids, m, l).0[0];
+                let (callback, Type::Function(parameters, result)) = lower(b, &arguments[2], v, ids, m, l) else { unreachable!() };
+                if *element != Type::I32 || parameters != vec![Type::I32, Type::I32] || *result != Type::I32 { unreachable!("reduce currently supports i32 accumulators") }
+                let reduced = runtime_call(b, m, "xenith_list_reduce_i32", vec![AbiParam::new(types::I64), AbiParam::new(types::I32), AbiParam::new(types::I64), AbiParam::new(types::I64)], vec![AbiParam::new(types::I32)], &[list[0], initial, callback[0], callback[1]]);
+                return (reduced, Type::I32);
+            }
             if name == "remove" {
                 let (map, _) = lower(b, &arguments[0], v, ids, m, l);
                 let key = lower(b, &arguments[1], v, ids, m, l).0;
@@ -6942,8 +6957,12 @@ fn lower(
                 return (result, Type::I32);
             }
             if name == "contains" {
-                let (map, _) = lower(b, &arguments[0], v, ids, m, l);
+                let (collection, collection_type) = lower(b, &arguments[0], v, ids, m, l);
                 let key = lower(b, &arguments[1], v, ids, m, l).0;
+                if matches!(collection_type, Type::List(_)) {
+                    let result = runtime_call(b, m, "xenith_list_contains_i32", vec![AbiParam::new(types::I64), AbiParam::new(types::I32)], vec![AbiParam::new(types::I8)], &[collection[0], key[0]]);
+                    return (result, Type::Bool);
+                }
                 let result = runtime_call(
                     b,
                     m,
@@ -6954,7 +6973,7 @@ fn lower(
                         AbiParam::new(types::I64),
                     ],
                     vec![AbiParam::new(types::I8)],
-                    &[map[0], key[0], key[1]],
+                    &[collection[0], key[0], key[1]],
                 );
                 return (result, Type::Bool);
             }

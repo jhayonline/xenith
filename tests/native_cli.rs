@@ -118,6 +118,33 @@ fn native_filter_specializes_a_typed_integer_predicate() {
     assert_eq!(output.status.code(), Some(2), "{}", String::from_utf8_lossy(&output.stderr));
 }
 
+#[test]
+fn native_contains_finds_a_typed_integer_in_a_list() {
+    let dir = fixture_project(
+        "function main() -> i32 { let values: list<i32> = [1, 2, 3] if (contains(values, 2)) { return 42 } return 1 }",
+    );
+    let output = xenith(&dir.path().join("app")).arg("run").output().unwrap();
+    assert_eq!(output.status.code(), Some(42), "{}", String::from_utf8_lossy(&output.stderr));
+}
+
+#[test]
+fn native_find_returns_matching_index_or_minus_one() {
+    let dir = fixture_project(
+        "function main() -> i32 { let values: list<i32> = [4, 7, 9] let index: i32 = find(values, fn(value: i32) -> bool => value > 6) if (index == 1) { return 42 } return index }",
+    );
+    let output = xenith(&dir.path().join("app")).arg("run").output().unwrap();
+    assert_eq!(output.status.code(), Some(42), "{}", String::from_utf8_lossy(&output.stderr));
+}
+
+#[test]
+fn native_reduce_uses_an_explicit_integer_accumulator() {
+    let dir = fixture_project(
+        "function main() -> i32 { let values: list<i32> = [1, 2, 3] let total: i32 = reduce(values, 10, fn(acc: i32, value: i32) -> i32 => acc + value) return total }",
+    );
+    let output = xenith(&dir.path().join("app")).arg("run").output().unwrap();
+    assert_eq!(output.status.code(), Some(16), "{}", String::from_utf8_lossy(&output.stderr));
+}
+
 fn fixture_project(source: &str) -> tempfile::TempDir {
     let dir = tempfile::tempdir().unwrap();
     xenith(dir.path()).args(["new", "app"]).status().unwrap();

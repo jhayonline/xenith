@@ -3000,6 +3000,27 @@ fn expr(
                 errors.push(Diagnostic { message: "filter expects a typed list and predicate".into(), span: None });
                 return None;
             }
+            if name == "find" {
+                if arguments.len() != 2 { errors.push(Diagnostic { message: "find expects a list and a predicate".into(), span: None }); return None; }
+                let list_type = expr(&arguments[0], names, signatures, layouts, errors);
+                let callback_type = expr(&arguments[1], names, signatures, layouts, errors);
+                if let (Some(Type::List(element)), Some(Type::Function(parameters, result))) = (list_type, callback_type) {
+                    if parameters != vec![*element] || *result != Type::Bool { errors.push(Diagnostic { message: "find predicate must accept the list element and return bool".into(), span: None }); }
+                    return Some(Type::I32);
+                }
+                errors.push(Diagnostic { message: "find expects a typed list and predicate".into(), span: None }); return None;
+            }
+            if name == "reduce" {
+                if arguments.len() != 3 { errors.push(Diagnostic { message: "reduce expects a list, initial value, and callback".into(), span: None }); return None; }
+                let list_type = expr(&arguments[0], names, signatures, layouts, errors);
+                let initial_type = expr(&arguments[1], names, signatures, layouts, errors);
+                let callback_type = expr(&arguments[2], names, signatures, layouts, errors);
+                if let (Some(Type::List(element)), Some(initial), Some(Type::Function(parameters, result))) = (list_type, initial_type, callback_type) {
+                    if initial != Type::I32 || *element != Type::I32 || parameters != vec![Type::I32, Type::I32] || *result != Type::I32 { errors.push(Diagnostic { message: "reduce currently expects i32 values and an i32 -> i32 accumulator callback".into(), span: None }); }
+                    return Some(Type::I32);
+                }
+                errors.push(Diagnostic { message: "reduce expects a typed list, accumulator, and callback".into(), span: None }); return None;
+            }
             if name == "append" {
                 if arguments.len() != 2 {
                     errors.push(Diagnostic {
@@ -3064,6 +3085,10 @@ fn expr(
                     }
                     let map_type = expr(&arguments[0], names, signatures, layouts, errors);
                     let key_type = expr(&arguments[1], names, signatures, layouts, errors);
+                    if let Some(Type::List(element)) = map_type.clone() {
+                        if key_type != Some(*element) { errors.push(Diagnostic { message: "contains value must match the list element type".into(), span: None }); }
+                        return Some(Type::Bool);
+                    }
                     if !matches!(map_type, Some(Type::Map(_, _))) {
                         errors.push(Diagnostic {
                             message: "contains expects a map".into(),
