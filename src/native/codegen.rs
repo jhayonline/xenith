@@ -776,6 +776,19 @@ fn emit_release_one(
     }
 }
 
+fn emit_release_extras(
+    b: &mut FunctionBuilder,
+    values: &Values,
+    keep: &HashSet<String>,
+    m: &mut ObjectModule,
+) {
+    for (name, (lanes, ty)) in values {
+        if !keep.contains(name) {
+            emit_release_one(b, lanes, ty, m);
+        }
+    }
+}
+
 fn emit_return_and_release(
     b: &mut FunctionBuilder,
     expression: &Expr,
@@ -945,6 +958,9 @@ fn lower_try_catch(
         b.ins().brif(pending, catch_block, &[], success_block, &[]);
         b.switch_to_block(success_block);
         b.seal_block(success_block);
+        emit_retain_borrowed(b, expression, &returned, &return_type, m);
+        emit_release_values(b, values, m, layouts);
+        let _ = runtime_call(b, m, "xenith_error_abort_if_pending", vec![], vec![], &[]);
         if let Some(area) = return_area {
             for (value, (_, offset)) in returned
                 .into_iter()
@@ -1105,19 +1121,24 @@ fn lower_branch(
             Stmt::Let {
                 name, ty, value, ..
             } => {
-                let value = lower_binding(b, value, ty.as_ref(), values, ids, m, layouts);
-                values.insert(name.clone(), value);
+                let lowered = lower_binding(b, value, ty.as_ref(), values, ids, m, layouts);
+                emit_retain_borrowed(b, value, &lowered.0, &lowered.1, m);
+                values.insert(name.clone(), lowered);
                 shadowed.insert(name.clone());
                 for target in &mut *loops {
                     target.protected.insert(name.clone());
                 }
             }
             Stmt::Assign { name, value } => {
-                let value = lower(b, value, values, ids, m, layouts);
-                if !shadowed.contains(name) {
-                    record_assignment(loops, name, &value.0);
+                let lowered = lower(b, value, values, ids, m, layouts);
+                emit_retain_borrowed(b, value, &lowered.0, &lowered.1, m);
+                if let Some((old, old_ty)) = values.get(name) {
+                    emit_release_one(b, old, old_ty, m);
                 }
-                values.insert(name.clone(), value);
+                if !shadowed.contains(name) {
+                    record_assignment(loops, name, &lowered.0);
+                }
+                values.insert(name.clone(), lowered);
             }
             Stmt::IndexAssign { base, index, value } => {
                 lower_index_assignment(b, base, index, value, values, ids, m, layouts)
@@ -1214,7 +1235,7 @@ fn lower_branch(
                 }
             }
             Stmt::Return(value) => {
-                emit_return(b, value, values, ids, m, layouts, return_area);
+                emit_return_and_release(b, value, values, ids, m, layouts, return_area);
                 return LowerFlow::Returns;
             }
             Stmt::While { condition, body } => {
@@ -1411,6 +1432,7 @@ fn lower_while(
         carried_statements.push(step.clone());
     }
     let names = assigned_names(&carried_statements, values);
+    let outer_names: HashSet<String> = values.keys().cloned().collect();
     let header = b.create_block();
     let loop_body = b.create_block();
     let step_block = b.create_block();
@@ -1479,6 +1501,10 @@ fn lower_while(
         &mut body_shadows,
     );
     if body_flow == LowerFlow::FallsThrough {
+        if step.is_none() {
+            let keep: HashSet<String> = outer_names.iter().cloned().chain(names.iter().cloned()).collect();
+            emit_release_extras(b, &loop_values, &keep, m);
+        }
         let next: Vec<Value> = names
             .iter()
             .flat_map(|name| loop_values[name].0.iter().copied())
@@ -1604,6 +1630,8 @@ fn lower_if(
         }
         branch_flows.push(flow);
         if flow == LowerFlow::FallsThrough {
+            let keep: HashSet<String> = values.keys().cloned().chain(names.iter().cloned()).collect();
+            emit_release_extras(b, &branch_values, &keep, m);
             let args: Vec<Value> = names
                 .iter()
                 .flat_map(|name| branch_values[name].0.iter().copied())

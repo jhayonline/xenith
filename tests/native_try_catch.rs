@@ -329,6 +329,48 @@ function main() -> i32 {
 }
 
 #[test]
+fn native_codegen_releases_collection_locals_on_nested_control_flow_returns() {
+    let source = r#"
+function main() -> i32 {
+    let values: list<i32> = [1, 2, 3]
+    if (true) {
+        return 0
+    } else {
+        return 1
+    }
+}
+"#;
+    let program = parse(Path::new("main.xen"), source).unwrap();
+    let typed = check(&program).unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let object = directory.path().join("main.o");
+    emit_object(&typed, &object).unwrap();
+    let bytes = fs::read(object).unwrap();
+    assert!(bytes.windows(b"xenith_release".len()).any(|window| window == b"xenith_release"));
+}
+
+#[test]
+fn native_codegen_releases_collection_locals_on_try_catch_returns() {
+    let source = r#"
+function main() -> i32 {
+    let values: list<i32> = [1, 2, 3]
+    try {
+        return 0
+    } catch (error) {
+        return 1
+    }
+}
+"#;
+    let program = parse(Path::new("main.xen"), source).unwrap();
+    let typed = check(&program).unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let object = directory.path().join("main.o");
+    emit_object(&typed, &object).unwrap();
+    let bytes = fs::read(object).unwrap();
+    assert!(bytes.windows(b"xenith_release".len()).any(|window| window == b"xenith_release"));
+}
+
+#[test]
 fn native_filesystem_builtins_read_and_write_text() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("message.txt");
