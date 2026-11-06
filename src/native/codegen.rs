@@ -6968,12 +6968,14 @@ fn lower(
                     let mapped = runtime_call(b, m, runtime_name, vec![AbiParam::new(types::I64); 6], vec![AbiParam::new(types::I64)], &[list[0], callback[0], callback[1], count_value, offsets, widths]);
                     return (mapped, Type::List(result));
                 }
-                if matches!(*element, Type::Named(_)) && matches!(*result, Type::Named(_)) && parameters.len() == 1 && parameters[0] == *element && scalar_collection_supported_type(&result, l) {
+                if matches!(*element, Type::Named(_)) && matches!(*result, Type::Named(_)) && parameters.len() == 1 && parameters[0] == *element && aggregate_collection_supported_type(&result, l) {
                     let (offsets, widths, count) = lane_metadata(b, &element, l);
                     let (output_width, _) = return_layout(&result, l);
+                    let (output_offsets, output_kinds, output_count) = managed_lane_metadata(b, &result, l);
                     let count_value = b.ins().iconst(types::I64, count);
                     let output_width_value = b.ins().iconst(types::I64, output_width as i64);
-                    let mapped = runtime_call(b, m, "xenith_list_map_lanes_raw", vec![AbiParam::new(types::I64); 7], vec![AbiParam::new(types::I64)], &[list[0], callback[0], callback[1], count_value, offsets, widths, output_width_value]);
+                    let output_count_value = b.ins().iconst(types::I64, output_count);
+                    let mapped = runtime_call(b, m, "xenith_list_map_lanes_raw", vec![AbiParam::new(types::I64); 10], vec![AbiParam::new(types::I64)], &[list[0], callback[0], callback[1], count_value, offsets, widths, output_width_value, output_count_value, output_offsets, output_kinds]);
                     return (mapped, Type::List(result));
                 }
                 if matches!(*element, Type::Named(_)) && parameters.len() == 1 && parameters[0] == *element && *result == Type::String {
@@ -7386,11 +7388,45 @@ fn lane_metadata(
     )
 }
 
-fn scalar_collection_supported_type(ty: &Type, layouts: &HashMap<String, StructLayout>) -> bool {
+fn aggregate_collection_supported_type(ty: &Type, layouts: &HashMap<String, StructLayout>) -> bool {
     matches!(ty, Type::Named(_))
         && !flat(ty, layouts).is_empty()
         && flat(ty, layouts).len() <= 8
         && flat(ty, layouts).iter().all(|lane| *lane == types::I8 || *lane == types::I32 || *lane == types::I64)
+}
+
+fn managed_lane_kinds(ty: &Type, layouts: &HashMap<String, StructLayout>) -> Vec<i64> {
+    match ty {
+        Type::I32 | Type::I64 | Type::Bool => vec![0],
+        Type::String => vec![1, 0],
+        Type::Bytes | Type::List(_) | Type::Map(_, _) => vec![2],
+        Type::Function(_, _) => vec![2, 0],
+        Type::Tuple(elements) => elements.iter().flat_map(|element| managed_lane_kinds(element, layouts)).collect(),
+        Type::Named(name) => layouts[name].fields.iter().flat_map(|(_, field)| managed_lane_kinds(field, layouts)).collect(),
+        Type::Float | Type::Null | Type::Generic(_) => vec![0],
+    }
+}
+
+fn managed_lane_metadata(
+    b: &mut FunctionBuilder,
+    ty: &Type,
+    layouts: &HashMap<String, StructLayout>,
+) -> (Value, Value, i64) {
+    let (_, lanes) = return_layout(ty, layouts);
+    let kinds = managed_lane_kinds(ty, layouts);
+    let count = lanes.len() as i64;
+    let offsets = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, (count.max(1) * 8) as u32, 3));
+    let kind_slot = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, (count.max(1) * 8) as u32, 3));
+    for (index, (_, offset)) in lanes.iter().enumerate() {
+        let position = (index * 8) as i32;
+        let offset_ptr = b.ins().stack_addr(types::I64, offsets, position);
+        let offset_value = b.ins().iconst(types::I64, *offset as i64);
+        b.ins().store(MemFlags::new(), offset_value, offset_ptr, 0);
+        let kind_ptr = b.ins().stack_addr(types::I64, kind_slot, position);
+        let kind_value = b.ins().iconst(types::I64, kinds[index]);
+        b.ins().store(MemFlags::new(), kind_value, kind_ptr, 0);
+    }
+    (b.ins().stack_addr(types::I64, offsets, 0), b.ins().stack_addr(types::I64, kind_slot, 0), count)
 }
 
 fn lower_index_assignment(

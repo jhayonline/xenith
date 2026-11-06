@@ -254,6 +254,15 @@ fn native_map_callbacks_can_return_scalar_structs_and_enums() {
 }
 
 #[test]
+fn native_map_managed_struct_results_have_owned_fields() {
+    let dir = fixture_project(
+        "struct User { name: string, age: i32 } function main() -> i32 { let users: list<User> = [User { name: \"Ada\", age: 30 }, User { name: \"Lin\", age: 20 }, User { name: \"\", age: 0 }] let copied: list<User> = map(users, fn(value: User) -> User => value) if (copied[0].name == \"Ada\" && copied[1].name == \"Lin\" && copied[2].name == \"\" && copied[1].age == 20) { return 42 } return 1 }",
+    );
+    let output = xenith(&dir.path().join("app")).arg("run").output().unwrap();
+    assert_eq!(output.status.code(), Some(42), "{}", String::from_utf8_lossy(&output.stderr));
+}
+
+#[test]
 fn native_collection_algorithms_handle_empty_lists() {
     let dir = fixture_project(
         "function main() -> i32 { let values: list<i32> = [] let doubled: list<i32> = map(values, fn(value: i32) -> i32 => value * 2) let filtered: list<i32> = filter(doubled, fn(value: i32) -> bool => value > 0) if (len(filtered) == 0 && find(filtered, fn(value: i32) -> bool => value > 0) == -1) { return 42 } return 1 }",
