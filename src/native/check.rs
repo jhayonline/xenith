@@ -2887,6 +2887,17 @@ fn expr(
                 }
                 return Some((**result).clone());
             }
+            if let Some(signature) = signatures.get(name) {
+                if arguments.len() != signature.parameters.len() {
+                    errors.push(Diagnostic { message: format!("function `{name}` expects {} arguments", signature.parameters.len()), span: None });
+                }
+                for (argument, expected) in arguments.iter().zip(&signature.parameters) {
+                    if expr(argument, names, signatures, layouts, errors) != Some(expected.clone()) {
+                        errors.push(Diagnostic { message: format!("function `{name}` argument type mismatch"), span: None });
+                    }
+                }
+                return Some(signature.result.clone());
+            }
             if name == "echo" {
                 if arguments.len() != 1
                     || expr(&arguments[0], names, signatures, layouts, errors) != Some(Type::String)

@@ -6759,7 +6759,7 @@ fn lower(
                 };
                 return (values, (**result).clone());
             }
-            if name == "echo" {
+            if name == "echo" && !ids.contains_key(name) {
                 let argument = lower(b, &arguments[0], v, ids, m, l).0;
                 let mut signature = m.make_signature();
                 signature
@@ -6774,7 +6774,7 @@ fn lower(
                 b.ins().call(callee, &argument);
                 return (vec![b.ins().iconst(types::I32, 0)], Type::I32);
             }
-            if name == "len" {
+            if name == "len" && !ids.contains_key(name) {
                 let (argument, argument_type) = lower(b, &arguments[0], v, ids, m, l);
                 return match argument_type {
                     Type::String => (vec![b.ins().ireduce(types::I32, argument[1])], Type::I32),
@@ -6850,7 +6850,7 @@ fn lower(
                 }
                 return (vec![result], Type::I64);
             }
-            if name == "validate" {
+            if name == "validate" && !ids.contains_key(name) {
                 let input = lower(b, &arguments[0], v, ids, m, l).0[0];
                 let schema = lower(b, &arguments[1], v, ids, m, l).0[0];
                 let result = runtime_call(
@@ -6909,7 +6909,7 @@ fn lower(
                 )[0];
                 return (vec![value], Type::I64);
             }
-            if name == "append" {
+            if name == "append" && !ids.contains_key(name) {
                 let (list, Type::List(element)) = lower(b, &arguments[0], v, ids, m, l) else {
                     unreachable!()
                 };
@@ -6941,7 +6941,7 @@ fn lower(
                 );
                 return (result, Type::List(element));
             }
-            if name == "map" {
+            if name == "map" && !ids.contains_key(name) {
                 let (list, list_type) = lower(b, &arguments[0], v, ids, m, l);
                 let (callback, Type::Function(parameters, result)) = lower(b, &arguments[1], v, ids, m, l) else { unreachable!() };
                 if list_type == Type::Bytes && parameters == vec![Type::I32] && *result == Type::I32 {
@@ -6963,7 +6963,7 @@ fn lower(
                 }
                 unreachable!("map callback type is not supported by the native fast path")
             }
-            if name == "filter" {
+            if name == "filter" && !ids.contains_key(name) {
                 let (list, list_type) = lower(b, &arguments[0], v, ids, m, l);
                 let (callback, Type::Function(parameters, result)) = lower(b, &arguments[1], v, ids, m, l) else { unreachable!() };
                 if list_type == Type::Bytes && parameters == vec![Type::I32] && *result == Type::Bool {
@@ -6985,7 +6985,7 @@ fn lower(
                 }
                 unreachable!("filter callback type is not supported by the native fast path")
             }
-            if name == "find" {
+            if name == "find" && !ids.contains_key(name) {
                 let (list, list_type) = lower(b, &arguments[0], v, ids, m, l);
                 let (callback, Type::Function(parameters, result)) = lower(b, &arguments[1], v, ids, m, l) else { unreachable!() };
                 if list_type == Type::Bytes && parameters == vec![Type::I32] && *result == Type::Bool { return (runtime_call(b, m, "xenith_bytes_find_i32", vec![AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64)], vec![AbiParam::new(types::I32)], &[list[0], callback[0], callback[1]]), Type::I32); }
@@ -6995,7 +6995,7 @@ fn lower(
                 if *element == Type::String && parameters == vec![Type::String] && *result == Type::Bool { return (runtime_call(b, m, "xenith_list_find_string", vec![AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64)], vec![AbiParam::new(types::I32)], &[list[0], callback[0], callback[1]]), Type::I32); }
                 unreachable!("find callback type is not supported by the native fast path")
             }
-            if name == "reduce" {
+            if name == "reduce" && !ids.contains_key(name) {
                 let (list, Type::List(element)) = lower(b, &arguments[0], v, ids, m, l) else { unreachable!() };
                 let initial = lower(b, &arguments[1], v, ids, m, l).0[0];
                 let (callback, Type::Function(parameters, result)) = lower(b, &arguments[2], v, ids, m, l) else { unreachable!() };
@@ -7003,7 +7003,7 @@ fn lower(
                 if *element == Type::I64 && parameters == vec![Type::I64, Type::I64] && *result == Type::I64 { return (runtime_call(b, m, "xenith_list_reduce_i64", vec![AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64)], vec![AbiParam::new(types::I64)], &[list[0], initial, callback[0], callback[1]]), Type::I64); }
                 unreachable!("reduce callback type is not supported by the native fast path")
             }
-            if name == "remove" {
+            if name == "remove" && !ids.contains_key(name) {
                 let (map, _) = lower(b, &arguments[0], v, ids, m, l);
                 let key = lower(b, &arguments[1], v, ids, m, l).0;
                 let result = runtime_call(
@@ -7020,7 +7020,7 @@ fn lower(
                 );
                 return (result, Type::I32);
             }
-            if name == "contains" {
+            if name == "contains" && !ids.contains_key(name) {
                 let (collection, collection_type) = lower(b, &arguments[0], v, ids, m, l);
                 let key = lower(b, &arguments[1], v, ids, m, l).0;
                 if matches!(collection_type, Type::List(_)) {
