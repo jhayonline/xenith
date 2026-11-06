@@ -443,6 +443,32 @@ function main() -> i32 {
 }
 
 #[test]
+fn native_codegen_releases_temporaries_on_stop_and_skip() {
+    let source = r#"
+function main() -> i32 {
+    let mut total: i32 = 0
+    while (total < 2) {
+        let values: list<i32> = [1, 2, 3]
+        total = total + 1
+        if (total == 1) {
+            skip
+        }
+        stop
+    }
+    return 42
+}
+"#;
+    let program = parse(Path::new("main.xen"), source).unwrap();
+    let typed = check(&program).unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let object = directory.path().join("main.o");
+    let executable = directory.path().join("main");
+    emit_object(&typed, &object).unwrap();
+    link_host(&object, &executable).unwrap();
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(42));
+}
+
+#[test]
 fn native_filesystem_builtins_read_and_write_text() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("message.txt");

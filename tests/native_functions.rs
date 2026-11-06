@@ -164,3 +164,18 @@ fn preserves_nested_closure_environments() {
     link_host(&object, &executable).unwrap();
     assert_eq!(Command::new(executable).status().unwrap().code(), Some(42));
 }
+
+#[test]
+fn balances_temporary_collection_arguments() {
+    let source = "function first(values: list<i32>) -> i32 { return values[0] } function main() -> i32 { return first([41]) + first([1]) }";
+    let dir = tempfile::tempdir().unwrap();
+    let source_path = dir.path().join("main.xen");
+    std::fs::write(&source_path, source).unwrap();
+    let program = parse(&source_path, source).unwrap();
+    let checked = check(&program).unwrap();
+    let object = dir.path().join("main.o");
+    emit_object(&checked, &object).unwrap();
+    let executable = dir.path().join("main");
+    link_host(&object, &executable).unwrap();
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(42));
+}

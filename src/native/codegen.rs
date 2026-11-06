@@ -608,7 +608,8 @@ fn emit(
                     lower_index_assignment(&mut b, base, index, value, &vals, ids, m, l)
                 }
                 Stmt::Expr(value) => {
-                    let _ = lower(&mut b, value, &vals, ids, m, l);
+                    let lowered = lower(&mut b, value, &vals, ids, m, l);
+                    release_temporary(&mut b, value, &lowered.0, &lowered.1, m);
                 }
                 Stmt::Panic { value, span } => {
                     emit_panic(&mut b, value, &vals, ids, m, l, *span);
@@ -650,6 +651,7 @@ struct LoopTarget {
     names: Vec<String>,
     carried: HashMap<String, Vec<Value>>,
     protected: HashSet<String>,
+    keep: HashSet<String>,
     has_stop: bool,
 }
 
@@ -750,7 +752,12 @@ fn emit_retain_borrowed(
     ty: &Type,
     m: &mut ObjectModule,
 ) {
-    if let Some(lane) = managed_lane(ty).filter(|_| matches!(expression, Expr::Name(_))) {
+    if let Some(lane) = managed_lane(ty).filter(|_| {
+        matches!(
+            expression,
+            Expr::Name(_) | Expr::Index { .. } | Expr::Field { .. }
+        )
+    }) {
         let _ = runtime_call(
             b,
             m,
@@ -790,6 +797,55 @@ fn emit_release_extras(
         if !keep.contains(name) {
             emit_release_one(b, lanes, ty, m);
         }
+    }
+}
+
+fn retain_call_argument(
+    b: &mut FunctionBuilder,
+    lowered: &[Value],
+    ty: &Type,
+    m: &mut ObjectModule,
+) {
+    if let Some(lane) = managed_lane(ty) {
+        let _ = runtime_call(
+            b,
+            m,
+            "xenith_retain",
+            vec![AbiParam::new(m.target_config().pointer_type())],
+            vec![],
+            &[lowered[lane]],
+        );
+    }
+}
+
+fn release_temporary(
+    b: &mut FunctionBuilder,
+    expression: &Expr,
+    lowered: &[Value],
+    ty: &Type,
+    m: &mut ObjectModule,
+) {
+    if matches!(expression, Expr::Name(_)) {
+        return;
+    }
+    release_managed(b, lowered, ty, m);
+}
+
+fn release_managed(
+    b: &mut FunctionBuilder,
+    lowered: &[Value],
+    ty: &Type,
+    m: &mut ObjectModule,
+) {
+    if let Some(lane) = managed_lane(ty) {
+        let _ = runtime_call(
+            b,
+            m,
+            "xenith_release",
+            vec![AbiParam::new(m.target_config().pointer_type())],
+            vec![],
+            &[lowered[lane]],
+        );
     }
 }
 
@@ -1112,12 +1168,16 @@ fn lower_branch(
             Stmt::Stop => {
                 let target = loops.last_mut().expect("checked loop control has a target");
                 target.has_stop = true;
+                let keep = target.keep.clone();
+                emit_release_extras(b, values, &keep, m);
                 let args = loop_args(target);
                 b.ins().jump(target.exit, &args);
                 return LowerFlow::LoopJump;
             }
             Stmt::Skip => {
                 let target = loops.last().expect("checked loop control has a target");
+                let keep = target.keep.clone();
+                emit_release_extras(b, values, &keep, m);
                 let args = loop_args(target);
                 b.ins().jump(target.continue_to, &args);
                 return LowerFlow::LoopJump;
@@ -1148,7 +1208,8 @@ fn lower_branch(
                 lower_index_assignment(b, base, index, value, values, ids, m, layouts)
             }
             Stmt::Expr(value) => {
-                let _ = lower(b, value, values, ids, m, layouts);
+                let lowered = lower(b, value, values, ids, m, layouts);
+                release_temporary(b, value, &lowered.0, &lowered.1, m);
             }
             Stmt::Panic { value, span } => {
                 emit_panic(b, value, values, ids, m, layouts, *span);
@@ -1282,6 +1343,7 @@ fn lower_for_in(
         return LowerFlow::FallsThrough;
     }
     let (iter_values, iterable_type) = lower(b, iterable, values, ids, m, layouts);
+    emit_retain_borrowed(b, iterable, &iter_values, &iterable_type, m);
     let (binding_type, binding_expr) = match iterable_type.clone() {
         Type::List(element) => (
             *element,
@@ -1351,6 +1413,11 @@ fn lower_for_in(
         shadowed,
         Some(&step),
     );
+    if flow != LowerFlow::Returns {
+        if let Some((iter_values, iter_type)) = values.get(&iter_name) {
+            emit_release_one(b, iter_values, iter_type, m);
+        }
+    }
     values.remove(&iter_name);
     values.remove(&index_name);
     for name in original_names {
@@ -1382,8 +1449,9 @@ fn lower_for(
     let mut for_values = values.clone();
     let init_name = match init {
         Stmt::Let { name, value, .. } => {
-            let value = lower(b, value, &for_values, ids, m, layouts);
-            for_values.insert(name.clone(), value);
+            let lowered = lower(b, value, &for_values, ids, m, layouts);
+            emit_retain_borrowed(b, value, &lowered.0, &lowered.1, m);
+            for_values.insert(name.clone(), lowered);
             name.clone()
         }
         _ => unreachable!("for initializers are checked before native lowering"),
@@ -1492,6 +1560,7 @@ fn lower_while(
             .filter(|name| !names.contains(name))
             .cloned()
             .collect(),
+        keep: outer_names.iter().cloned().chain(names.iter().cloned()).collect(),
         has_stop: false,
     });
     let mut body_shadows = inherited_shadows.clone();
@@ -3447,21 +3516,18 @@ fn lower(
                 return (vec![value], Type::I64);
             }
             if let Some((_, Type::Function(parameters, result))) = v.get(name) {
-                // Function parameters are released by the callee's normal
-                // local cleanup. Keep the caller's function value alive while
-                // transferring that temporary ownership to the callee.
-                let _ = runtime_call(
-                    b,
-                    m,
-                    "xenith_retain",
-                    vec![AbiParam::new(m.target_config().pointer_type())],
-                    vec![],
-                    &[v[name].0[1]],
-                );
                 let mut args = Vec::new();
                 args.push(v[name].0[1]);
+                retain_call_argument(b, &v[name].0, &Type::Function(parameters.clone(), result.clone()), m);
+                let mut temporary_arguments = Vec::new();
                 for argument in arguments {
-                    args.extend(lower(b, argument, v, ids, m, l).0);
+                    let lowered = lower(b, argument, v, ids, m, l);
+                    let ty = lowered.1.clone();
+                    retain_call_argument(b, &lowered.0, &ty, m);
+                    if !matches!(argument, Expr::Name(_)) {
+                        temporary_arguments.push((lowered.0.clone(), ty));
+                    }
+                    args.extend(lowered.0);
                 }
                 let mut signature = m.make_signature();
                 signature.params.push(AbiParam::new(types::I64));
@@ -3475,6 +3541,9 @@ fn lower(
                     .extend(flat(result, l).into_iter().map(AbiParam::new));
                 let sig_ref = b.func.dfg.signatures.push(signature);
                 let call = b.ins().call_indirect(sig_ref, v[name].0[0], &args);
+                for (lowered, ty) in temporary_arguments {
+                    release_managed(b, &lowered, &ty, m);
+                }
                 return (b.inst_results(call).to_vec(), (**result).clone());
             }
             if name == "echo" {
@@ -3634,11 +3703,22 @@ fn lower(
                 (name.as_str(), None)
             };
             let mut a = vec![];
+            let mut temporary_arguments = Vec::new();
             if let Some(receiver) = receiver {
-                a.extend(lower(b, &Expr::Name(receiver.into()), v, ids, m, l).0);
+                let expression = Expr::Name(receiver.into());
+                let lowered = lower(b, &expression, v, ids, m, l);
+                let ty = infer_lowered_type(&expression, v, ids, l);
+                retain_call_argument(b, &lowered.0, &ty, m);
+                a.extend(lowered.0);
             }
             for x in arguments {
-                a.extend(lower(b, x, v, ids, m, l).0)
+                let lowered = lower(b, x, v, ids, m, l);
+                let ty = lowered.1.clone();
+                retain_call_argument(b, &lowered.0, &ty, m);
+                if !matches!(x, Expr::Name(_)) {
+                    temporary_arguments.push((lowered.0.clone(), ty));
+                }
+                a.extend(lowered.0)
             }
             if callee_name != "main" {
                 a.insert(0, b.ins().iconst(types::I64, 0));
@@ -3671,6 +3751,9 @@ fn lower(
             } else {
                 b.inst_results(call).to_vec()
             };
+            for (lowered, ty) in temporary_arguments {
+                release_managed(b, &lowered, &ty, m);
+            }
             (values, result_type.clone())
         }
         Expr::Compare(a, operator, c) => {
