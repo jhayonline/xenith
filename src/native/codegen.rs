@@ -714,8 +714,12 @@ fn emit_return(
     }
 }
 
-fn managed_type(ty: &Type) -> bool {
-    matches!(ty, Type::List(_) | Type::Map(_, _) | Type::Bytes)
+fn managed_lane(ty: &Type) -> Option<usize> {
+    match ty {
+        Type::List(_) | Type::Map(_, _) | Type::Bytes => Some(0),
+        Type::Function(_, _) => Some(1),
+        _ => None,
+    }
 }
 
 fn emit_release_values(
@@ -725,14 +729,14 @@ fn emit_release_values(
     layouts: &HashMap<String, StructLayout>,
 ) {
     for (lanes, ty) in values.values() {
-        if managed_type(ty) {
+        if let Some(lane) = managed_lane(ty) {
             let _ = runtime_call(
                 b,
                 m,
                 "xenith_release",
                 vec![AbiParam::new(m.target_config().pointer_type())],
                 vec![],
-                &[lanes[0]],
+                &[lanes[lane]],
             );
         }
     }
@@ -746,14 +750,14 @@ fn emit_retain_borrowed(
     ty: &Type,
     m: &mut ObjectModule,
 ) {
-    if managed_type(ty) && matches!(expression, Expr::Name(_)) {
+    if let Some(lane) = managed_lane(ty).filter(|_| matches!(expression, Expr::Name(_))) {
         let _ = runtime_call(
             b,
             m,
             "xenith_retain",
             vec![AbiParam::new(m.target_config().pointer_type())],
             vec![],
-            &[lowered[0]],
+            &[lowered[lane]],
         );
     }
 }
@@ -764,14 +768,14 @@ fn emit_release_one(
     ty: &Type,
     m: &mut ObjectModule,
 ) {
-    if managed_type(ty) {
+    if let Some(lane) = managed_lane(ty) {
         let _ = runtime_call(
             b,
             m,
             "xenith_release",
             vec![AbiParam::new(m.target_config().pointer_type())],
             vec![],
-            &[lanes[0]],
+            &[lanes[lane]],
         );
     }
 }
@@ -2052,15 +2056,20 @@ fn lower(
                 &[capture_count],
             )[0];
             let mut slot_index = 0;
+            let mut managed_mask: i64 = 0;
             for capture in capture_names.iter() {
-                if managed_type(&v[capture].1) {
+                if let Some(lane) = managed_lane(&v[capture].1) {
+                    let mask_slot = slot_index + lane;
+                    if mask_slot < 63 {
+                        managed_mask |= 1_i64 << mask_slot;
+                    }
                     let _ = runtime_call(
                         b,
                         m,
                         "xenith_retain",
                         vec![AbiParam::new(m.target_config().pointer_type())],
                         vec![],
-                        &[v[capture].0[0]],
+                        &[v[capture].0[lane]],
                     );
                 }
                 for (lane_type, value) in flat(&v[capture].1, l).into_iter().zip(&v[capture].0) {
@@ -2072,7 +2081,7 @@ fn lower(
                         }
                         _ => *value,
                     };
-                    let slot = b.ins().iconst(types::I64, slot_index);
+                    let slot = b.ins().iconst(types::I64, slot_index as i64);
                     let _ = runtime_call(
                         b,
                         m,
@@ -2088,6 +2097,15 @@ fn lower(
                     slot_index += 1;
                 }
             }
+            let mask = b.ins().iconst(types::I64, managed_mask);
+            let _ = runtime_call(
+                b,
+                m,
+                "xenith_closure_set_mask",
+                vec![AbiParam::new(types::I64), AbiParam::new(types::I64)],
+                vec![],
+                &[env, mask],
+            );
             (
                 vec![b.ins().func_addr(types::I64, callee), env],
                 Type::Function(

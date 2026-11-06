@@ -100,3 +100,22 @@ fn compiles_native_capturing_closures() {
     link_host(&object, &executable).unwrap();
     assert_eq!(Command::new(executable).status().unwrap().code(), Some(42));
 }
+
+#[test]
+fn compiles_native_closure_captures_with_arc_cleanup() {
+    let source = "fn main() -> i32 { let values: list<i32> = [41] let f: fn() -> i32 = fn() -> i32 => values[0] return f() }";
+    let dir = tempfile::tempdir().unwrap();
+    let source_path = dir.path().join("main.xen");
+    std::fs::write(&source_path, source).unwrap();
+    let program = parse(&source_path, source).unwrap();
+    let checked = check(&program).unwrap();
+    let object = dir.path().join("main.o");
+    emit_object(&checked, &object).unwrap();
+    let object_bytes = std::fs::read(&object).unwrap();
+    assert!(object_bytes
+        .windows(b"xenith_closure_set_mask".len())
+        .any(|window| window == b"xenith_closure_set_mask"));
+    let executable = dir.path().join("main");
+    link_host(&object, &executable).unwrap();
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(41));
+}
