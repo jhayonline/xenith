@@ -178,3 +178,11 @@ fn native_managed_map_values_can_be_reassigned() {
     );
     assert_eq!(Command::new(executable).status().unwrap().code(), Some(0));
 }
+
+#[test]
+fn native_nested_string_values_are_owned_by_collections() {
+    let (_directory, executable) = build_source(
+        "fn main() -> i32 { let names: list<string> = [\"Ada\"] let words: map<string, string> = {\"name\": \"Grace\"} if (names[0] == \"Ada\" && words[\"name\"] == \"Grace\") { return 42 } return 0 }",
+    );
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(42));
+}

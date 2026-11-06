@@ -2297,13 +2297,26 @@ fn lower(
                     &[raw, offset_value],
                 )[0];
                 let values = lower(b, element, v, ids, m, l).0;
+                let element_type_ref = infer_lowered_type(element, v, ids, l);
                 if managed_descriptor {
-                    let element_type_ref = infer_lowered_type(element, v, ids, l);
                     emit_retain_borrowed_with_layouts(b, element, &values, &element_type_ref, m, l);
                 }
                 for (value, (_, field_offset)) in values.into_iter().zip(lanes.iter()) {
                     b.ins()
                         .store(MemFlags::new(), value, pointer, *field_offset);
+                }
+                if managed_descriptor {
+                    let (offsets, kinds, count) = managed_lane_metadata(b, &element_type_ref, l);
+                    let count_value = b.ins().iconst(types::I64, count);
+                    let width_value = b.ins().iconst(types::I64, width as i64);
+                    let _ = runtime_call(
+                        b,
+                        m,
+                        "xenith_copy_managed_strings",
+                        vec![AbiParam::new(types::I64); 5],
+                        vec![],
+                        &[pointer, width_value, count_value, offsets, kinds],
+                    );
                 }
             }
             (vec![raw], Type::List(Box::new(element_type)))
@@ -2380,6 +2393,19 @@ fn lower(
                 }
                 for (item, (_, field_offset)) in value_lowered.0.into_iter().zip(lanes.iter()) {
                     b.ins().store(MemFlags::new(), item, pointer, *field_offset);
+                }
+                if managed_descriptor {
+                    let (offsets, kinds, count) = managed_lane_metadata(b, &value_type, l);
+                    let count_value = b.ins().iconst(types::I64, count);
+                    let width_value = b.ins().iconst(types::I64, width as i64);
+                    let _ = runtime_call(
+                        b,
+                        m,
+                        "xenith_copy_managed_strings",
+                        vec![AbiParam::new(types::I64); 5],
+                        vec![],
+                        &[pointer, width_value, count_value, offsets, kinds],
+                    );
                 }
                 let _ = runtime_call(
                     b,
@@ -8175,8 +8201,10 @@ fn managed_descriptor_supported(ty: &Type, layouts: &HashMap<String, StructLayou
     let kinds = managed_lane_kinds(ty, layouts);
     !kinds.is_empty()
         && kinds.len() <= 8
-        && kinds.iter().any(|kind| *kind == 2)
-        && kinds.iter().all(|kind| *kind == 0 || *kind == 2)
+        && kinds.iter().any(|kind| *kind == 1 || *kind == 2)
+        && kinds
+            .iter()
+            .all(|kind| *kind == 0 || *kind == 1 || *kind == 2)
 }
 
 fn managed_lane_metadata(
@@ -8282,6 +8310,19 @@ fn lower_index_assignment(
         let pointer = b.ins().stack_addr(m.target_config().pointer_type(), buffer, 0);
         for (item, (_, offset)) in lowered_value.0.iter().copied().zip(lanes.iter()) {
             b.ins().store(MemFlags::new(), item, pointer, *offset);
+        }
+        if managed_descriptor_supported(&element_type, layouts) {
+            let (offsets, kinds, count) = managed_lane_metadata(b, &element_type, layouts);
+            let count_value = b.ins().iconst(types::I64, count);
+            let width_value = b.ins().iconst(types::I64, width as i64);
+            let _ = runtime_call(
+                b,
+                m,
+                "xenith_copy_managed_strings",
+                vec![AbiParam::new(types::I64); 5],
+                vec![],
+                &[pointer, width_value, count_value, offsets, kinds],
+            );
         }
         let _ = runtime_call(
             b,
