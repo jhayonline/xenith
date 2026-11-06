@@ -1401,6 +1401,11 @@ fn lower_for(
         &for_shadows,
         Some(step),
     );
+    if flow == LowerFlow::FallsThrough {
+        if let Some((lanes, ty)) = for_values.get(&init_name) {
+            emit_release_one(b, lanes, ty, m);
+        }
+    }
     for name in outer_names {
         if name != init_name {
             values.insert(name.clone(), for_values[&name].clone());
@@ -1501,10 +1506,8 @@ fn lower_while(
         &mut body_shadows,
     );
     if body_flow == LowerFlow::FallsThrough {
-        if step.is_none() {
-            let keep: HashSet<String> = outer_names.iter().cloned().chain(names.iter().cloned()).collect();
-            emit_release_extras(b, &loop_values, &keep, m);
-        }
+        let keep: HashSet<String> = outer_names.iter().cloned().chain(names.iter().cloned()).collect();
+        emit_release_extras(b, &loop_values, &keep, m);
         let next: Vec<Value> = names
             .iter()
             .flat_map(|name| loop_values[name].0.iter().copied())

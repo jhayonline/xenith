@@ -282,9 +282,12 @@ function main() -> i32 {
     let typed = check(&program).unwrap();
     let directory = tempfile::tempdir().unwrap();
     let object = directory.path().join("main.o");
+    let executable = directory.path().join("main");
     emit_object(&typed, &object).unwrap();
+    link_host(&object, &executable).unwrap();
     let bytes = fs::read(object).unwrap();
     assert!(bytes.windows(b"xenith_release".len()).any(|window| window == b"xenith_release"));
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(0));
 }
 
 #[test]
@@ -359,6 +362,28 @@ function main() -> i32 {
     } catch (error) {
         return 1
     }
+}
+"#;
+    let program = parse(Path::new("main.xen"), source).unwrap();
+    let typed = check(&program).unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let object = directory.path().join("main.o");
+    emit_object(&typed, &object).unwrap();
+    let bytes = fs::read(object).unwrap();
+    assert!(bytes.windows(b"xenith_release".len()).any(|window| window == b"xenith_release"));
+}
+
+#[test]
+fn native_codegen_releases_collection_locals_in_classic_for_loops() {
+    let source = r#"
+function main() -> i32 {
+    for (let mut i: i32 = 0; i < 1; i = i + 1) {
+        let values: list<i32> = [1, 2, 3]
+        if (i == 0) {
+            stop
+        }
+    }
+    return 0
 }
 "#;
     let program = parse(Path::new("main.xen"), source).unwrap();
