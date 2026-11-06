@@ -746,6 +746,18 @@ fn specialize_expr(
                 specialize_call(
                     name, &arguments, env, generic, signatures, cache, generated, errors,
                 )
+            } else if let Some((receiver, method)) = name.split_once("__") {
+                if generic.contains_key(method) {
+                    let mut method_arguments = Vec::with_capacity(arguments.len() + 1);
+                    method_arguments.push(Expr::Name(receiver.to_owned()));
+                    method_arguments.extend(arguments.iter().cloned());
+                    let specialized = specialize_call(
+                        method, &method_arguments, env, generic, signatures, cache, generated, errors,
+                    );
+                    format!("{receiver}__{specialized}")
+                } else {
+                    name.clone()
+                }
             } else {
                 name.clone()
             };
