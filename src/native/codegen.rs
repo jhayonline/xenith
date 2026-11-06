@@ -6913,9 +6913,15 @@ fn lower(
             if name == "map" {
                 let (list, Type::List(element)) = lower(b, &arguments[0], v, ids, m, l) else { unreachable!() };
                 let (callback, Type::Function(parameters, result)) = lower(b, &arguments[1], v, ids, m, l) else { unreachable!() };
-                if *element != Type::I32 || parameters != vec![Type::I32] || *result != Type::I32 { unreachable!("map currently supports i32 -> i32 callbacks") }
-                let mapped = runtime_call(b, m, "xenith_list_map_i32", vec![AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64)], vec![AbiParam::new(types::I64)], &[list[0], callback[0], callback[1]]);
-                return (mapped, Type::List(Box::new(Type::I32)));
+                if *element == Type::I32 && parameters == vec![Type::I32] && *result == Type::I32 {
+                    let mapped = runtime_call(b, m, "xenith_list_map_i32", vec![AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64)], vec![AbiParam::new(types::I64)], &[list[0], callback[0], callback[1]]);
+                    return (mapped, Type::List(Box::new(Type::I32)));
+                }
+                if *element == Type::I64 && parameters == vec![Type::I64] && *result == Type::I64 {
+                    let mapped = runtime_call(b, m, "xenith_list_map_i64", vec![AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64)], vec![AbiParam::new(types::I64)], &[list[0], callback[0], callback[1]]);
+                    return (mapped, Type::List(Box::new(Type::I64)));
+                }
+                unreachable!("map callback type is not supported by the native fast path")
             }
             if name == "filter" {
                 let (list, Type::List(element)) = lower(b, &arguments[0], v, ids, m, l) else { unreachable!() };
