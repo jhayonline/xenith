@@ -162,3 +162,11 @@ fn append_preserves_existing_aliases() {
     );
     assert_eq!(Command::new(executable).status().unwrap().code(), Some(1));
 }
+
+#[test]
+fn native_managed_nested_collection_values_survive_map_and_append() {
+    let (_directory, executable) = build_source(
+        "fn main() -> i32 { let inner: list<i32> = [40] let groups: map<string, list<i32>> = {\"answer\": inner} let base: list<list<i32>> = [] let grown: list<list<i32>> = append(base, inner) return groups[\"answer\"][0] + grown[0][0] - 80 }",
+    );
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(0));
+}

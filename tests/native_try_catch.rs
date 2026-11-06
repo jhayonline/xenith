@@ -332,6 +332,55 @@ fn native_runtime_releases_closure_captures_with_the_environment() {
 }
 
 #[test]
+fn native_runtime_releases_managed_map_values() {
+    let directory = tempfile::tempdir().unwrap();
+    let runtime = xenith::native::runtime::write_source(directory.path()).unwrap();
+    let harness = directory.path().join("harness.c");
+    fs::write(&harness, r#"#include <stdint.h>
+        void *xenith_rc_alloc(int64_t); void xenith_retain(void *); void xenith_release(void *);
+        void *xenith_map_new(int64_t, int64_t);
+        void xenith_map_put(void *, int64_t, const unsigned char *, int64_t, const void *);
+        void xenith_map_set_managed_descriptor(void *, int64_t, const int64_t *, const int64_t *);
+        int64_t xenith_rc_live(void);
+        int main(void) { void *value = xenith_rc_alloc(8); void *map = xenith_map_new(1, 8);
+            int64_t offsets[] = {0}; int64_t kinds[] = {2}; const unsigned char key[] = "value";
+            xenith_retain(value); xenith_map_put(map, 0, key, 5, &value);
+            xenith_map_set_managed_descriptor(map, 1, offsets, kinds);
+            if (xenith_rc_live() != 2) return 1; xenith_release(map);
+            return xenith_rc_live() == 1 ? 0 : 2; }
+        "#).unwrap();
+    let executable = directory.path().join("harness");
+    let status = Command::new("cc").args([runtime.as_os_str(), harness.as_os_str(), "-lcrypt".as_ref(), "-o".as_ref(), executable.as_os_str()]).status().unwrap();
+    assert!(status.success());
+    assert!(Command::new(executable).status().unwrap().success());
+}
+
+#[test]
+fn native_runtime_append_retains_managed_elements() {
+    let directory = tempfile::tempdir().unwrap();
+    let runtime = xenith::native::runtime::write_source(directory.path()).unwrap();
+    let harness = directory.path().join("harness.c");
+    fs::write(&harness, r#"#include <stdint.h>
+        void *xenith_rc_alloc(int64_t); void xenith_retain(void *); void xenith_release(void *);
+        void *xenith_list_new(int64_t, int64_t); void *xenith_list_at(void *, int64_t);
+        void xenith_list_set_managed_descriptor(void *, int64_t, const int64_t *, const int64_t *);
+        void *xenith_list_append(void *, int64_t, const void *); int64_t xenith_rc_live(void);
+        int main(void) { void *old_value = xenith_rc_alloc(8); void *new_value = xenith_rc_alloc(8);
+            void *list = xenith_list_new(1, 8); int64_t offsets[] = {0}; int64_t kinds[] = {2};
+            *(void **)xenith_list_at(list, 0) = old_value;
+            xenith_list_set_managed_descriptor(list, 1, offsets, kinds);
+            void *grown = xenith_list_append(list, 8, &new_value);
+            if (xenith_rc_live() != 4) return 1; xenith_release(list); xenith_release(new_value);
+            if (xenith_rc_live() != 3) return 2; xenith_release(grown);
+            return xenith_rc_live() == 0 ? 0 : 3; }
+        "#).unwrap();
+    let executable = directory.path().join("harness");
+    let status = Command::new("cc").args([runtime.as_os_str(), harness.as_os_str(), "-lcrypt".as_ref(), "-o".as_ref(), executable.as_os_str()]).status().unwrap();
+    assert!(status.success());
+    assert!(Command::new(executable).status().unwrap().success());
+}
+
+#[test]
 fn native_runtime_rejects_closure_reference_cycles() {
     let directory = tempfile::tempdir().unwrap();
     let runtime = xenith::native::runtime::write_source(directory.path()).unwrap();

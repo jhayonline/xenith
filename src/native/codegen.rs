@@ -5,14 +5,15 @@ use super::{
 };
 use cranelift_codegen::{
     ir::{
-        condcodes::{FloatCC, IntCC},
-        types, AbiParam, ArgumentPurpose, Block, InstBuilder, MemFlags, Signature, StackSlotData,
+        AbiParam, ArgumentPurpose, Block, InstBuilder, MemFlags, Signature, StackSlotData,
         StackSlotKind, TrapCode, Type as ClifType, Value,
+        condcodes::{FloatCC, IntCC},
+        types,
     },
     settings,
 };
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
-use cranelift_module::{default_libcall_names, DataDescription, FuncId, Linkage, Module};
+use cranelift_module::{DataDescription, FuncId, Linkage, Module, default_libcall_names};
 use cranelift_object::{ObjectBuilder, ObjectModule};
 use std::{
     collections::{HashMap, HashSet},
@@ -815,14 +816,14 @@ fn emit_retain_borrowed_with_layouts(
         || matches!(expression, Expr::Index { .. }) && !projection_is_owned(expression)
     {
         for lane in managed_lanes(ty, layouts) {
-        let _ = runtime_call(
-            b,
-            m,
-            "xenith_retain",
-            vec![AbiParam::new(m.target_config().pointer_type())],
-            vec![],
-            &[lowered[lane]],
-        );
+            let _ = runtime_call(
+                b,
+                m,
+                "xenith_retain",
+                vec![AbiParam::new(m.target_config().pointer_type())],
+                vec![],
+                &[lowered[lane]],
+            );
         }
     }
 }
@@ -2298,19 +2299,9 @@ fn lower(
                 let values = lower(b, element, v, ids, m, l).0;
                 if managed_descriptor {
                     let element_type_ref = infer_lowered_type(element, v, ids, l);
-                    emit_retain_borrowed_with_layouts(
-                        b,
-                        element,
-                        &values,
-                        &element_type_ref,
-                        m,
-                        l,
-                    );
+                    emit_retain_borrowed_with_layouts(b, element, &values, &element_type_ref, m, l);
                 }
-                for (value, (_, field_offset)) in values
-                    .into_iter()
-                    .zip(lanes.iter())
-                {
+                for (value, (_, field_offset)) in values.into_iter().zip(lanes.iter()) {
                     b.ins()
                         .store(MemFlags::new(), value, pointer, *field_offset);
                 }
@@ -2345,6 +2336,21 @@ fn lower(
                 vec![AbiParam::new(types::I64)],
                 &[length, width_value],
             )[0];
+            let managed_descriptor = if managed_descriptor_supported(&value_type, l) {
+                let (offsets, kinds, count) = managed_lane_metadata(b, &value_type, l);
+                let count_value = b.ins().iconst(types::I64, count);
+                let _ = runtime_call(
+                    b,
+                    m,
+                    "xenith_map_set_managed_descriptor",
+                    vec![AbiParam::new(types::I64); 4],
+                    vec![],
+                    &[raw, count_value, offsets, kinds],
+                );
+                true
+            } else {
+                false
+            };
             let mut entries = pairs.clone();
             entries.sort_by_key(|(key, _)| match key {
                 Expr::String(value) => value.clone(),
@@ -2361,11 +2367,18 @@ fn lower(
                 let pointer = b
                     .ins()
                     .stack_addr(m.target_config().pointer_type(), buffer, 0);
-                for (item, (_, field_offset)) in lower(b, value, v, ids, m, l)
-                    .0
-                    .into_iter()
-                    .zip(lanes.iter())
-                {
+                let value_lowered = lower(b, value, v, ids, m, l);
+                if managed_descriptor {
+                    emit_retain_borrowed_with_layouts(
+                        b,
+                        value,
+                        &value_lowered.0,
+                        &value_lowered.1,
+                        m,
+                        l,
+                    );
+                }
+                for (item, (_, field_offset)) in value_lowered.0.into_iter().zip(lanes.iter()) {
                     b.ins().store(MemFlags::new(), item, pointer, *field_offset);
                 }
                 let _ = runtime_call(
@@ -7164,7 +7177,10 @@ fn lower(
                     &[list[0], width_value, pointer],
                 );
                 release_owned_temporary(b, &arguments[0], &list, &Type::List(element.clone()), m);
-                if !matches!(value_type, Type::List(_) | Type::Map(_, _) | Type::Bytes | Type::Function(_, _)) {
+                if !matches!(
+                    value_type,
+                    Type::List(_) | Type::Map(_, _) | Type::Bytes | Type::Function(_, _)
+                ) {
                     release_owned_temporary(b, &arguments[1], &value, &value_type, m);
                 }
                 return (result, Type::List(element));
@@ -8293,17 +8309,27 @@ fn lower_binding(
             let width = b
                 .ins()
                 .iconst(types::I64, return_layout(element, layouts).0 as i64);
-            (
-                runtime_call(
+            let raw = runtime_call(
+                b,
+                m,
+                "xenith_list_new",
+                vec![AbiParam::new(types::I64), AbiParam::new(types::I64)],
+                vec![AbiParam::new(types::I64)],
+                &[zero, width],
+            );
+            if managed_descriptor_supported(element, layouts) {
+                let (offsets, kinds, count) = managed_lane_metadata(b, element, layouts);
+                let count_value = b.ins().iconst(types::I64, count);
+                let _ = runtime_call(
                     b,
                     m,
-                    "xenith_list_new",
-                    vec![AbiParam::new(types::I64), AbiParam::new(types::I64)],
-                    vec![AbiParam::new(types::I64)],
-                    &[zero, width],
-                ),
-                Type::List(element.clone()),
-            )
+                    "xenith_list_set_managed_descriptor",
+                    vec![AbiParam::new(types::I64); 4],
+                    vec![],
+                    &[raw[0], count_value, offsets, kinds],
+                );
+            }
+            (raw, Type::List(element.clone()))
         }
         (Some(Type::Map(key, value_type)), Expr::Map(pairs, _)) if pairs.is_empty() => {
             let zero = b.ins().iconst(types::I64, 0);
