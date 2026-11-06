@@ -318,6 +318,50 @@ fn native_runtime_releases_closure_captures_with_the_environment() {
 }
 
 #[test]
+fn native_runtime_rejects_closure_reference_cycles() {
+    let directory = tempfile::tempdir().unwrap();
+    let runtime = xenith::native::runtime::write_source(directory.path()).unwrap();
+    let harness = directory.path().join("harness.c");
+    fs::write(
+        &harness,
+        r#"#include <stdint.h>
+        void *xenith_closure_new(int64_t);
+        void xenith_closure_set(void *, int64_t, int64_t);
+        void xenith_closure_set_mask(void *, int64_t);
+        int8_t xenith_error_pending(void);
+        const unsigned char *xenith_error_code(void);
+        int64_t xenith_error_code_len(void);
+        void xenith_error_clear(void);
+        void xenith_release(void *);
+        int main(void) {
+            void *closure = xenith_closure_new(1);
+            xenith_closure_set(closure, 0, (int64_t)(intptr_t)closure);
+            xenith_closure_set_mask(closure, 1);
+            if (!xenith_error_pending() || xenith_error_code_len() != 6) return 1;
+            if (__builtin_memcmp(xenith_error_code(), "XEN006", 6) != 0) return 2;
+            xenith_error_clear();
+            xenith_release(closure);
+            return 0;
+        }
+        "#,
+    )
+    .unwrap();
+    let executable = directory.path().join("harness");
+    let status = Command::new("cc")
+        .args([
+            runtime.as_os_str(),
+            harness.as_os_str(),
+            "-lcrypt".as_ref(),
+            "-o".as_ref(),
+            executable.as_os_str(),
+        ])
+        .status()
+        .unwrap();
+    assert!(status.success());
+    assert!(Command::new(executable).status().unwrap().success());
+}
+
+#[test]
 fn native_codegen_emits_arc_release_for_collection_locals() {
     let source = r#"
 function main() -> i32 {

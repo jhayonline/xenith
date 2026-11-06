@@ -217,6 +217,11 @@ fn diagnostic_help(message: &str) -> Option<(&'static str, Option<&'static str>)
             "the divisor is known to be zero",
             Some("guard the divisor before dividing"),
         ))
+    } else if message.starts_with("closure reference cycle") {
+        Some((
+            "reference counting cannot reclaim a cycle of closures that own one another",
+            Some("capture an immutable value or pass the function as an argument instead of storing a closure back into its own environment"),
+        ))
     } else if message.starts_with("unknown struct") {
         Some((
             "the compiler cannot find this struct declaration",
