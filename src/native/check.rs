@@ -2980,6 +2980,14 @@ fn expr(
                 }
                 let list_type = expr(&arguments[0], names, signatures, layouts, errors);
                 let callback_type = expr(&arguments[1], names, signatures, layouts, errors);
+                if matches!(&list_type, Some(Type::Bytes)) {
+                    if let Some(Type::Function(parameters, result)) = callback_type {
+                        if parameters != vec![Type::I32] || *result != Type::I32 { errors.push(Diagnostic { message: "map on bytes expects an i32 -> i32 callback".into(), span: None }); }
+                        return Some(Type::Bytes);
+                    }
+                    errors.push(Diagnostic { message: "map on bytes expects an i32 -> i32 callback".into(), span: None });
+                    return Some(Type::Bytes);
+                }
                 if let (Some(Type::List(element)), Some(Type::Function(parameters, result))) = (list_type, callback_type) {
                     if parameters.len() != 1 || parameters[0] != *element {
                         errors.push(Diagnostic { message: "map callback must accept the list element type".into(), span: None });
@@ -2996,6 +3004,14 @@ fn expr(
                 if arguments.len() != 2 { errors.push(Diagnostic { message: "filter expects a list and a predicate".into(), span: None }); return None; }
                 let list_type = expr(&arguments[0], names, signatures, layouts, errors);
                 let callback_type = expr(&arguments[1], names, signatures, layouts, errors);
+                if matches!(&list_type, Some(Type::Bytes)) {
+                    if let Some(Type::Function(parameters, result)) = callback_type {
+                        if parameters != vec![Type::I32] || *result != Type::Bool { errors.push(Diagnostic { message: "filter on bytes expects an i32 -> bool predicate".into(), span: None }); }
+                        return Some(Type::Bytes);
+                    }
+                    errors.push(Diagnostic { message: "filter on bytes expects an i32 -> bool predicate".into(), span: None });
+                    return Some(Type::Bytes);
+                }
                 if let (Some(Type::List(element)), Some(Type::Function(parameters, result))) = (list_type, callback_type) {
                     if parameters != vec![*element.clone()] || *result != Type::Bool || !matches!(*element, Type::I32 | Type::I64 | Type::String) { errors.push(Diagnostic { message: "filter currently supports i32, i64, and string predicates returning bool".into(), span: None }); }
                     return Some(Type::List(element));
@@ -3007,6 +3023,14 @@ fn expr(
                 if arguments.len() != 2 { errors.push(Diagnostic { message: "find expects a list and a predicate".into(), span: None }); return None; }
                 let list_type = expr(&arguments[0], names, signatures, layouts, errors);
                 let callback_type = expr(&arguments[1], names, signatures, layouts, errors);
+                if matches!(&list_type, Some(Type::Bytes)) {
+                    if let Some(Type::Function(parameters, result)) = callback_type {
+                        if parameters != vec![Type::I32] || *result != Type::Bool { errors.push(Diagnostic { message: "find on bytes expects an i32 -> bool predicate".into(), span: None }); }
+                        return Some(Type::I32);
+                    }
+                    errors.push(Diagnostic { message: "find on bytes expects an i32 -> bool predicate".into(), span: None });
+                    return Some(Type::I32);
+                }
                 if let (Some(Type::List(element)), Some(Type::Function(parameters, result))) = (list_type, callback_type) {
                     if parameters != vec![*element.clone()] || *result != Type::Bool || !matches!(*element, Type::I32 | Type::I64 | Type::String) { errors.push(Diagnostic { message: "find currently supports i32, i64, and string predicates returning bool".into(), span: None }); }
                     return Some(Type::I32);
@@ -3091,6 +3115,10 @@ fn expr(
                     if let Some(Type::List(element)) = map_type.clone() {
                         if key_type != Some(*element.clone()) { errors.push(Diagnostic { message: "contains value must match the list element type".into(), span: None }); }
                         if !matches!(*element, Type::I32 | Type::I64 | Type::String) { errors.push(Diagnostic { message: "contains currently supports list<i32>, list<i64>, and list<string>".into(), span: None }); }
+                        return Some(Type::Bool);
+                    }
+                    if matches!(&map_type, Some(Type::Bytes)) {
+                        if key_type != Some(Type::I32) { errors.push(Diagnostic { message: "contains on bytes expects an i32 value".into(), span: None }); }
                         return Some(Type::Bool);
                     }
                     if !matches!(map_type, Some(Type::Map(_, _))) {
