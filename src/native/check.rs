@@ -982,6 +982,27 @@ fn layouts(program: &Program, errors: &mut Vec<Diagnostic>) -> HashMap<String, S
             });
         }
     }
+    // Materialize the common concrete instantiations used by native programs.
+    // The source-level generic declaration remains available for diagnostics;
+    // code generation only sees these concrete layouts.
+    let primitive_types = [
+        ("i32", Type::I32),
+        ("i64", Type::I64),
+        ("string", Type::String),
+        ("bool", Type::Bool),
+    ];
+    for structure in &program.structs {
+        if structure.type_params.len() != 1 { continue; }
+        for (key, concrete) in &primitive_types {
+            let name = format!("{}__{}", structure.name, key);
+            if layouts.contains_key(&name) { continue; }
+            let substitutions = HashMap::from([(structure.type_params[0].clone(), concrete.clone())]);
+            layouts.insert(name, StructLayout {
+                fields: structure.fields.iter().map(|field| (field.name.clone(), substitute_type(&field.ty, &substitutions))).collect(),
+                variants: None,
+            });
+        }
+    }
     for enumeration in &program.enums {
         let variants = enumeration
             .variants
@@ -1015,6 +1036,19 @@ fn layouts(program: &Program, errors: &mut Vec<Diagnostic>) -> HashMap<String, S
                 message: format!("duplicate type `{}`", enumeration.name),
                 span: None,
             });
+        }
+    }
+    for enumeration in &program.enums {
+        if enumeration.type_params.len() != 1 { continue; }
+        for (key, concrete) in &primitive_types {
+            let name = format!("{}__{}", enumeration.name, key);
+            if layouts.contains_key(&name) { continue; }
+            let substitutions = HashMap::from([(enumeration.type_params[0].clone(), concrete.clone())]);
+            let variants: Vec<_> = enumeration.variants.iter().map(|variant| (variant.name.clone(), variant.payload.iter().map(|ty| substitute_type(ty, &substitutions)).collect::<Vec<_>>())).collect();
+            let max_payload = variants.iter().max_by_key(|(_, payload)| payload.len()).map(|(_, payload)| payload.clone()).unwrap_or_default();
+            let mut fields = vec![("__tag".into(), Type::I32)];
+            fields.extend(max_payload.into_iter().enumerate().map(|(index, ty)| (format!("__payload{index}"), ty)));
+            layouts.insert(name, StructLayout { fields, variants: Some(variants) });
         }
     }
     let mut states = HashMap::new();

@@ -30,6 +30,7 @@ pub struct Program {
 pub struct Enum {
     pub name: String,
     pub exported: bool,
+    pub type_params: Vec<String>,
     pub variants: Vec<EnumVariant>,
 }
 #[derive(Debug, Clone)]
@@ -52,6 +53,7 @@ pub struct ImportName {
 pub struct Struct {
     pub name: String,
     pub exported: bool,
+    pub type_params: Vec<String>,
     pub fields: Vec<Field>,
 }
 #[derive(Debug, Clone)]
@@ -486,13 +488,40 @@ impl Parser {
                 self.need("->")?;
                 Ok(Type::Function(parameters, Box::new(self.ty()?)))
             }
-            Some(name) if is_identifier(name) => Ok(Type::Named(name.to_owned())),
+            Some(name) if is_identifier(name) => {
+                if self.peek() == Some("<") {
+                    self.take();
+                    let mut arguments = vec![self.ty()?];
+                    while self.peek() == Some(",") { self.take(); arguments.push(self.ty()?); }
+                    self.need(">")?;
+                    Ok(Type::Named(format!("{}__{}", name, arguments.iter().map(type_key).collect::<Vec<_>>().join("__"))))
+                } else {
+                    Ok(Type::Named(name.to_owned()))
+                }
+            }
             Some(name) => Err(vec![Diagnostic::at(
                 format!("invalid type name `{name}`"),
                 self.previous_location(),
             )]),
             None => Err(vec![Diagnostic::at("expected type", self.location())]),
         }
+    }
+    fn type_parameter_names(&mut self) -> Result<Vec<String>, Vec<Diagnostic>> {
+        let mut names = Vec::new();
+        if self.peek() != Some("<") {
+            return Ok(names);
+        }
+        self.take();
+        while self.peek() != Some(">") {
+            let name = self.identifier("type parameter")?;
+            if names.contains(&name) {
+                return Err(vec![Diagnostic::at(format!("duplicate type parameter `{name}`"), self.previous_location())]);
+            }
+            names.push(name);
+            if self.peek() == Some(",") { self.take(); } else if self.peek() != Some(">") { return Err(vec![Diagnostic::at("expected `,` or `>` after type parameter", self.location())]); }
+        }
+        self.need(">")?;
+        Ok(names)
     }
     fn program(&mut self) -> Result<Program, Vec<Diagnostic>> {
         let mut functions = vec![];
@@ -557,6 +586,7 @@ impl Parser {
             if self.tokens.get(self.i).map(String::as_str) == Some("struct") {
                 self.take();
                 let name = self.identifier("struct name")?;
+                let type_params = self.type_parameter_names()?;
                 self.need("{")?;
                 let mut fields = vec![];
                 while self.peek() != Some("}") && self.peek().is_some() {
@@ -581,6 +611,9 @@ impl Parser {
                             continue;
                         }
                     };
+                    let mut ty = ty;
+                    let generic_names = type_params.iter().cloned().collect::<std::collections::HashSet<_>>();
+                    genericize_type(&mut ty, &generic_names);
                     fields.push(Field { name: field, ty });
                     if self.tokens.get(self.i).map(String::as_str) == Some(",") {
                         self.take();
@@ -592,6 +625,7 @@ impl Parser {
                 structs.push(Struct {
                     name,
                     exported,
+                    type_params,
                     fields,
                 });
                 continue;
@@ -599,6 +633,7 @@ impl Parser {
             if self.tokens.get(self.i).map(String::as_str) == Some("enum") {
                 self.take();
                 let name = self.identifier("enum name")?;
+                let type_params = self.type_parameter_names()?;
                 self.need("{")?;
                 let mut variants = vec![];
                 while self.peek() != Some("}") && self.peek().is_some() {
@@ -618,6 +653,8 @@ impl Parser {
                     } else {
                         vec![]
                     };
+                    let generic_names = type_params.iter().cloned().collect::<std::collections::HashSet<_>>();
+                    let payload = payload.into_iter().map(|mut ty| { genericize_type(&mut ty, &generic_names); ty }).collect();
                     variants.push(EnumVariant {
                         name: variant_name,
                         payload,
@@ -630,6 +667,7 @@ impl Parser {
                 enums.push(Enum {
                     name,
                     exported,
+                    type_params,
                     variants,
                 });
                 continue;
@@ -1290,6 +1328,13 @@ impl Parser {
             return Err(vec![Diagnostic::at("invalid identifier", span)]);
         }
         let mut s = s;
+        if self.peek() == Some("<") {
+            self.take();
+            let mut arguments = vec![self.ty()?];
+            while self.peek() == Some(",") { self.take(); arguments.push(self.ty()?); }
+            self.need(">")?;
+            s = format!("{}__{}", s, arguments.iter().map(type_key).collect::<Vec<_>>().join("__"));
+        }
         if self.tokens.get(self.i).map(String::as_str) == Some(".")
             && self.tokens.get(self.i + 2).map(String::as_str) == Some("{")
             && self.tokens.get(self.i + 4).map(String::as_str) == Some(":")
@@ -1348,6 +1393,27 @@ impl Parser {
                 variant,
                 arguments,
             })
+        } else if self.peek() == Some("<") {
+            self.take();
+            let mut arguments = vec![self.ty()?];
+            while self.peek() == Some(",") { self.take(); arguments.push(self.ty()?); }
+            self.need(">")?;
+            let specialized = format!("{}__{}", s, arguments.iter().map(type_key).collect::<Vec<_>>().join("__"));
+            if self.peek() == Some("{") {
+                self.take();
+                let mut fields = vec![];
+                while self.peek() != Some("}") {
+                    let field = self.identifier("field name")?;
+                    self.need(":")?;
+                    let value = self.expr()?;
+                    fields.push((field, value));
+                    if self.peek() == Some(",") { self.take(); }
+                }
+                self.need("}")?;
+                Ok(Expr::StructLiteral { name: specialized, fields })
+            } else {
+                Ok(Expr::Name(specialized))
+            }
         } else if self.tokens.get(self.i).map(String::as_str) == Some("{")
             && self.tokens.get(self.i + 2).map(String::as_str) == Some(":")
         {
@@ -1436,6 +1502,14 @@ fn genericize_type(ty: &mut Type, names: &std::collections::HashSet<String>) {
             genericize_type(result, names);
         }
         _ => {}
+    }
+}
+
+fn type_key(ty: &Type) -> String {
+    match ty {
+        Type::I32 => "i32".into(), Type::I64 => "i64".into(), Type::Float => "float".into(), Type::Bool => "bool".into(), Type::Null => "null".into(), Type::String => "string".into(), Type::Bytes => "bytes".into(),
+        Type::Named(name) | Type::Generic(name) => name.clone(),
+        Type::List(inner) => format!("list_{}", type_key(inner)), Type::Map(key, value) => format!("map_{}_{}", type_key(key), type_key(value)), Type::Tuple(items) => format!("tuple_{}", items.iter().map(type_key).collect::<Vec<_>>().join("_")), Type::Function(params, result) => format!("fn_{}_{}", params.iter().map(type_key).collect::<Vec<_>>().join("_"), type_key(result)),
     }
 }
 

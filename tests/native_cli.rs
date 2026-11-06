@@ -73,6 +73,24 @@ fn native_generic_function_can_be_passed_as_a_typed_value() {
     assert_eq!(output.status.code(), Some(42), "{}", String::from_utf8_lossy(&output.stderr));
 }
 
+#[test]
+fn native_generic_structs_specialize_field_layouts() {
+    let dir = fixture_project(
+        "struct Box<T> { value: T }\nfunction main() -> i32 { let box: Box<i32> = Box<i32> { value: 42 } return box.value }",
+    );
+    let output = xenith(&dir.path().join("app")).arg("run").output().unwrap();
+    assert_eq!(output.status.code(), Some(42), "{}", String::from_utf8_lossy(&output.stderr));
+}
+
+#[test]
+fn native_generic_enums_specialize_variant_payloads() {
+    let dir = fixture_project(
+        "enum Maybe<T> { Some(T), None }\nfunction make() -> Maybe<i32> { return Maybe<i32>::Some(42) }\nfunction main() -> i32 { let value: Maybe<i32> = make() return 0 }",
+    );
+    let output = xenith(&dir.path().join("app")).arg("run").output().unwrap();
+    assert_eq!(output.status.code(), Some(0), "{}", String::from_utf8_lossy(&output.stderr));
+}
+
 fn fixture_project(source: &str) -> tempfile::TempDir {
     let dir = tempfile::tempdir().unwrap();
     xenith(dir.path()).args(["new", "app"]).status().unwrap();
