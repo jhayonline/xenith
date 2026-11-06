@@ -8225,7 +8225,7 @@ fn lower_index_assignment(
 ) {
     let (raw, collection_type) = lower(b, base, values, ids, m, layouts);
     let index = lower(b, index, values, ids, m, layouts).0;
-    let (element_type, pointer) = match collection_type {
+    let (element_type, pointer) = match collection_type.clone() {
         Type::List(element) => {
             let offset = b.ins().sextend(types::I64, index[0]);
             (
@@ -8271,17 +8271,37 @@ fn lower_index_assignment(
         ),
         _ => unreachable!(),
     };
+    let lowered_value = lower(b, value, values, ids, m, layouts);
+    if matches!(collection_type, Type::Map(_, _)) {
+        let (width, lanes) = return_layout(&element_type, layouts);
+        let buffer = b.create_sized_stack_slot(StackSlotData::new(
+            StackSlotKind::ExplicitSlot,
+            width,
+            3,
+        ));
+        let pointer = b.ins().stack_addr(m.target_config().pointer_type(), buffer, 0);
+        for (item, (_, offset)) in lowered_value.0.iter().copied().zip(lanes.iter()) {
+            b.ins().store(MemFlags::new(), item, pointer, *offset);
+        }
+        let _ = runtime_call(
+            b,
+            m,
+            "xenith_map_assign",
+            vec![AbiParam::new(types::I64); 4],
+            vec![],
+            &[raw[0], index[0], index[1], pointer],
+        );
+        release_owned_temporary_with_layouts(b, base, &raw, &collection_type, m, layouts);
+        release_owned_temporary_with_layouts(b, value, &lowered_value.0, &lowered_value.1, m, layouts);
+        return;
+    }
     if element_type == Type::Bytes {
-        let byte = lower(b, value, values, ids, m, layouts).0[0];
+        let byte = lowered_value.0[0];
         let narrowed = b.ins().ireduce(types::I8, byte);
         b.ins().store(MemFlags::new(), narrowed, pointer, 0);
         return;
     }
-    for (item, (_, offset)) in lower(b, value, values, ids, m, layouts)
-        .0
-        .into_iter()
-        .zip(return_layout(&element_type, layouts).1)
-    {
+    for (item, (_, offset)) in lowered_value.0.into_iter().zip(return_layout(&element_type, layouts).1) {
         b.ins().store(MemFlags::new(), item, pointer, offset);
     }
 }

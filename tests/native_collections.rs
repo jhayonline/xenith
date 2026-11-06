@@ -170,3 +170,11 @@ fn native_managed_nested_collection_values_survive_map_and_append() {
     );
     assert_eq!(Command::new(executable).status().unwrap().code(), Some(0));
 }
+
+#[test]
+fn native_managed_map_values_can_be_reassigned() {
+    let (_directory, executable) = build_source(
+        "fn main() -> i32 { let old: list<i32> = [1] let mut groups: map<string, list<i32>> = {\"value\": old} let replacement: list<i32> = [41] groups[\"value\"] = replacement return groups[\"value\"][0] + old[0] - 42 }",
+    );
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(0));
+}

@@ -237,6 +237,7 @@ fn native_runtime_reports_allocation_failures_without_aborting() {
         .args([
             runtime.as_os_str(),
             harness.as_os_str(),
+            "-lcrypt".as_ref(),
             "-o".as_ref(),
             executable.as_os_str(),
         ])
@@ -275,6 +276,7 @@ fn native_runtime_reference_counting_is_deterministic() {
         .args([
             runtime.as_os_str(),
             harness.as_os_str(),
+            "-lcrypt".as_ref(),
             "-o".as_ref(),
             executable.as_os_str(),
         ])
@@ -348,6 +350,32 @@ fn native_runtime_releases_managed_map_values() {
             xenith_map_set_managed_descriptor(map, 1, offsets, kinds);
             if (xenith_rc_live() != 2) return 1; xenith_release(map);
             return xenith_rc_live() == 1 ? 0 : 2; }
+        "#).unwrap();
+    let executable = directory.path().join("harness");
+    let status = Command::new("cc").args([runtime.as_os_str(), harness.as_os_str(), "-lcrypt".as_ref(), "-o".as_ref(), executable.as_os_str()]).status().unwrap();
+    assert!(status.success());
+    assert!(Command::new(executable).status().unwrap().success());
+}
+
+#[test]
+fn native_runtime_map_assignment_releases_old_and_retains_new_value() {
+    let directory = tempfile::tempdir().unwrap();
+    let runtime = xenith::native::runtime::write_source(directory.path()).unwrap();
+    let harness = directory.path().join("harness.c");
+    fs::write(&harness, r#"#include <stdint.h>
+        void *xenith_rc_alloc(int64_t); void xenith_retain(void *); void xenith_release(void *);
+        void *xenith_map_new(int64_t, int64_t);
+        void xenith_map_put(void *, int64_t, const unsigned char *, int64_t, const void *);
+        void xenith_map_set_managed_descriptor(void *, int64_t, const int64_t *, const int64_t *);
+        void xenith_map_assign(void *, const unsigned char *, int64_t, const void *);
+        int64_t xenith_rc_live(void);
+        int main(void) { void *old_value = xenith_rc_alloc(8); void *new_value = xenith_rc_alloc(8);
+            void *map = xenith_map_new(1, 8); int64_t offsets[] = {0}; int64_t kinds[] = {2};
+            const unsigned char key[] = "value";
+            xenith_map_put(map, 0, key, 5, &old_value); xenith_map_set_managed_descriptor(map, 1, offsets, kinds);
+            xenith_map_assign(map, key, 5, &new_value);
+            if (xenith_rc_live() != 2) return 1; xenith_release(new_value); xenith_release(map);
+            return xenith_rc_live() == 0 ? 0 : 2; }
         "#).unwrap();
     let executable = directory.path().join("harness");
     let status = Command::new("cc").args([runtime.as_os_str(), harness.as_os_str(), "-lcrypt".as_ref(), "-o".as_ref(), executable.as_os_str()]).status().unwrap();
