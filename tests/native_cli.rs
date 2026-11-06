@@ -200,6 +200,41 @@ fn native_project_rejects_duplicate_imported_names() {
 }
 
 #[test]
+fn native_project_reports_missing_imported_modules_clearly() {
+    let dir = fixture_project("grab { missing } from \"missing\"\nfn main() -> i32 { return 0 }");
+    let project = dir.path().join("app");
+    let output = xenith(&project).arg("check").output().unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!output.status.success());
+    assert!(stderr.contains("cannot find imported module `missing`"), "{stderr}");
+}
+
+#[test]
+fn native_project_rejects_duplicate_import_namespaces() {
+    let dir = fixture_project("grab * as helper from \"first\"\ngrab * as helper from \"second\"\nfn main() -> i32 { return 0 }");
+    let project = dir.path().join("app");
+    std::fs::write(project.join("src/first.xen"), "export fn answer() -> i32 { return 1 }").unwrap();
+    std::fs::write(project.join("src/second.xen"), "export fn answer() -> i32 { return 2 }").unwrap();
+    let output = xenith(&project).arg("check").output().unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!output.status.success());
+    assert!(stderr.contains("duplicate import namespace `helper`"), "{stderr}");
+}
+
+#[test]
+fn native_project_resolves_transitive_imports_once() {
+    let dir = fixture_project("grab { answer } from \"middle\"\nfn main() -> i32 { return answer() }");
+    let project = dir.path().join("app");
+    std::fs::write(
+        project.join("src/middle.xen"),
+        "grab { base } from \"base\"\nexport fn answer() -> i32 { return base() }",
+    )
+    .unwrap();
+    std::fs::write(project.join("src/base.xen"), "export fn base() -> i32 { return 42 }").unwrap();
+    assert_eq!(xenith(&project).arg("run").status().unwrap().code(), Some(42));
+}
+
+#[test]
 fn native_project_calls_a_namespaced_import() {
     let dir = fixture_project(
         "grab * as helper from \"helper\"\nfn main() -> i32 { return helper.answer() }",

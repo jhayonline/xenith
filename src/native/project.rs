@@ -3,7 +3,7 @@ use super::{
     NativeError,
 };
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     fs,
     path::{Path, PathBuf},
 };
@@ -21,8 +21,18 @@ pub fn load_program(main_path: &Path) -> Result<(Program, Vec<PathBuf>), NativeE
     }
     let mut visiting = HashSet::new();
     let mut loaded = HashSet::new();
+    let mut cache = HashMap::new();
+    let mut stack = Vec::new();
     let mut paths = Vec::new();
-    let program = load_module(main_path, true, &mut visiting, &mut loaded, &mut paths)?;
+    let program = load_module(
+        main_path,
+        true,
+        &mut visiting,
+        &mut loaded,
+        &mut cache,
+        &mut stack,
+        &mut paths,
+    )?;
     Ok((program, paths))
 }
 
@@ -31,6 +41,8 @@ fn load_module(
     root: bool,
     visiting: &mut HashSet<PathBuf>,
     loaded: &mut HashSet<PathBuf>,
+    cache: &mut HashMap<PathBuf, Program>,
+    stack: &mut Vec<PathBuf>,
     paths: &mut Vec<PathBuf>,
 ) -> Result<Program, NativeError> {
     let is_standard = path.to_string_lossy().starts_with("std::");
@@ -39,16 +51,22 @@ fn load_module(
     } else {
         path.canonicalize().map_err(NativeError::io)?
     };
+    if let Some(program) = cache.get(&path) {
+        return Ok(program.clone());
+    }
     if !visiting.insert(path.clone()) {
+        let mut chain: Vec<String> = stack.iter().map(|item| item.display().to_string()).collect();
+        chain.push(path.display().to_string());
         return Err(NativeError::diagnostics(
             path,
             String::new(),
             vec![Diagnostic {
-                message: "circular native module import".into(),
+                message: format!("circular native module import: {}", chain.join(" -> ")),
                 span: None,
             }],
         ));
     }
+    stack.push(path.clone());
     let source = if is_standard {
         let path_name = path.to_string_lossy();
         let name = path_name.trim_start_matches("std::");
@@ -64,6 +82,7 @@ fn load_module(
     let mut enums = Vec::new();
     let mut functions = Vec::new();
     let mut imported_names = HashSet::new();
+    let mut imported_namespaces = HashSet::new();
     for import in &parsed.imports {
         let imported_path = if import.path.starts_with("std::") {
             PathBuf::from(&import.path)
@@ -73,8 +92,36 @@ fn load_module(
                 .join(&import.path)
                 .with_extension("xen")
         };
-        let dependency = load_module(&imported_path, false, visiting, loaded, paths)?;
+        if !import.path.starts_with("std::") && !imported_path.is_file() {
+            return Err(NativeError::diagnostics(
+                path.clone(),
+                source.clone(),
+                vec![Diagnostic {
+                    message: format!("cannot find imported module `{}`", import.path),
+                    span: None,
+                }],
+            ));
+        }
+        let dependency = load_module(
+            &imported_path,
+            false,
+            visiting,
+            loaded,
+            cache,
+            stack,
+            paths,
+        )?;
         if let Some(namespace) = &import.namespace {
+            if !imported_namespaces.insert(namespace.clone()) {
+                return Err(NativeError::diagnostics(
+                    path.clone(),
+                    source.clone(),
+                    vec![Diagnostic {
+                        message: format!("duplicate import namespace `{namespace}`"),
+                        span: None,
+                    }],
+                ));
+            }
             for function in dependency.functions.iter().filter(|item| item.exported) {
                 let mut function = function.clone();
                 function.name = format!("{namespace}__{}", function.name);
@@ -146,6 +193,28 @@ fn load_module(
                 }
             }
         }
+        // Imported declarations may themselves call or reference exported
+        // declarations from a source-file dependency. Keep those original
+        // names in the flattened native program so transitive imports
+        // type-check without making every standard-library helper visible at
+        // the root import site.
+        if !import.path.starts_with("std::") {
+            for function in dependency.functions.iter().filter(|item| item.exported) {
+                if !functions.iter().any(|item| item.name == function.name) {
+                    functions.push(function.clone());
+                }
+            }
+            for structure in dependency.structs.iter().filter(|item| item.exported) {
+                if !structs.iter().any(|item| item.name == structure.name) {
+                    structs.push(structure.clone());
+                }
+            }
+            for enumeration in dependency.enums.iter().filter(|item| item.exported) {
+                if !enums.iter().any(|item| item.name == enumeration.name) {
+                    enums.push(enumeration.clone());
+                }
+            }
+        }
     }
     if root {
         structs.extend(parsed.structs);
@@ -157,17 +226,20 @@ fn load_module(
         functions.extend(parsed.functions.into_iter().filter(|item| item.exported));
     }
     visiting.remove(&path);
+    stack.pop();
     if loaded.insert(path.clone()) && !is_standard {
-        paths.push(path);
+        paths.push(path.clone());
     }
-    Ok(Program {
+    let program = Program {
         file: "project".into(),
         source: String::new(),
         imports: vec![],
         structs,
         enums,
         functions,
-    })
+    };
+    cache.insert(path, program.clone());
+    Ok(program)
 }
 
 fn standard_native_source(name: &str) -> Option<&'static str> {
