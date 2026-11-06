@@ -6934,6 +6934,10 @@ fn lower(
                     let filtered = runtime_call(b, m, "xenith_list_filter_i64", vec![AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64)], vec![AbiParam::new(types::I64)], &[list[0], callback[0], callback[1]]);
                     return (filtered, Type::List(Box::new(Type::I64)));
                 }
+                if *element == Type::String && parameters == vec![Type::String] && *result == Type::Bool {
+                    let filtered = runtime_call(b, m, "xenith_list_filter_string", vec![AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64)], vec![AbiParam::new(types::I64)], &[list[0], callback[0], callback[1]]);
+                    return (filtered, Type::List(Box::new(Type::String)));
+                }
                 unreachable!("filter callback type is not supported by the native fast path")
             }
             if name == "find" {
@@ -6941,6 +6945,7 @@ fn lower(
                 let (callback, Type::Function(parameters, result)) = lower(b, &arguments[1], v, ids, m, l) else { unreachable!() };
                 if *element == Type::I32 && parameters == vec![Type::I32] && *result == Type::Bool { return (runtime_call(b, m, "xenith_list_find_i32", vec![AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64)], vec![AbiParam::new(types::I32)], &[list[0], callback[0], callback[1]]), Type::I32); }
                 if *element == Type::I64 && parameters == vec![Type::I64] && *result == Type::Bool { return (runtime_call(b, m, "xenith_list_find_i64", vec![AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64)], vec![AbiParam::new(types::I32)], &[list[0], callback[0], callback[1]]), Type::I32); }
+                if *element == Type::String && parameters == vec![Type::String] && *result == Type::Bool { return (runtime_call(b, m, "xenith_list_find_string", vec![AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64)], vec![AbiParam::new(types::I32)], &[list[0], callback[0], callback[1]]), Type::I32); }
                 unreachable!("find callback type is not supported by the native fast path")
             }
             if name == "reduce" {
@@ -6974,6 +6979,7 @@ fn lower(
                 if matches!(collection_type, Type::List(_)) {
                     let Type::List(element) = collection_type else { unreachable!() };
                     if *element == Type::I64 { return (runtime_call(b, m, "xenith_list_contains_i64", vec![AbiParam::new(types::I64), AbiParam::new(types::I64)], vec![AbiParam::new(types::I8)], &[collection[0], key[0]]), Type::Bool); }
+                    if *element == Type::String { return (runtime_call(b, m, "xenith_list_contains_string", vec![AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64)], vec![AbiParam::new(types::I8)], &[collection[0], key[0], key[1]]), Type::Bool); }
                     let result = runtime_call(b, m, "xenith_list_contains_i32", vec![AbiParam::new(types::I64), AbiParam::new(types::I32)], vec![AbiParam::new(types::I8)], &[collection[0], key[0]]);
                     return (result, Type::Bool);
                 }

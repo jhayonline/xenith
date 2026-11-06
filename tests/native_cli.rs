@@ -128,6 +128,42 @@ fn native_contains_finds_a_typed_integer_in_a_list() {
 }
 
 #[test]
+fn native_contains_finds_a_string_in_a_list() {
+    let dir = fixture_project(
+        "function main() -> i32 { let values: list<string> = [\"ada\", \"grace\"] if (contains(values, \"grace\")) { return 42 } return 1 }",
+    );
+    let output = xenith(&dir.path().join("app")).arg("run").output().unwrap();
+    assert_eq!(output.status.code(), Some(42), "{}", String::from_utf8_lossy(&output.stderr));
+}
+
+#[test]
+fn native_find_matches_a_string_predicate() {
+    let dir = fixture_project(
+        "function main() -> i32 { let values: list<string> = [\"ada\", \"grace\"] let index: i32 = find(values, fn(value: string) -> bool => value == \"grace\") if (index == 1) { return 42 } return index }",
+    );
+    let output = xenith(&dir.path().join("app")).arg("run").output().unwrap();
+    assert_eq!(output.status.code(), Some(42), "{}", String::from_utf8_lossy(&output.stderr));
+}
+
+#[test]
+fn native_filter_keeps_strings_matching_a_predicate() {
+    let dir = fixture_project(
+        "function main() -> i32 { let values: list<string> = [\"ada\", \"grace\"] let filtered: list<string> = filter(values, fn(value: string) -> bool => value == \"grace\") if (filtered[0] == \"grace\") { return 42 } return 1 }",
+    );
+    let output = xenith(&dir.path().join("app")).arg("run").output().unwrap();
+    assert_eq!(output.status.code(), Some(42), "{}", String::from_utf8_lossy(&output.stderr));
+}
+
+#[test]
+fn native_filter_keeps_string_slices_alive_after_a_temporary_input_is_released() {
+    let dir = fixture_project(
+        "function main() -> i32 { let filtered: list<string> = filter([\"ada\", \"grace\"], fn(value: string) -> bool => value == \"grace\") if (filtered[0] == \"grace\") { return 42 } return 1 }",
+    );
+    let output = xenith(&dir.path().join("app")).arg("run").output().unwrap();
+    assert_eq!(output.status.code(), Some(42), "{}", String::from_utf8_lossy(&output.stderr));
+}
+
+#[test]
 fn native_find_returns_matching_index_or_minus_one() {
     let dir = fixture_project(
         "function main() -> i32 { let values: list<i32> = [4, 7, 9] let index: i32 = find(values, fn(value: i32) -> bool => value > 6) if (index == 1) { return 42 } return index }",
