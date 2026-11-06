@@ -61,6 +61,39 @@ function main() -> i32 {
 }
 
 #[test]
+fn xenith_http_converts_database_failures_into_safe_error_responses() {
+    let directory = tempfile::tempdir().unwrap();
+    let source = r#"
+grab { all } from "std::db"
+grab { router, get_response, dispatch_response, response_new, response_status, response_body, response_close, router_close } from "std::http"
+function show(request: i64) -> i64 {
+    let rows: list<map<string, string>> = all(0i64)
+    return response_new(200, "ok")
+}
+function main() -> i32 {
+    let routes: i64 = router()
+    get_response(routes, "/", show)
+    let result: i64 = dispatch_response(routes, "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")
+    let status: i32 = response_status(result)
+    let body: string = response_body(result)
+    response_close(result)
+    router_close(routes)
+    if (status == 500 && len(body) == 97) { return 0 }
+    return 1
+}
+"#;
+    let main = directory.path().join("main.xen");
+    fs::write(&main, source).unwrap();
+    let (program, _) = xenith::native::project::load_program(&main).unwrap();
+    let typed = xenith::native::check::check(&program).unwrap();
+    let object = directory.path().join("main.o");
+    let executable = directory.path().join("main");
+    xenith::native::codegen::emit_object(&typed, &object).unwrap();
+    xenith::native::codegen::link_host(&object, &executable).unwrap();
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(0));
+}
+
+#[test]
 fn http_parser_rejects_incomplete_or_malformed_requests() {
     assert!(matches!(parse_request(b"GET / HTTP/1.1\r\n"), Err(HttpError::Incomplete)));
     assert!(matches!(parse_request(b"NOPE\r\n\r\n"), Err(HttpError::Malformed(_))));
