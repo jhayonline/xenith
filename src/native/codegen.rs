@@ -5,15 +5,14 @@ use super::{
 };
 use cranelift_codegen::{
     ir::{
-        AbiParam, ArgumentPurpose, Block, InstBuilder, MemFlags, Signature, StackSlotData,
-        StackSlotKind, TrapCode, Type as ClifType, Value,
         condcodes::{FloatCC, IntCC},
-        types,
+        types, AbiParam, ArgumentPurpose, Block, InstBuilder, MemFlags, Signature, StackSlotData,
+        StackSlotKind, TrapCode, Type as ClifType, Value,
     },
     settings,
 };
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
-use cranelift_module::{DataDescription, FuncId, Linkage, Module, default_libcall_names};
+use cranelift_module::{default_libcall_names, DataDescription, FuncId, Linkage, Module};
 use cranelift_object::{ObjectBuilder, ObjectModule};
 use std::{
     collections::{HashMap, HashSet},
@@ -780,10 +779,8 @@ fn emit_retain_borrowed(
     m: &mut ObjectModule,
 ) {
     if let Some(lane) = managed_lane(ty).filter(|_| {
-        matches!(
-            expression,
-            Expr::Name(_) | Expr::Index { .. } | Expr::Field { .. }
-        )
+        matches!(expression, Expr::Name(_) | Expr::Field { .. })
+            || matches!(expression, Expr::Index { .. }) && !projection_is_owned(expression)
     }) {
         let _ = runtime_call(
             b,
@@ -847,10 +844,30 @@ fn release_temporary(
     ty: &Type,
     m: &mut ObjectModule,
 ) {
-    if matches!(expression, Expr::Name(_)) {
+    release_owned_temporary(b, expression, lowered, ty, m);
+}
+
+fn release_owned_temporary(
+    b: &mut FunctionBuilder,
+    expression: &Expr,
+    lowered: &[Value],
+    ty: &Type,
+    m: &mut ObjectModule,
+) {
+    if matches!(expression, Expr::Name(_) | Expr::Field { .. })
+        || matches!(expression, Expr::Index { .. }) && !projection_is_owned(expression)
+    {
         return;
     }
     release_managed(b, lowered, ty, m);
+}
+
+fn projection_is_owned(expression: &Expr) -> bool {
+    match expression {
+        Expr::Index { base, .. } | Expr::Field { base, .. } => projection_is_owned(base),
+        Expr::Name(_) => false,
+        _ => true,
+    }
 }
 
 fn release_managed(b: &mut FunctionBuilder, lowered: &[Value], ty: &Type, m: &mut ObjectModule) {
@@ -2394,6 +2411,8 @@ fn lower(
                 &[location],
             );
             let (raw, collection_type) = lower(b, base, v, ids, m, l);
+            let base_is_owned = projection_is_owned(base);
+            let base_type = collection_type.clone();
             let index_expr = index.as_ref();
             let index = lower(b, index_expr, v, ids, m, l).0;
             let (element_type, pointer) = match collection_type {
@@ -2460,13 +2479,31 @@ fn lower(
             };
             if element_type == Type::Bytes {
                 let byte = b.ins().load(types::I8, MemFlags::new(), pointer, 0);
+                if base_is_owned {
+                    release_owned_temporary(b, base, &raw, &base_type, m);
+                }
                 return (vec![b.ins().uextend(types::I32, byte)], Type::I32);
             }
             let (_, lanes) = return_layout(&element_type, l);
-            let values = lanes
+            let values: Vec<Value> = lanes
                 .into_iter()
                 .map(|(ty, offset)| b.ins().load(ty, MemFlags::new(), pointer, offset))
                 .collect();
+            if base_is_owned {
+                if let Some(lane) = managed_lane(&element_type) {
+                    let _ = runtime_call(
+                        b,
+                        m,
+                        "xenith_retain",
+                        vec![AbiParam::new(m.target_config().pointer_type())],
+                        vec![],
+                        &[values[lane]],
+                    );
+                }
+            }
+            if base_is_owned {
+                release_owned_temporary(b, base, &raw, &base_type, m);
+            }
             (values, element_type)
         }
         Expr::Call {
@@ -3131,10 +3168,10 @@ fn lower(
                 );
                 return (
                     vec![
-                    b.ins().load(types::I64, MemFlags::new(), args[2], 0),
-                    b.ins().load(types::I64, MemFlags::new(), args[3], 0),
-                    b.ins().load(types::I64, MemFlags::new(), args[4], 0),
-                    b.ins().load(types::I64, MemFlags::new(), args[5], 0),
+                        b.ins().load(types::I64, MemFlags::new(), args[2], 0),
+                        b.ins().load(types::I64, MemFlags::new(), args[3], 0),
+                        b.ins().load(types::I64, MemFlags::new(), args[4], 0),
+                        b.ins().load(types::I64, MemFlags::new(), args[5], 0),
                     ],
                     Type::Tuple(vec![Type::String, Type::String]),
                 );
@@ -3170,8 +3207,8 @@ fn lower(
                 );
                 return (
                     vec![
-                    b.ins().load(types::I64, MemFlags::new(), args[4], 0),
-                    b.ins().load(types::I64, MemFlags::new(), args[5], 0),
+                        b.ins().load(types::I64, MemFlags::new(), args[4], 0),
+                        b.ins().load(types::I64, MemFlags::new(), args[5], 0),
                     ],
                     Type::String,
                 );
@@ -6752,7 +6789,9 @@ fn lower(
                     return_layout(result, l)
                         .1
                         .into_iter()
-                        .map(|(ty, offset)| b.ins().load(ty, MemFlags::new(), return_buffer, offset))
+                        .map(|(ty, offset)| {
+                            b.ins().load(ty, MemFlags::new(), return_buffer, offset)
+                        })
                         .collect()
                 } else {
                     b.inst_results(call).to_vec()
@@ -6913,7 +6952,9 @@ fn lower(
                 let (list, Type::List(element)) = lower(b, &arguments[0], v, ids, m, l) else {
                     unreachable!()
                 };
-                let value = lower(b, &arguments[1], v, ids, m, l).0;
+                let value_lowered = lower(b, &arguments[1], v, ids, m, l);
+                let value_type = value_lowered.1.clone();
+                let value = value_lowered.0;
                 let (width, lanes) = return_layout(&element, l);
                 let slot = b.create_sized_stack_slot(StackSlotData::new(
                     StackSlotKind::ExplicitSlot,
@@ -6923,7 +6964,7 @@ fn lower(
                 let pointer = b
                     .ins()
                     .stack_addr(m.target_config().pointer_type(), slot, 0);
-                for (item, (_, offset)) in value.into_iter().zip(lanes) {
+                for (item, (_, offset)) in value.iter().copied().zip(lanes) {
                     b.ins().store(MemFlags::new(), item, pointer, offset);
                 }
                 let width_value = b.ins().iconst(types::I64, width as i64);
@@ -6939,102 +6980,552 @@ fn lower(
                     vec![AbiParam::new(types::I64)],
                     &[list[0], width_value, pointer],
                 );
+                release_owned_temporary(b, &arguments[0], &list, &Type::List(element.clone()), m);
+                if !matches!(value_type, Type::List(_) | Type::Map(_, _) | Type::Bytes | Type::Function(_, _)) {
+                    release_owned_temporary(b, &arguments[1], &value, &value_type, m);
+                }
                 return (result, Type::List(element));
             }
             if name == "map" && !ids.contains_key(name) {
                 let (list, list_type) = lower(b, &arguments[0], v, ids, m, l);
-                let (callback, Type::Function(parameters, result)) = lower(b, &arguments[1], v, ids, m, l) else { unreachable!() };
-                if list_type == Type::Bytes && parameters == vec![Type::I32] && *result == Type::I32 {
-                    let mapped = runtime_call(b, m, "xenith_bytes_map_i32", vec![AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64)], vec![AbiParam::new(types::I64)], &[list[0], callback[0], callback[1]]);
+                let (callback, Type::Function(parameters, result)) =
+                    lower(b, &arguments[1], v, ids, m, l)
+                else {
+                    unreachable!()
+                };
+                let callback_type = Type::Function(parameters.clone(), result.clone());
+                if list_type == Type::Bytes && parameters == vec![Type::I32] && *result == Type::I32
+                {
+                    let mapped = runtime_call(
+                        b,
+                        m,
+                        "xenith_bytes_map_i32",
+                        vec![
+                            AbiParam::new(types::I64),
+                            AbiParam::new(types::I64),
+                            AbiParam::new(types::I64),
+                        ],
+                        vec![AbiParam::new(types::I64)],
+                        &[list[0], callback[0], callback[1]],
+                    );
+                    release_owned_temporary(b, &arguments[0], &list, &list_type, m);
+                    release_owned_temporary(b, &arguments[1], &callback, &callback_type, m);
                     return (mapped, Type::Bytes);
                 }
-                let Type::List(element) = list_type else { unreachable!() };
+                let Type::List(element) = list_type else {
+                    unreachable!()
+                };
                 if *element == Type::I32 && parameters == vec![Type::I32] && *result == Type::I32 {
-                    let mapped = runtime_call(b, m, "xenith_list_map_i32", vec![AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64)], vec![AbiParam::new(types::I64)], &[list[0], callback[0], callback[1]]);
+                    let mapped = runtime_call(
+                        b,
+                        m,
+                        "xenith_list_map_i32",
+                        vec![
+                            AbiParam::new(types::I64),
+                            AbiParam::new(types::I64),
+                            AbiParam::new(types::I64),
+                        ],
+                        vec![AbiParam::new(types::I64)],
+                        &[list[0], callback[0], callback[1]],
+                    );
+                    release_owned_temporary(
+                        b,
+                        &arguments[0],
+                        &list,
+                        &Type::List(Box::new(Type::I32)),
+                        m,
+                    );
+                    release_owned_temporary(b, &arguments[1], &callback, &callback_type, m);
                     return (mapped, Type::List(Box::new(Type::I32)));
                 }
                 if *element == Type::I64 && parameters == vec![Type::I64] && *result == Type::I64 {
-                    let mapped = runtime_call(b, m, "xenith_list_map_i64", vec![AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64)], vec![AbiParam::new(types::I64)], &[list[0], callback[0], callback[1]]);
+                    let mapped = runtime_call(
+                        b,
+                        m,
+                        "xenith_list_map_i64",
+                        vec![
+                            AbiParam::new(types::I64),
+                            AbiParam::new(types::I64),
+                            AbiParam::new(types::I64),
+                        ],
+                        vec![AbiParam::new(types::I64)],
+                        &[list[0], callback[0], callback[1]],
+                    );
+                    release_owned_temporary(
+                        b,
+                        &arguments[0],
+                        &list,
+                        &Type::List(element.clone()),
+                        m,
+                    );
+                    release_owned_temporary(b, &arguments[1], &callback, &callback_type, m);
                     return (mapped, Type::List(Box::new(Type::I64)));
                 }
-                if *element == Type::String && parameters == vec![Type::String] && *result == Type::String {
-                    let mapped = runtime_call(b, m, "xenith_list_map_string", vec![AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64)], vec![AbiParam::new(types::I64)], &[list[0], callback[0], callback[1]]);
+                if *element == Type::String
+                    && parameters == vec![Type::String]
+                    && *result == Type::String
+                {
+                    let mapped = runtime_call(
+                        b,
+                        m,
+                        "xenith_list_map_string",
+                        vec![
+                            AbiParam::new(types::I64),
+                            AbiParam::new(types::I64),
+                            AbiParam::new(types::I64),
+                        ],
+                        vec![AbiParam::new(types::I64)],
+                        &[list[0], callback[0], callback[1]],
+                    );
+                    release_owned_temporary(
+                        b,
+                        &arguments[0],
+                        &list,
+                        &Type::List(element.clone()),
+                        m,
+                    );
+                    release_owned_temporary(b, &arguments[1], &callback, &callback_type, m);
                     return (mapped, Type::List(Box::new(Type::String)));
                 }
-                if matches!(*element, Type::Named(_)) && parameters.len() == 1 && parameters[0] == *element && matches!(*result, Type::I32 | Type::I64) {
+                if matches!(*element, Type::Named(_))
+                    && parameters.len() == 1
+                    && parameters[0] == *element
+                    && matches!(*result, Type::I32 | Type::I64)
+                {
                     let (offsets, widths, count) = lane_metadata(b, &element, l);
                     let count_value = b.ins().iconst(types::I64, count);
-                    let runtime_name = if *result == Type::I32 { "xenith_list_map_lanes_i32" } else { "xenith_list_map_lanes_i64" };
-                    let mapped = runtime_call(b, m, runtime_name, vec![AbiParam::new(types::I64); 6], vec![AbiParam::new(types::I64)], &[list[0], callback[0], callback[1], count_value, offsets, widths]);
+                    let runtime_name = if *result == Type::I32 {
+                        "xenith_list_map_lanes_i32"
+                    } else {
+                        "xenith_list_map_lanes_i64"
+                    };
+                    let mapped = runtime_call(
+                        b,
+                        m,
+                        runtime_name,
+                        vec![AbiParam::new(types::I64); 6],
+                        vec![AbiParam::new(types::I64)],
+                        &[
+                            list[0],
+                            callback[0],
+                            callback[1],
+                            count_value,
+                            offsets,
+                            widths,
+                        ],
+                    );
+                    release_owned_temporary(
+                        b,
+                        &arguments[0],
+                        &list,
+                        &Type::List(element.clone()),
+                        m,
+                    );
+                    release_owned_temporary(b, &arguments[1], &callback, &callback_type, m);
                     return (mapped, Type::List(result));
                 }
-                if matches!(*element, Type::Named(_)) && matches!(*result, Type::Named(_)) && parameters.len() == 1 && parameters[0] == *element && aggregate_collection_supported_type(&result, l) {
+                if matches!(*element, Type::Named(_))
+                    && matches!(*result, Type::Named(_))
+                    && parameters.len() == 1
+                    && parameters[0] == *element
+                    && aggregate_collection_supported_type(&result, l)
+                {
                     let (offsets, widths, count) = lane_metadata(b, &element, l);
                     let (output_width, _) = return_layout(&result, l);
-                    let (output_offsets, output_kinds, output_count) = managed_lane_metadata(b, &result, l);
+                    let (output_offsets, output_kinds, output_count) =
+                        managed_lane_metadata(b, &result, l);
                     let count_value = b.ins().iconst(types::I64, count);
                     let output_width_value = b.ins().iconst(types::I64, output_width as i64);
                     let output_count_value = b.ins().iconst(types::I64, output_count);
-                    let mapped = runtime_call(b, m, "xenith_list_map_lanes_raw", vec![AbiParam::new(types::I64); 10], vec![AbiParam::new(types::I64)], &[list[0], callback[0], callback[1], count_value, offsets, widths, output_width_value, output_count_value, output_offsets, output_kinds]);
+                    let mapped = runtime_call(
+                        b,
+                        m,
+                        "xenith_list_map_lanes_raw",
+                        vec![AbiParam::new(types::I64); 10],
+                        vec![AbiParam::new(types::I64)],
+                        &[
+                            list[0],
+                            callback[0],
+                            callback[1],
+                            count_value,
+                            offsets,
+                            widths,
+                            output_width_value,
+                            output_count_value,
+                            output_offsets,
+                            output_kinds,
+                        ],
+                    );
+                    release_owned_temporary(
+                        b,
+                        &arguments[0],
+                        &list,
+                        &Type::List(element.clone()),
+                        m,
+                    );
+                    release_owned_temporary(b, &arguments[1], &callback, &callback_type, m);
                     return (mapped, Type::List(result));
                 }
-                if matches!(*element, Type::Named(_)) && parameters.len() == 1 && parameters[0] == *element && *result == Type::String {
+                if matches!(*element, Type::Named(_))
+                    && parameters.len() == 1
+                    && parameters[0] == *element
+                    && *result == Type::String
+                {
                     let (offsets, widths, count) = lane_metadata(b, &element, l);
                     let count_value = b.ins().iconst(types::I64, count);
-                    let mapped = runtime_call(b, m, "xenith_list_map_lanes_string", vec![AbiParam::new(types::I64); 6], vec![AbiParam::new(types::I64)], &[list[0], callback[0], callback[1], count_value, offsets, widths]);
+                    let mapped = runtime_call(
+                        b,
+                        m,
+                        "xenith_list_map_lanes_string",
+                        vec![AbiParam::new(types::I64); 6],
+                        vec![AbiParam::new(types::I64)],
+                        &[
+                            list[0],
+                            callback[0],
+                            callback[1],
+                            count_value,
+                            offsets,
+                            widths,
+                        ],
+                    );
+                    release_owned_temporary(
+                        b,
+                        &arguments[0],
+                        &list,
+                        &Type::List(element.clone()),
+                        m,
+                    );
+                    release_owned_temporary(b, &arguments[1], &callback, &callback_type, m);
                     return (mapped, Type::List(Box::new(Type::String)));
                 }
                 unreachable!("map callback type is not supported by the native fast path")
             }
             if name == "filter" && !ids.contains_key(name) {
                 let (list, list_type) = lower(b, &arguments[0], v, ids, m, l);
-                let (callback, Type::Function(parameters, result)) = lower(b, &arguments[1], v, ids, m, l) else { unreachable!() };
-                if list_type == Type::Bytes && parameters == vec![Type::I32] && *result == Type::Bool {
-                    let filtered = runtime_call(b, m, "xenith_bytes_filter_i32", vec![AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64)], vec![AbiParam::new(types::I64)], &[list[0], callback[0], callback[1]]);
+                let (callback, Type::Function(parameters, result)) =
+                    lower(b, &arguments[1], v, ids, m, l)
+                else {
+                    unreachable!()
+                };
+                let callback_type = Type::Function(parameters.clone(), result.clone());
+                if list_type == Type::Bytes
+                    && parameters == vec![Type::I32]
+                    && *result == Type::Bool
+                {
+                    let filtered = runtime_call(
+                        b,
+                        m,
+                        "xenith_bytes_filter_i32",
+                        vec![
+                            AbiParam::new(types::I64),
+                            AbiParam::new(types::I64),
+                            AbiParam::new(types::I64),
+                        ],
+                        vec![AbiParam::new(types::I64)],
+                        &[list[0], callback[0], callback[1]],
+                    );
+                    release_owned_temporary(b, &arguments[0], &list, &list_type, m);
+                    release_owned_temporary(b, &arguments[1], &callback, &callback_type, m);
                     return (filtered, Type::Bytes);
                 }
-                let Type::List(element) = list_type else { unreachable!() };
+                let Type::List(element) = list_type else {
+                    unreachable!()
+                };
                 if *element == Type::I32 && parameters == vec![Type::I32] && *result == Type::Bool {
-                    let filtered = runtime_call(b, m, "xenith_list_filter_i32", vec![AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64)], vec![AbiParam::new(types::I64)], &[list[0], callback[0], callback[1]]);
+                    let filtered = runtime_call(
+                        b,
+                        m,
+                        "xenith_list_filter_i32",
+                        vec![
+                            AbiParam::new(types::I64),
+                            AbiParam::new(types::I64),
+                            AbiParam::new(types::I64),
+                        ],
+                        vec![AbiParam::new(types::I64)],
+                        &[list[0], callback[0], callback[1]],
+                    );
+                    release_owned_temporary(
+                        b,
+                        &arguments[0],
+                        &list,
+                        &Type::List(element.clone()),
+                        m,
+                    );
+                    release_owned_temporary(b, &arguments[1], &callback, &callback_type, m);
                     return (filtered, Type::List(Box::new(Type::I32)));
                 }
                 if *element == Type::I64 && parameters == vec![Type::I64] && *result == Type::Bool {
-                    let filtered = runtime_call(b, m, "xenith_list_filter_i64", vec![AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64)], vec![AbiParam::new(types::I64)], &[list[0], callback[0], callback[1]]);
+                    let filtered = runtime_call(
+                        b,
+                        m,
+                        "xenith_list_filter_i64",
+                        vec![
+                            AbiParam::new(types::I64),
+                            AbiParam::new(types::I64),
+                            AbiParam::new(types::I64),
+                        ],
+                        vec![AbiParam::new(types::I64)],
+                        &[list[0], callback[0], callback[1]],
+                    );
+                    release_owned_temporary(
+                        b,
+                        &arguments[0],
+                        &list,
+                        &Type::List(element.clone()),
+                        m,
+                    );
+                    release_owned_temporary(b, &arguments[1], &callback, &callback_type, m);
                     return (filtered, Type::List(Box::new(Type::I64)));
                 }
-                if *element == Type::String && parameters == vec![Type::String] && *result == Type::Bool {
-                    let filtered = runtime_call(b, m, "xenith_list_filter_string", vec![AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64)], vec![AbiParam::new(types::I64)], &[list[0], callback[0], callback[1]]);
+                if *element == Type::String
+                    && parameters == vec![Type::String]
+                    && *result == Type::Bool
+                {
+                    let filtered = runtime_call(
+                        b,
+                        m,
+                        "xenith_list_filter_string",
+                        vec![
+                            AbiParam::new(types::I64),
+                            AbiParam::new(types::I64),
+                            AbiParam::new(types::I64),
+                        ],
+                        vec![AbiParam::new(types::I64)],
+                        &[list[0], callback[0], callback[1]],
+                    );
+                    release_owned_temporary(
+                        b,
+                        &arguments[0],
+                        &list,
+                        &Type::List(element.clone()),
+                        m,
+                    );
+                    release_owned_temporary(b, &arguments[1], &callback, &callback_type, m);
                     return (filtered, Type::List(Box::new(Type::String)));
                 }
-                if matches!(*element, Type::Named(_)) && parameters.len() == 1 && parameters[0] == *element && *result == Type::Bool {
+                if matches!(*element, Type::Named(_))
+                    && parameters.len() == 1
+                    && parameters[0] == *element
+                    && *result == Type::Bool
+                {
                     let (offsets, widths, count) = lane_metadata(b, &element, l);
                     let count_value = b.ins().iconst(types::I64, count);
-                    let filtered = runtime_call(b, m, "xenith_list_filter_lanes", vec![AbiParam::new(types::I64); 6], vec![AbiParam::new(types::I64)], &[list[0], callback[0], callback[1], count_value, offsets, widths]);
+                    let filtered = runtime_call(
+                        b,
+                        m,
+                        "xenith_list_filter_lanes",
+                        vec![AbiParam::new(types::I64); 6],
+                        vec![AbiParam::new(types::I64)],
+                        &[
+                            list[0],
+                            callback[0],
+                            callback[1],
+                            count_value,
+                            offsets,
+                            widths,
+                        ],
+                    );
+                    release_owned_temporary(
+                        b,
+                        &arguments[0],
+                        &list,
+                        &Type::List(element.clone()),
+                        m,
+                    );
+                    release_owned_temporary(b, &arguments[1], &callback, &callback_type, m);
                     return (filtered, Type::List(element));
                 }
                 unreachable!("filter callback type is not supported by the native fast path")
             }
             if name == "find" && !ids.contains_key(name) {
                 let (list, list_type) = lower(b, &arguments[0], v, ids, m, l);
-                let (callback, Type::Function(parameters, result)) = lower(b, &arguments[1], v, ids, m, l) else { unreachable!() };
-                if list_type == Type::Bytes && parameters == vec![Type::I32] && *result == Type::Bool { return (runtime_call(b, m, "xenith_bytes_find_i32", vec![AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64)], vec![AbiParam::new(types::I32)], &[list[0], callback[0], callback[1]]), Type::I32); }
-                let Type::List(element) = list_type else { unreachable!() };
-                if *element == Type::I32 && parameters == vec![Type::I32] && *result == Type::Bool { return (runtime_call(b, m, "xenith_list_find_i32", vec![AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64)], vec![AbiParam::new(types::I32)], &[list[0], callback[0], callback[1]]), Type::I32); }
-                if *element == Type::I64 && parameters == vec![Type::I64] && *result == Type::Bool { return (runtime_call(b, m, "xenith_list_find_i64", vec![AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64)], vec![AbiParam::new(types::I32)], &[list[0], callback[0], callback[1]]), Type::I32); }
-                if *element == Type::String && parameters == vec![Type::String] && *result == Type::Bool { return (runtime_call(b, m, "xenith_list_find_string", vec![AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64)], vec![AbiParam::new(types::I32)], &[list[0], callback[0], callback[1]]), Type::I32); }
-                if matches!(*element, Type::Named(_)) && parameters.len() == 1 && parameters[0] == *element && *result == Type::Bool {
+                let (callback, Type::Function(parameters, result)) =
+                    lower(b, &arguments[1], v, ids, m, l)
+                else {
+                    unreachable!()
+                };
+                let callback_type = Type::Function(parameters.clone(), result.clone());
+                if list_type == Type::Bytes
+                    && parameters == vec![Type::I32]
+                    && *result == Type::Bool
+                {
+                    let found = runtime_call(
+                        b,
+                        m,
+                        "xenith_bytes_find_i32",
+                        vec![
+                            AbiParam::new(types::I64),
+                            AbiParam::new(types::I64),
+                            AbiParam::new(types::I64),
+                        ],
+                        vec![AbiParam::new(types::I32)],
+                        &[list[0], callback[0], callback[1]],
+                    );
+                    release_owned_temporary(b, &arguments[0], &list, &list_type, m);
+                    release_owned_temporary(b, &arguments[1], &callback, &callback_type, m);
+                    return (found, Type::I32);
+                }
+                let Type::List(element) = list_type else {
+                    unreachable!()
+                };
+                if *element == Type::I32 && parameters == vec![Type::I32] && *result == Type::Bool {
+                    let found = runtime_call(
+                        b,
+                        m,
+                        "xenith_list_find_i32",
+                        vec![
+                            AbiParam::new(types::I64),
+                            AbiParam::new(types::I64),
+                            AbiParam::new(types::I64),
+                        ],
+                        vec![AbiParam::new(types::I32)],
+                        &[list[0], callback[0], callback[1]],
+                    );
+                    release_owned_temporary(
+                        b,
+                        &arguments[0],
+                        &list,
+                        &Type::List(element.clone()),
+                        m,
+                    );
+                    release_owned_temporary(b, &arguments[1], &callback, &callback_type, m);
+                    return (found, Type::I32);
+                }
+                if *element == Type::I64 && parameters == vec![Type::I64] && *result == Type::Bool {
+                    let found = runtime_call(
+                        b,
+                        m,
+                        "xenith_list_find_i64",
+                        vec![
+                            AbiParam::new(types::I64),
+                            AbiParam::new(types::I64),
+                            AbiParam::new(types::I64),
+                        ],
+                        vec![AbiParam::new(types::I32)],
+                        &[list[0], callback[0], callback[1]],
+                    );
+                    release_owned_temporary(
+                        b,
+                        &arguments[0],
+                        &list,
+                        &Type::List(element.clone()),
+                        m,
+                    );
+                    release_owned_temporary(b, &arguments[1], &callback, &callback_type, m);
+                    return (found, Type::I32);
+                }
+                if *element == Type::String
+                    && parameters == vec![Type::String]
+                    && *result == Type::Bool
+                {
+                    let found = runtime_call(
+                        b,
+                        m,
+                        "xenith_list_find_string",
+                        vec![
+                            AbiParam::new(types::I64),
+                            AbiParam::new(types::I64),
+                            AbiParam::new(types::I64),
+                        ],
+                        vec![AbiParam::new(types::I32)],
+                        &[list[0], callback[0], callback[1]],
+                    );
+                    release_owned_temporary(
+                        b,
+                        &arguments[0],
+                        &list,
+                        &Type::List(element.clone()),
+                        m,
+                    );
+                    release_owned_temporary(b, &arguments[1], &callback, &callback_type, m);
+                    return (found, Type::I32);
+                }
+                if matches!(*element, Type::Named(_))
+                    && parameters.len() == 1
+                    && parameters[0] == *element
+                    && *result == Type::Bool
+                {
                     let (offsets, widths, count) = lane_metadata(b, &element, l);
                     let count_value = b.ins().iconst(types::I64, count);
-                    return (runtime_call(b, m, "xenith_list_find_lanes", vec![AbiParam::new(types::I64); 6], vec![AbiParam::new(types::I32)], &[list[0], callback[0], callback[1], count_value, offsets, widths]), Type::I32);
+                    let found = runtime_call(
+                        b,
+                        m,
+                        "xenith_list_find_lanes",
+                        vec![AbiParam::new(types::I64); 6],
+                        vec![AbiParam::new(types::I32)],
+                        &[
+                            list[0],
+                            callback[0],
+                            callback[1],
+                            count_value,
+                            offsets,
+                            widths,
+                        ],
+                    );
+                    release_owned_temporary(
+                        b,
+                        &arguments[0],
+                        &list,
+                        &Type::List(element.clone()),
+                        m,
+                    );
+                    release_owned_temporary(b, &arguments[1], &callback, &callback_type, m);
+                    return (found, Type::I32);
                 }
                 unreachable!("find callback type is not supported by the native fast path")
             }
             if name == "reduce" && !ids.contains_key(name) {
-                let (list, Type::List(element)) = lower(b, &arguments[0], v, ids, m, l) else { unreachable!() };
+                let (list, Type::List(element)) = lower(b, &arguments[0], v, ids, m, l) else {
+                    unreachable!()
+                };
                 let initial = lower(b, &arguments[1], v, ids, m, l).0[0];
-                let (callback, Type::Function(parameters, result)) = lower(b, &arguments[2], v, ids, m, l) else { unreachable!() };
-                if *element == Type::I32 && parameters == vec![Type::I32, Type::I32] && *result == Type::I32 { return (runtime_call(b, m, "xenith_list_reduce_i32", vec![AbiParam::new(types::I64), AbiParam::new(types::I32), AbiParam::new(types::I64), AbiParam::new(types::I64)], vec![AbiParam::new(types::I32)], &[list[0], initial, callback[0], callback[1]]), Type::I32); }
-                if *element == Type::I64 && parameters == vec![Type::I64, Type::I64] && *result == Type::I64 { return (runtime_call(b, m, "xenith_list_reduce_i64", vec![AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64)], vec![AbiParam::new(types::I64)], &[list[0], initial, callback[0], callback[1]]), Type::I64); }
+                let (callback, Type::Function(parameters, result)) =
+                    lower(b, &arguments[2], v, ids, m, l)
+                else {
+                    unreachable!()
+                };
+                if *element == Type::I32
+                    && parameters == vec![Type::I32, Type::I32]
+                    && *result == Type::I32
+                {
+                    return (
+                        runtime_call(
+                            b,
+                            m,
+                            "xenith_list_reduce_i32",
+                            vec![
+                                AbiParam::new(types::I64),
+                                AbiParam::new(types::I32),
+                                AbiParam::new(types::I64),
+                                AbiParam::new(types::I64),
+                            ],
+                            vec![AbiParam::new(types::I32)],
+                            &[list[0], initial, callback[0], callback[1]],
+                        ),
+                        Type::I32,
+                    );
+                }
+                if *element == Type::I64
+                    && parameters == vec![Type::I64, Type::I64]
+                    && *result == Type::I64
+                {
+                    return (
+                        runtime_call(
+                            b,
+                            m,
+                            "xenith_list_reduce_i64",
+                            vec![
+                                AbiParam::new(types::I64),
+                                AbiParam::new(types::I64),
+                                AbiParam::new(types::I64),
+                                AbiParam::new(types::I64),
+                            ],
+                            vec![AbiParam::new(types::I64)],
+                            &[list[0], initial, callback[0], callback[1]],
+                        ),
+                        Type::I64,
+                    );
+                }
                 unreachable!("reduce callback type is not supported by the native fast path")
             }
             if name == "remove" && !ids.contains_key(name) {
@@ -7058,23 +7549,86 @@ fn lower(
                 let (collection, collection_type) = lower(b, &arguments[0], v, ids, m, l);
                 let key = lower(b, &arguments[1], v, ids, m, l).0;
                 if matches!(collection_type, Type::List(_)) {
-                    let Type::List(element) = collection_type else { unreachable!() };
-                    if *element == Type::I64 { return (runtime_call(b, m, "xenith_list_contains_i64", vec![AbiParam::new(types::I64), AbiParam::new(types::I64)], vec![AbiParam::new(types::I8)], &[collection[0], key[0]]), Type::Bool); }
-                    if *element == Type::String { return (runtime_call(b, m, "xenith_list_contains_string", vec![AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64)], vec![AbiParam::new(types::I8)], &[collection[0], key[0], key[1]]), Type::Bool); }
+                    let Type::List(element) = collection_type else {
+                        unreachable!()
+                    };
+                    let list_type = Type::List(element.clone());
+                    if *element == Type::I64 {
+                        let found = runtime_call(
+                            b,
+                            m,
+                            "xenith_list_contains_i64",
+                            vec![AbiParam::new(types::I64), AbiParam::new(types::I64)],
+                            vec![AbiParam::new(types::I8)],
+                            &[collection[0], key[0]],
+                        );
+                        release_owned_temporary(b, &arguments[0], &collection, &list_type, m);
+                        return (found, Type::Bool);
+                    }
+                    if *element == Type::String {
+                        let found = runtime_call(
+                            b,
+                            m,
+                            "xenith_list_contains_string",
+                            vec![
+                                AbiParam::new(types::I64),
+                                AbiParam::new(types::I64),
+                                AbiParam::new(types::I64),
+                            ],
+                            vec![AbiParam::new(types::I8)],
+                            &[collection[0], key[0], key[1]],
+                        );
+                        release_owned_temporary(b, &arguments[0], &collection, &list_type, m);
+                        return (found, Type::Bool);
+                    }
                     if matches!(*element, Type::Named(_)) {
                         let (width, lanes) = return_layout(&element, l);
-                        let slot = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, width, 3));
+                        let slot = b.create_sized_stack_slot(StackSlotData::new(
+                            StackSlotKind::ExplicitSlot,
+                            width,
+                            3,
+                        ));
                         let pointer = b.ins().stack_addr(types::I64, slot, 0);
-                        for (value, (_, offset)) in key.into_iter().zip(lanes) { b.ins().store(MemFlags::new(), value, pointer, offset); }
+                        for (value, (_, offset)) in key.into_iter().zip(lanes) {
+                            b.ins().store(MemFlags::new(), value, pointer, offset);
+                        }
                         let (offsets, widths, count) = lane_metadata(b, &element, l);
                         let (_, kinds, _) = managed_lane_metadata(b, &element, l);
                         let count_value = b.ins().iconst(types::I64, count);
-                        return (runtime_call(b, m, "xenith_list_contains_managed", vec![AbiParam::new(types::I64); 6], vec![AbiParam::new(types::I8)], &[collection[0], pointer, count_value, offsets, widths, kinds]), Type::Bool);
+                        let found = runtime_call(
+                            b,
+                            m,
+                            "xenith_list_contains_managed",
+                            vec![AbiParam::new(types::I64); 6],
+                            vec![AbiParam::new(types::I8)],
+                            &[collection[0], pointer, count_value, offsets, widths, kinds],
+                        );
+                        release_owned_temporary(b, &arguments[0], &collection, &list_type, m);
+                        return (found, Type::Bool);
                     }
-                    let result = runtime_call(b, m, "xenith_list_contains_i32", vec![AbiParam::new(types::I64), AbiParam::new(types::I32)], vec![AbiParam::new(types::I8)], &[collection[0], key[0]]);
+                    let result = runtime_call(
+                        b,
+                        m,
+                        "xenith_list_contains_i32",
+                        vec![AbiParam::new(types::I64), AbiParam::new(types::I32)],
+                        vec![AbiParam::new(types::I8)],
+                        &[collection[0], key[0]],
+                    );
+                    release_owned_temporary(b, &arguments[0], &collection, &list_type, m);
                     return (result, Type::Bool);
                 }
-                if collection_type == Type::Bytes { return (runtime_call(b, m, "xenith_bytes_contains_i32", vec![AbiParam::new(types::I64), AbiParam::new(types::I32)], vec![AbiParam::new(types::I8)], &[collection[0], key[0]]), Type::Bool); }
+                if collection_type == Type::Bytes {
+                    let found = runtime_call(
+                        b,
+                        m,
+                        "xenith_bytes_contains_i32",
+                        vec![AbiParam::new(types::I64), AbiParam::new(types::I32)],
+                        vec![AbiParam::new(types::I8)],
+                        &[collection[0], key[0]],
+                    );
+                    release_owned_temporary(b, &arguments[0], &collection, &collection_type, m);
+                    return (found, Type::Bool);
+                }
                 let result = runtime_call(
                     b,
                     m,
@@ -7087,6 +7641,7 @@ fn lower(
                     vec![AbiParam::new(types::I8)],
                     &[collection[0], key[0], key[1]],
                 );
+                release_owned_temporary(b, &arguments[0], &collection, &collection_type, m);
                 return (result, Type::Bool);
             }
             let (callee_name, receiver) = if ids.contains_key(name) {
@@ -7393,7 +7948,9 @@ fn aggregate_collection_supported_type(ty: &Type, layouts: &HashMap<String, Stru
     matches!(ty, Type::Named(_))
         && !flat(ty, layouts).is_empty()
         && flat(ty, layouts).len() <= 8
-        && flat(ty, layouts).iter().all(|lane| *lane == types::I8 || *lane == types::I32 || *lane == types::I64)
+        && flat(ty, layouts)
+            .iter()
+            .all(|lane| *lane == types::I8 || *lane == types::I32 || *lane == types::I64)
 }
 
 fn managed_lane_kinds(ty: &Type, layouts: &HashMap<String, StructLayout>) -> Vec<i64> {
@@ -7402,8 +7959,15 @@ fn managed_lane_kinds(ty: &Type, layouts: &HashMap<String, StructLayout>) -> Vec
         Type::String => vec![1, 0],
         Type::Bytes | Type::List(_) | Type::Map(_, _) => vec![2],
         Type::Function(_, _) => vec![2, 0],
-        Type::Tuple(elements) => elements.iter().flat_map(|element| managed_lane_kinds(element, layouts)).collect(),
-        Type::Named(name) => layouts[name].fields.iter().flat_map(|(_, field)| managed_lane_kinds(field, layouts)).collect(),
+        Type::Tuple(elements) => elements
+            .iter()
+            .flat_map(|element| managed_lane_kinds(element, layouts))
+            .collect(),
+        Type::Named(name) => layouts[name]
+            .fields
+            .iter()
+            .flat_map(|(_, field)| managed_lane_kinds(field, layouts))
+            .collect(),
         Type::Float | Type::Null | Type::Generic(_) => vec![0],
     }
 }
@@ -7416,8 +7980,16 @@ fn managed_lane_metadata(
     let (_, lanes) = return_layout(ty, layouts);
     let kinds = managed_lane_kinds(ty, layouts);
     let count = lanes.len() as i64;
-    let offsets = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, (count.max(1) * 8) as u32, 3));
-    let kind_slot = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, (count.max(1) * 8) as u32, 3));
+    let offsets = b.create_sized_stack_slot(StackSlotData::new(
+        StackSlotKind::ExplicitSlot,
+        (count.max(1) * 8) as u32,
+        3,
+    ));
+    let kind_slot = b.create_sized_stack_slot(StackSlotData::new(
+        StackSlotKind::ExplicitSlot,
+        (count.max(1) * 8) as u32,
+        3,
+    ));
     for (index, (_, offset)) in lanes.iter().enumerate() {
         let position = (index * 8) as i32;
         let offset_ptr = b.ins().stack_addr(types::I64, offsets, position);
@@ -7427,7 +7999,11 @@ fn managed_lane_metadata(
         let kind_value = b.ins().iconst(types::I64, kinds[index]);
         b.ins().store(MemFlags::new(), kind_value, kind_ptr, 0);
     }
-    (b.ins().stack_addr(types::I64, offsets, 0), b.ins().stack_addr(types::I64, kind_slot, 0), count)
+    (
+        b.ins().stack_addr(types::I64, offsets, 0),
+        b.ins().stack_addr(types::I64, kind_slot, 0),
+        count,
+    )
 }
 
 fn lower_index_assignment(

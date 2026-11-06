@@ -1,5 +1,9 @@
 use std::{fs, path::Path, process::Command};
-use xenith::native::{check::check, codegen::{emit_object, link_host}, syntax::parse};
+use xenith::native::{
+    check::check,
+    codegen::{emit_object, link_host},
+    syntax::parse,
+};
 
 #[test]
 fn native_try_catch_is_parsed_and_checked() {
@@ -230,7 +234,12 @@ fn native_runtime_reports_allocation_failures_without_aborting() {
     .unwrap();
     let executable = directory.path().join("harness");
     let status = Command::new("cc")
-        .args([runtime.as_os_str(), harness.as_os_str(), "-o".as_ref(), executable.as_os_str()])
+        .args([
+            runtime.as_os_str(),
+            harness.as_os_str(),
+            "-o".as_ref(),
+            executable.as_os_str(),
+        ])
         .status()
         .unwrap();
     assert!(status.success());
@@ -263,7 +272,12 @@ fn native_runtime_reference_counting_is_deterministic() {
     .unwrap();
     let executable = directory.path().join("harness");
     let status = Command::new("cc")
-        .args([runtime.as_os_str(), harness.as_os_str(), "-o".as_ref(), executable.as_os_str()])
+        .args([
+            runtime.as_os_str(),
+            harness.as_os_str(),
+            "-o".as_ref(),
+            executable.as_os_str(),
+        ])
         .status()
         .unwrap();
     assert!(status.success());
@@ -377,7 +391,9 @@ function main() -> i32 {
     emit_object(&typed, &object).unwrap();
     link_host(&object, &executable).unwrap();
     let bytes = fs::read(object).unwrap();
-    assert!(bytes.windows(b"xenith_release".len()).any(|window| window == b"xenith_release"));
+    assert!(bytes
+        .windows(b"xenith_release".len())
+        .any(|window| window == b"xenith_release"));
     assert_eq!(Command::new(executable).status().unwrap().code(), Some(0));
 }
 
@@ -440,7 +456,9 @@ function main() -> i32 {
     let object = directory.path().join("main.o");
     emit_object(&typed, &object).unwrap();
     let bytes = fs::read(object).unwrap();
-    assert!(bytes.windows(b"xenith_release".len()).any(|window| window == b"xenith_release"));
+    assert!(bytes
+        .windows(b"xenith_release".len())
+        .any(|window| window == b"xenith_release"));
 }
 
 #[test]
@@ -461,7 +479,9 @@ function main() -> i32 {
     let object = directory.path().join("main.o");
     emit_object(&typed, &object).unwrap();
     let bytes = fs::read(object).unwrap();
-    assert!(bytes.windows(b"xenith_release".len()).any(|window| window == b"xenith_release"));
+    assert!(bytes
+        .windows(b"xenith_release".len())
+        .any(|window| window == b"xenith_release"));
 }
 
 #[test]
@@ -483,7 +503,9 @@ function main() -> i32 {
     let object = directory.path().join("main.o");
     emit_object(&typed, &object).unwrap();
     let bytes = fs::read(object).unwrap();
-    assert!(bytes.windows(b"xenith_release".len()).any(|window| window == b"xenith_release"));
+    assert!(bytes
+        .windows(b"xenith_release".len())
+        .any(|window| window == b"xenith_release"));
 }
 
 #[test]
@@ -501,6 +523,7 @@ function main() -> i32 {
     }
     return 42
 }
+
 "#;
     let program = parse(Path::new("main.xen"), source).unwrap();
     let typed = check(&program).unwrap();
@@ -510,6 +533,27 @@ function main() -> i32 {
     emit_object(&typed, &object).unwrap();
     link_host(&object, &executable).unwrap();
     assert_eq!(Command::new(executable).status().unwrap().code(), Some(42));
+}
+
+#[test]
+fn native_codegen_releases_temporary_collection_builtin_arguments() {
+    let source = r#"
+function main() -> i32 {
+    return map([1, 2], fn(value: i32) -> i32 => value + 1)[0]
+}
+"#;
+    let program = parse(Path::new("main.xen"), source).unwrap();
+    let typed = check(&program).unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let object = directory.path().join("main.o");
+    emit_object(&typed, &object).unwrap();
+    let dump = Command::new("objdump")
+        .args(["-dr", object.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(dump.status.success());
+    let text = String::from_utf8_lossy(&dump.stdout);
+    assert!(text.matches("xenith_release").count() >= 3, "{text}");
 }
 
 #[test]
@@ -652,6 +696,9 @@ fn native_uncaught_errors_print_a_diagnostic() {
     assert!(stderr.contains("XEN300"), "missing error code: {stderr}");
     assert!(stderr.contains("Panic"), "missing error name: {stderr}");
     assert!(stderr.contains("boom"), "missing error message: {stderr}");
-    assert!(stderr.contains("help:"), "missing help suggestion: {stderr}");
+    assert!(
+        stderr.contains("help:"),
+        "missing help suggestion: {stderr}"
+    );
     assert!(stderr.contains("main.xen"), "missing source file: {stderr}");
 }
