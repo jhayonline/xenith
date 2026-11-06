@@ -28,13 +28,17 @@ grouping.
 **What to do:** match the variant, then read fields with `p.x`. See
 [Enums and match](13-enums.md).
 
-## No generics, so no Result or Option
+## Generic functions are intentionally compile-time only
 
-An enum's payload types are concrete, so `Result<T>` and `Option<T>` cannot be
-written. A concrete enum per case works: `enum Lookup { Found(int), Missing }`.
+Generic functions are supported and specialized from their call-site types:
 
-This is the largest thing still missing, and it is the same decision that
-collections are waiting on.
+```xenith
+function first<T>(items: list<T>) -> T { return items[0] }
+```
+
+The compiler emits one concrete native function for each set of inferred type
+arguments. Generic structs, generic enums, and explicit type-argument syntax
+are still future work; use concrete declarations for those shapes today.
 
 ## A struct or enum cannot be renamed on import
 

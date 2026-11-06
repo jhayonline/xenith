@@ -28,8 +28,12 @@ struct Flow {
 
 pub fn check(program: &Program) -> Result<TypedProgram, Vec<Diagnostic>> {
     let mut errors = vec![];
-    let mut signatures = signatures(program, &mut errors);
-    let layouts = layouts(program, &mut errors);
+    let program = match monomorphize(program) {
+        Ok(program) => program,
+        Err(errors) => return Err(errors),
+    };
+    let mut signatures = signatures(&program, &mut errors);
+    let layouts = layouts(&program, &mut errors);
     let mains: Vec<_> = program
         .functions
         .iter()
@@ -77,6 +81,746 @@ pub fn check(program: &Program) -> Result<TypedProgram, Vec<Diagnostic>> {
                 .then_with(|| left.message.cmp(&right.message))
         });
         Err(errors)
+    }
+}
+
+/// Expand generic functions at their call sites before the ordinary checker and
+/// native backend see them. Native code generation therefore only ever receives
+/// concrete signatures and does not need a runtime type system.
+fn monomorphize(program: &Program) -> Result<Program, Vec<Diagnostic>> {
+    let generic: HashMap<_, _> = program
+        .functions
+        .iter()
+        .filter(|f| !f.type_params.is_empty())
+        .map(|f| (f.name.clone(), f.clone()))
+        .collect();
+    if generic.is_empty() {
+        return Ok(program.clone());
+    }
+    let mut signatures = HashMap::new();
+    for f in &program.functions {
+        signatures.insert(
+            f.name.clone(),
+            FunctionSignature {
+                parameters: f.params.iter().map(|p| p.ty.clone()).collect(),
+                result: f.result.clone(),
+            },
+        );
+    }
+    let mut generated = Vec::new();
+    let mut cache = HashMap::<(String, String), String>::new();
+    let mut errors = Vec::new();
+    let mut output = Vec::new();
+    for function in &program.functions {
+        if !function.type_params.is_empty() {
+            continue;
+        }
+        let mut env: HashMap<String, Type> = function
+            .params
+            .iter()
+            .map(|p| (p.name.clone(), p.ty.clone()))
+            .collect();
+        let body = specialize_statements(
+            &function.body,
+            &mut env,
+            &generic,
+            &signatures,
+            &mut cache,
+            &mut generated,
+            &mut errors,
+        );
+        let mut function = function.clone();
+        function.body = body;
+        output.push(function);
+    }
+    while let Some(function) = generated.pop() {
+        let mut env: HashMap<String, Type> = function
+            .params
+            .iter()
+            .map(|p| (p.name.clone(), p.ty.clone()))
+            .collect();
+        let body = specialize_statements(
+            &function.body,
+            &mut env,
+            &generic,
+            &signatures,
+            &mut cache,
+            &mut generated,
+            &mut errors,
+        );
+        let mut function = function;
+        function.body = body;
+        output.push(function);
+    }
+    if errors.is_empty() {
+        let mut program = program.clone();
+        program.functions = output;
+        Ok(program)
+    } else {
+        Err(errors)
+    }
+}
+
+fn substitute_type(ty: &Type, substitutions: &HashMap<String, Type>) -> Type {
+    match ty {
+        Type::Generic(name) => substitutions
+            .get(name)
+            .cloned()
+            .unwrap_or_else(|| ty.clone()),
+        Type::List(inner) => Type::List(Box::new(substitute_type(inner, substitutions))),
+        Type::Map(key, value) => Type::Map(
+            Box::new(substitute_type(key, substitutions)),
+            Box::new(substitute_type(value, substitutions)),
+        ),
+        Type::Tuple(items) => Type::Tuple(
+            items
+                .iter()
+                .map(|t| substitute_type(t, substitutions))
+                .collect(),
+        ),
+        Type::Function(params, result) => Type::Function(
+            params
+                .iter()
+                .map(|t| substitute_type(t, substitutions))
+                .collect(),
+            Box::new(substitute_type(result, substitutions)),
+        ),
+        _ => ty.clone(),
+    }
+}
+
+fn unify_generic(pattern: &Type, actual: &Type, substitutions: &mut HashMap<String, Type>) -> bool {
+    match pattern {
+        Type::Generic(name) => match substitutions.get(name) {
+            Some(existing) => existing == actual,
+            None => {
+                substitutions.insert(name.clone(), actual.clone());
+                true
+            }
+        },
+        Type::List(inner) => {
+            matches!(actual, Type::List(value) if unify_generic(inner, value, substitutions))
+        }
+        Type::Map(key, value) => {
+            matches!(actual, Type::Map(actual_key, actual_value) if unify_generic(key, actual_key, substitutions) && unify_generic(value, actual_value, substitutions))
+        }
+        Type::Tuple(items) => {
+            matches!(actual, Type::Tuple(actual_items) if items.len() == actual_items.len() && items.iter().zip(actual_items).all(|(a,b)| unify_generic(a,b,substitutions)))
+        }
+        Type::Function(params, result) => {
+            matches!(actual, Type::Function(actual_params, actual_result) if params.len() == actual_params.len() && params.iter().zip(actual_params).all(|(a,b)| unify_generic(a,b,substitutions)) && unify_generic(result, actual_result, substitutions))
+        }
+        _ => pattern == actual,
+    }
+}
+
+fn type_key(ty: &Type) -> String {
+    match ty {
+        Type::I32 => "i32".into(),
+        Type::I64 => "i64".into(),
+        Type::Float => "float".into(),
+        Type::Bool => "bool".into(),
+        Type::Null => "null".into(),
+        Type::String => "string".into(),
+        Type::Bytes => "bytes".into(),
+        Type::Named(n) | Type::Generic(n) => n.clone(),
+        Type::List(t) => format!("list_{}", type_key(t)),
+        Type::Map(k, v) => format!("map_{}_{}", type_key(k), type_key(v)),
+        Type::Tuple(ts) => format!(
+            "tuple_{}",
+            ts.iter().map(type_key).collect::<Vec<_>>().join("_")
+        ),
+        Type::Function(ps, r) => format!(
+            "fn_{}_{}",
+            ps.iter().map(type_key).collect::<Vec<_>>().join("_"),
+            type_key(r)
+        ),
+    }
+}
+
+fn infer_generic_expr(
+    expr: &Expr,
+    env: &HashMap<String, Type>,
+    signatures: &HashMap<String, FunctionSignature>,
+) -> Option<Type> {
+    match expr {
+        Expr::Int(_, ty) => Some(ty.clone()),
+        Expr::Float(_) => Some(Type::Float),
+        Expr::Bool(_) => Some(Type::Bool),
+        Expr::Null => Some(Type::Null),
+        Expr::String(_) | Expr::Interpolated(_, _) => Some(Type::String),
+        Expr::Bytes(_, _) => Some(Type::Bytes),
+        Expr::Name(n) => env.get(n).cloned().or_else(|| {
+            signatures
+                .get(n)
+                .map(|s| Type::Function(s.parameters.clone(), Box::new(s.result.clone())))
+        }),
+        Expr::List(items, _) => Some(Type::List(Box::new(infer_generic_expr(
+            items.first()?,
+            env,
+            signatures,
+        )?))),
+        Expr::Map(items, _) => Some(Type::Map(
+            Box::new(infer_generic_expr(&items.first()?.0, env, signatures)?),
+            Box::new(infer_generic_expr(&items.first()?.1, env, signatures)?),
+        )),
+        Expr::Tuple(items) => Some(Type::Tuple(
+            items
+                .iter()
+                .map(|e| infer_generic_expr(e, env, signatures))
+                .collect::<Option<Vec<_>>>()?,
+        )),
+        Expr::Index { base, .. } => match infer_generic_expr(base, env, signatures)? {
+            Type::List(t) | Type::Map(_, t) => Some(*t),
+            Type::Bytes => Some(Type::I32),
+            _ => None,
+        },
+        Expr::Call { name, .. } => signatures.get(name).map(|s| s.result.clone()),
+        Expr::StructLiteral { name, .. }
+        | Expr::EnumVariant {
+            enum_name: name, ..
+        } => Some(Type::Named(name.clone())),
+        Expr::Field { .. } => None,
+        Expr::Neg(e) | Expr::Not(e) => infer_generic_expr(e, env, signatures),
+        Expr::Logical(_, _, _) | Expr::Compare(_, _, _) => Some(Type::Bool),
+        Expr::Binary(left, _, _, _) => infer_generic_expr(left, env, signatures),
+        Expr::Closure { params, result, .. } => Some(Type::Function(
+            params.iter().map(|p| p.ty.clone()).collect(),
+            Box::new(result.clone()),
+        )),
+        Expr::Match { arms, .. } => infer_generic_expr(&arms.first()?.body, env, signatures),
+    }
+}
+
+fn specialize_call(
+    name: &str,
+    arguments: &[Expr],
+    env: &HashMap<String, Type>,
+    generic: &HashMap<String, Function>,
+    signatures: &HashMap<String, FunctionSignature>,
+    cache: &mut HashMap<(String, String), String>,
+    generated: &mut Vec<Function>,
+    errors: &mut Vec<Diagnostic>,
+) -> String {
+    let Some(template) = generic.get(name) else {
+        return name.into();
+    };
+    let actuals: Option<Vec<_>> = arguments
+        .iter()
+        .map(|a| infer_generic_expr(a, env, signatures))
+        .collect();
+    let Some(actuals) = actuals else {
+        errors.push(Diagnostic {
+            message: format!("cannot infer type arguments for generic function `{name}`"),
+            span: None,
+        });
+        return name.into();
+    };
+    if actuals.len() != template.params.len() {
+        return name.into();
+    }
+    let mut substitutions = HashMap::new();
+    for (param, actual) in template.params.iter().zip(&actuals) {
+        if !unify_generic(&param.ty, actual, &mut substitutions) {
+            errors.push(Diagnostic {
+                message: format!("type arguments for `{name}` do not agree"),
+                span: None,
+            });
+            return name.into();
+        }
+    }
+    let concrete: Vec<_> = template
+        .type_params
+        .iter()
+        .map(|n| substitutions.get(n).cloned())
+        .collect::<Option<Vec<_>>>()
+        .unwrap_or_default();
+    if concrete.len() != template.type_params.len() {
+        errors.push(Diagnostic {
+            message: format!("cannot infer all type arguments for `{name}`"),
+            span: None,
+        });
+        return name.into();
+    }
+    let concrete_key = concrete.iter().map(type_key).collect::<Vec<_>>().join("_");
+    let key = (name.into(), concrete_key.clone());
+    if let Some(existing) = cache.get(&key) {
+        return existing.clone();
+    }
+    let mangled = format!(
+        "{}__generic__{}",
+        name,
+        concrete.iter().map(type_key).collect::<Vec<_>>().join("_")
+    );
+    cache.insert(key, mangled.clone());
+    let mut specialized = template.clone();
+    specialized.name = mangled;
+    specialized.type_params.clear();
+    for p in &mut specialized.params {
+        p.ty = substitute_type(&p.ty, &substitutions);
+    }
+    specialized.result = substitute_type(&specialized.result, &substitutions);
+    substitute_statements(&mut specialized.body, &substitutions);
+    generated.push(specialized);
+    cache.get(&(name.into(), concrete_key)).cloned().unwrap()
+}
+
+fn substitute_expr(expr: &mut Expr, substitutions: &HashMap<String, Type>) {
+    match expr {
+        Expr::Closure {
+            params,
+            result,
+            body,
+            ..
+        } => {
+            for p in params {
+                p.ty = substitute_type(&p.ty, substitutions);
+            }
+            *result = substitute_type(result, substitutions);
+            substitute_expr(body, substitutions);
+        }
+        Expr::Call { arguments, .. } | Expr::Tuple(arguments) | Expr::List(arguments, _) => {
+            for e in arguments {
+                substitute_expr(e, substitutions);
+            }
+        }
+        Expr::Map(items, _) => {
+            for (k, v) in items {
+                substitute_expr(k, substitutions);
+                substitute_expr(v, substitutions);
+            }
+        }
+        Expr::EnumVariant { arguments, .. } => {
+            for e in arguments {
+                substitute_expr(e, substitutions);
+            }
+        }
+        Expr::Match { subject, arms } => {
+            substitute_expr(subject, substitutions);
+            for arm in arms {
+                substitute_expr(&mut arm.body, substitutions);
+            }
+        }
+        Expr::StructLiteral { fields, .. } => {
+            for (_, e) in fields {
+                substitute_expr(e, substitutions);
+            }
+        }
+        Expr::Field { base, .. } => substitute_expr(base, substitutions),
+        Expr::Index { base, index, .. } => {
+            substitute_expr(base, substitutions);
+            substitute_expr(index, substitutions);
+        }
+        Expr::Neg(e) | Expr::Not(e) => substitute_expr(e, substitutions),
+        Expr::Logical(a, _, b) | Expr::Compare(a, _, b) | Expr::Binary(a, _, b, _) => {
+            substitute_expr(a, substitutions);
+            substitute_expr(b, substitutions);
+        }
+        _ => {}
+    }
+}
+fn substitute_statements(statements: &mut [Stmt], substitutions: &HashMap<String, Type>) {
+    for statement in statements {
+        match statement {
+            Stmt::While { condition, body } => {
+                substitute_expr(condition, substitutions);
+                substitute_statements(body, substitutions);
+            }
+            Stmt::For {
+                init,
+                condition,
+                step,
+                body,
+            } => {
+                substitute_statements(std::slice::from_mut(&mut **init), substitutions);
+                substitute_expr(condition, substitutions);
+                substitute_statements(std::slice::from_mut(&mut **step), substitutions);
+                substitute_statements(body, substitutions);
+            }
+            Stmt::ForIn { iterable, body, .. } => {
+                substitute_expr(iterable, substitutions);
+                substitute_statements(body, substitutions);
+            }
+            Stmt::If {
+                condition,
+                then_body,
+                else_body,
+            } => {
+                substitute_expr(condition, substitutions);
+                substitute_statements(then_body, substitutions);
+                substitute_statements(else_body, substitutions);
+            }
+            Stmt::Let { ty, value, .. } => {
+                if let Some(t) = ty {
+                    *t = substitute_type(t, substitutions);
+                }
+                substitute_expr(value, substitutions);
+            }
+            Stmt::Assign { value, .. } => substitute_expr(value, substitutions),
+            Stmt::IndexAssign { base, index, value } => {
+                substitute_expr(base, substitutions);
+                substitute_expr(index, substitutions);
+                substitute_expr(value, substitutions);
+            }
+            Stmt::Return(e) | Stmt::Expr(e) => substitute_expr(e, substitutions),
+            Stmt::Panic { value, .. } => substitute_expr(value, substitutions),
+            Stmt::TryCatch {
+                body, catch_body, ..
+            } => {
+                substitute_statements(body, substitutions);
+                substitute_statements(catch_body, substitutions);
+            }
+            Stmt::Stop | Stmt::Skip => {}
+        }
+    }
+}
+
+fn specialize_statements(
+    statements: &[Stmt],
+    env: &mut HashMap<String, Type>,
+    generic: &HashMap<String, Function>,
+    signatures: &HashMap<String, FunctionSignature>,
+    cache: &mut HashMap<(String, String), String>,
+    generated: &mut Vec<Function>,
+    errors: &mut Vec<Diagnostic>,
+) -> Vec<Stmt> {
+    statements
+        .iter()
+        .map(|statement| match statement {
+            Stmt::Let {
+                name,
+                mutable,
+                ty,
+                value,
+            } => {
+                let value =
+                    specialize_expr(value, env, generic, signatures, cache, generated, errors);
+                let inferred = ty
+                    .clone()
+                    .or_else(|| infer_generic_expr(&value, env, signatures));
+                if let Some(t) = inferred {
+                    env.insert(name.clone(), t);
+                }
+                Stmt::Let {
+                    name: name.clone(),
+                    mutable: *mutable,
+                    ty: ty.clone(),
+                    value,
+                }
+            }
+            Stmt::Assign { name, value } => Stmt::Assign {
+                name: name.clone(),
+                value: specialize_expr(value, env, generic, signatures, cache, generated, errors),
+            },
+            Stmt::IndexAssign { base, index, value } => Stmt::IndexAssign {
+                base: specialize_expr(base, env, generic, signatures, cache, generated, errors),
+                index: specialize_expr(index, env, generic, signatures, cache, generated, errors),
+                value: specialize_expr(value, env, generic, signatures, cache, generated, errors),
+            },
+            Stmt::Return(value) => Stmt::Return(specialize_expr(
+                value, env, generic, signatures, cache, generated, errors,
+            )),
+            Stmt::Expr(value) => Stmt::Expr(specialize_expr(
+                value, env, generic, signatures, cache, generated, errors,
+            )),
+            Stmt::Panic { value, span } => Stmt::Panic {
+                value: specialize_expr(value, env, generic, signatures, cache, generated, errors),
+                span: *span,
+            },
+            Stmt::If {
+                condition,
+                then_body,
+                else_body,
+            } => Stmt::If {
+                condition: specialize_expr(
+                    condition, env, generic, signatures, cache, generated, errors,
+                ),
+                then_body: specialize_statements(
+                    then_body,
+                    &mut env.clone(),
+                    generic,
+                    signatures,
+                    cache,
+                    generated,
+                    errors,
+                ),
+                else_body: specialize_statements(
+                    else_body,
+                    &mut env.clone(),
+                    generic,
+                    signatures,
+                    cache,
+                    generated,
+                    errors,
+                ),
+            },
+            Stmt::While { condition, body } => Stmt::While {
+                condition: specialize_expr(
+                    condition, env, generic, signatures, cache, generated, errors,
+                ),
+                body: specialize_statements(
+                    body,
+                    &mut env.clone(),
+                    generic,
+                    signatures,
+                    cache,
+                    generated,
+                    errors,
+                ),
+            },
+            Stmt::ForIn {
+                names,
+                iterable,
+                body,
+            } => Stmt::ForIn {
+                names: names.clone(),
+                iterable: specialize_expr(
+                    iterable, env, generic, signatures, cache, generated, errors,
+                ),
+                body: specialize_statements(
+                    body,
+                    &mut env.clone(),
+                    generic,
+                    signatures,
+                    cache,
+                    generated,
+                    errors,
+                ),
+            },
+            Stmt::For {
+                init,
+                condition,
+                step,
+                body,
+            } => Stmt::For {
+                init: Box::new(
+                    specialize_statements(
+                        std::slice::from_ref(&**init),
+                        &mut env.clone(),
+                        generic,
+                        signatures,
+                        cache,
+                        generated,
+                        errors,
+                    )
+                    .remove(0),
+                ),
+                condition: specialize_expr(
+                    condition, env, generic, signatures, cache, generated, errors,
+                ),
+                step: Box::new(
+                    specialize_statements(
+                        std::slice::from_ref(&**step),
+                        &mut env.clone(),
+                        generic,
+                        signatures,
+                        cache,
+                        generated,
+                        errors,
+                    )
+                    .remove(0),
+                ),
+                body: specialize_statements(
+                    body,
+                    &mut env.clone(),
+                    generic,
+                    signatures,
+                    cache,
+                    generated,
+                    errors,
+                ),
+            },
+            Stmt::TryCatch {
+                body,
+                binding,
+                catch_body,
+            } => Stmt::TryCatch {
+                body: specialize_statements(
+                    body,
+                    &mut env.clone(),
+                    generic,
+                    signatures,
+                    cache,
+                    generated,
+                    errors,
+                ),
+                binding: binding.clone(),
+                catch_body: specialize_statements(
+                    catch_body,
+                    &mut env.clone(),
+                    generic,
+                    signatures,
+                    cache,
+                    generated,
+                    errors,
+                ),
+            },
+            Stmt::Stop => Stmt::Stop,
+            Stmt::Skip => Stmt::Skip,
+        })
+        .collect()
+}
+
+fn specialize_expr(
+    expr: &Expr,
+    env: &HashMap<String, Type>,
+    generic: &HashMap<String, Function>,
+    signatures: &HashMap<String, FunctionSignature>,
+    cache: &mut HashMap<(String, String), String>,
+    generated: &mut Vec<Function>,
+    errors: &mut Vec<Diagnostic>,
+) -> Expr {
+    match expr {
+        Expr::Call {
+            name,
+            arguments,
+            span,
+        } => {
+            let arguments: Vec<_> = arguments
+                .iter()
+                .map(|e| specialize_expr(e, env, generic, signatures, cache, generated, errors))
+                .collect();
+            let name = if generic.contains_key(name) {
+                specialize_call(
+                    name, &arguments, env, generic, signatures, cache, generated, errors,
+                )
+            } else {
+                name.clone()
+            };
+            Expr::Call {
+                name,
+                arguments,
+                span: *span,
+            }
+        }
+        Expr::List(items, span) => Expr::List(
+            items
+                .iter()
+                .map(|e| specialize_expr(e, env, generic, signatures, cache, generated, errors))
+                .collect(),
+            *span,
+        ),
+        Expr::Map(items, span) => Expr::Map(
+            items
+                .iter()
+                .map(|(k, v)| {
+                    (
+                        specialize_expr(k, env, generic, signatures, cache, generated, errors),
+                        specialize_expr(v, env, generic, signatures, cache, generated, errors),
+                    )
+                })
+                .collect(),
+            *span,
+        ),
+        Expr::Tuple(items) => Expr::Tuple(
+            items
+                .iter()
+                .map(|e| specialize_expr(e, env, generic, signatures, cache, generated, errors))
+                .collect(),
+        ),
+        Expr::Index { base, index, span } => Expr::Index {
+            base: Box::new(specialize_expr(
+                base, env, generic, signatures, cache, generated, errors,
+            )),
+            index: Box::new(specialize_expr(
+                index, env, generic, signatures, cache, generated, errors,
+            )),
+            span: *span,
+        },
+        Expr::Field { base, name } => Expr::Field {
+            base: Box::new(specialize_expr(
+                base, env, generic, signatures, cache, generated, errors,
+            )),
+            name: name.clone(),
+        },
+        Expr::Neg(e) => Expr::Neg(Box::new(specialize_expr(
+            e, env, generic, signatures, cache, generated, errors,
+        ))),
+        Expr::Not(e) => Expr::Not(Box::new(specialize_expr(
+            e, env, generic, signatures, cache, generated, errors,
+        ))),
+        Expr::Logical(a, op, b) => Expr::Logical(
+            Box::new(specialize_expr(
+                a, env, generic, signatures, cache, generated, errors,
+            )),
+            op.clone(),
+            Box::new(specialize_expr(
+                b, env, generic, signatures, cache, generated, errors,
+            )),
+        ),
+        Expr::Compare(a, op, b) => Expr::Compare(
+            Box::new(specialize_expr(
+                a, env, generic, signatures, cache, generated, errors,
+            )),
+            op.clone(),
+            Box::new(specialize_expr(
+                b, env, generic, signatures, cache, generated, errors,
+            )),
+        ),
+        Expr::Binary(a, op, b, span) => Expr::Binary(
+            Box::new(specialize_expr(
+                a, env, generic, signatures, cache, generated, errors,
+            )),
+            *op,
+            Box::new(specialize_expr(
+                b, env, generic, signatures, cache, generated, errors,
+            )),
+            *span,
+        ),
+        Expr::StructLiteral { name, fields } => Expr::StructLiteral {
+            name: name.clone(),
+            fields: fields
+                .iter()
+                .map(|(n, e)| {
+                    (
+                        n.clone(),
+                        specialize_expr(e, env, generic, signatures, cache, generated, errors),
+                    )
+                })
+                .collect(),
+        },
+        Expr::Closure {
+            params,
+            result,
+            body,
+            span,
+        } => Expr::Closure {
+            params: params.clone(),
+            result: result.clone(),
+            body: Box::new(specialize_expr(
+                body, env, generic, signatures, cache, generated, errors,
+            )),
+            span: *span,
+        },
+        Expr::EnumVariant {
+            enum_name,
+            variant,
+            arguments,
+        } => Expr::EnumVariant {
+            enum_name: enum_name.clone(),
+            variant: variant.clone(),
+            arguments: arguments
+                .iter()
+                .map(|e| specialize_expr(e, env, generic, signatures, cache, generated, errors))
+                .collect(),
+        },
+        Expr::Match { subject, arms } => Expr::Match {
+            subject: Box::new(specialize_expr(
+                subject, env, generic, signatures, cache, generated, errors,
+            )),
+            arms: arms
+                .iter()
+                .map(|a| MatchArm {
+                    enum_name: a.enum_name.clone(),
+                    variant: a.variant.clone(),
+                    binding: a.binding.clone(),
+                    body: Box::new(specialize_expr(
+                        &a.body, env, generic, signatures, cache, generated, errors,
+                    )),
+                })
+                .collect(),
+        },
+        other => other.clone(),
     }
 }
 
@@ -260,112 +1004,532 @@ fn signatures(
     );
     for (name, parameters, result) in [
         ("auth_hash_password", vec![Type::String], Type::String),
-        ("auth_verify_password", vec![Type::String, Type::String], Type::Bool),
+        (
+            "auth_verify_password",
+            vec![Type::String, Type::String],
+            Type::Bool,
+        ),
         ("auth_session_open", vec![Type::I64], Type::String),
-        ("auth_session_create", vec![Type::I64, Type::I64, Type::I64], Type::String),
-        ("auth_session_user", vec![Type::I64, Type::String], Type::I64),
-        ("auth_session_revoke", vec![Type::I64, Type::String], Type::String),
-        ("auth_session_cookie_create", vec![Type::I64, Type::I64, Type::I64, Type::String], Type::String),
-        ("auth_session_cookie_user", vec![Type::I64, Type::String, Type::String], Type::I64),
-        ("auth_session_request_user", vec![Type::I64, Type::I64, Type::String], Type::I64),
-        ("auth_role_grant", vec![Type::I64, Type::I64, Type::String], Type::String),
-        ("auth_role_revoke", vec![Type::I64, Type::I64, Type::String], Type::String),
-        ("auth_user_has_role", vec![Type::I64, Type::I64, Type::String], Type::Bool),
-        ("auth_csrf_token", vec![Type::I64, Type::I64, Type::I64], Type::String),
-        ("auth_csrf_verify", vec![Type::I64, Type::I64, Type::String], Type::Bool),
+        (
+            "auth_session_create",
+            vec![Type::I64, Type::I64, Type::I64],
+            Type::String,
+        ),
+        (
+            "auth_session_user",
+            vec![Type::I64, Type::String],
+            Type::I64,
+        ),
+        (
+            "auth_session_revoke",
+            vec![Type::I64, Type::String],
+            Type::String,
+        ),
+        (
+            "auth_session_cookie_create",
+            vec![Type::I64, Type::I64, Type::I64, Type::String],
+            Type::String,
+        ),
+        (
+            "auth_session_cookie_user",
+            vec![Type::I64, Type::String, Type::String],
+            Type::I64,
+        ),
+        (
+            "auth_session_request_user",
+            vec![Type::I64, Type::I64, Type::String],
+            Type::I64,
+        ),
+        (
+            "auth_role_grant",
+            vec![Type::I64, Type::I64, Type::String],
+            Type::String,
+        ),
+        (
+            "auth_role_revoke",
+            vec![Type::I64, Type::I64, Type::String],
+            Type::String,
+        ),
+        (
+            "auth_user_has_role",
+            vec![Type::I64, Type::I64, Type::String],
+            Type::Bool,
+        ),
+        (
+            "auth_csrf_token",
+            vec![Type::I64, Type::I64, Type::I64],
+            Type::String,
+        ),
+        (
+            "auth_csrf_verify",
+            vec![Type::I64, Type::I64, Type::String],
+            Type::Bool,
+        ),
         ("fs_append", vec![Type::String, Type::String], Type::String),
-        ("fs_write_bytes", vec![Type::String, Type::Bytes], Type::String),
-        ("fs_append_bytes", vec![Type::String, Type::Bytes], Type::String),
-        ("fs_read_bytes", vec![Type::String], Type::Tuple(vec![Type::Bytes, Type::String])),
+        (
+            "fs_write_bytes",
+            vec![Type::String, Type::Bytes],
+            Type::String,
+        ),
+        (
+            "fs_append_bytes",
+            vec![Type::String, Type::Bytes],
+            Type::String,
+        ),
+        (
+            "fs_read_bytes",
+            vec![Type::String],
+            Type::Tuple(vec![Type::Bytes, Type::String]),
+        ),
         ("fs_remove", vec![Type::String], Type::String),
         ("fs_exists", vec![Type::String], Type::Bool),
         ("fs_is_file", vec![Type::String], Type::Bool),
         ("fs_is_dir", vec![Type::String], Type::Bool),
-        ("fs_size", vec![Type::String], Type::Tuple(vec![Type::I64, Type::String])),
-        ("fs_list", vec![Type::String], Type::Tuple(vec![Type::List(Box::new(Type::String)), Type::String])),
+        (
+            "fs_size",
+            vec![Type::String],
+            Type::Tuple(vec![Type::I64, Type::String]),
+        ),
+        (
+            "fs_list",
+            vec![Type::String],
+            Type::Tuple(vec![Type::List(Box::new(Type::String)), Type::String]),
+        ),
         ("fs_create_dir", vec![Type::String], Type::String),
         ("fs_remove_dir", vec![Type::String], Type::String),
-        ("env_get", vec![Type::String], Type::Tuple(vec![Type::String, Type::Bool])),
+        (
+            "env_get",
+            vec![Type::String],
+            Type::Tuple(vec![Type::String, Type::Bool]),
+        ),
         ("env_set", vec![Type::String, Type::String], Type::Null),
         ("env_unset", vec![Type::String], Type::Null),
-        ("env_vars", vec![], Type::Map(Box::new(Type::String), Box::new(Type::String))),
+        (
+            "env_vars",
+            vec![],
+            Type::Map(Box::new(Type::String), Box::new(Type::String)),
+        ),
         ("env_args", vec![], Type::List(Box::new(Type::String))),
-        ("env_cwd", vec![], Type::Tuple(vec![Type::String, Type::String])),
+        (
+            "env_cwd",
+            vec![],
+            Type::Tuple(vec![Type::String, Type::String]),
+        ),
         ("env_exit", vec![Type::I32], Type::Null),
         ("config_load", vec![Type::String], Type::I64),
-        ("config_get_string", vec![Type::I64, Type::String, Type::String], Type::String),
-        ("config_get_i32", vec![Type::I64, Type::String, Type::I32], Type::I32),
-        ("config_get_i64", vec![Type::I64, Type::String, Type::I64], Type::I64),
-        ("config_get_bool", vec![Type::I64, Type::String, Type::Bool], Type::Bool),
-        ("config_required", vec![Type::I64, Type::String], Type::String),
+        (
+            "config_get_string",
+            vec![Type::I64, Type::String, Type::String],
+            Type::String,
+        ),
+        (
+            "config_get_i32",
+            vec![Type::I64, Type::String, Type::I32],
+            Type::I32,
+        ),
+        (
+            "config_get_i64",
+            vec![Type::I64, Type::String, Type::I64],
+            Type::I64,
+        ),
+        (
+            "config_get_bool",
+            vec![Type::I64, Type::String, Type::Bool],
+            Type::Bool,
+        ),
+        (
+            "config_required",
+            vec![Type::I64, Type::String],
+            Type::String,
+        ),
         ("config_close", vec![Type::I64], Type::Null),
         ("db_open", vec![Type::String], Type::I64),
-        ("db_pool_new", vec![Type::String, Type::I64, Type::I64], Type::I64),
+        (
+            "db_pool_new",
+            vec![Type::String, Type::I64, Type::I64],
+            Type::I64,
+        ),
         ("db_pool_acquire", vec![Type::I64], Type::I64),
         ("db_pool_release", vec![Type::I64, Type::I64], Type::Null),
         ("db_pool_close", vec![Type::I64], Type::Null),
         ("db_schema", vec![Type::String], Type::I64),
-        ("db_field", vec![Type::I64, Type::String, Type::String], Type::String),
+        (
+            "db_field",
+            vec![Type::I64, Type::String, Type::String],
+            Type::String,
+        ),
         ("db_nullable", vec![Type::I64, Type::String], Type::String),
-        ("db_default", vec![Type::I64, Type::String, Type::String], Type::String),
+        (
+            "db_default",
+            vec![Type::I64, Type::String, Type::String],
+            Type::String,
+        ),
         ("db_unique", vec![Type::I64, Type::String], Type::String),
         ("db_index", vec![Type::I64, Type::String], Type::String),
-        ("db_migrate", vec![Type::I64, Type::String, Type::I64], Type::String),
+        (
+            "db_migrate",
+            vec![Type::I64, Type::String, Type::I64],
+            Type::String,
+        ),
         ("db_schema_close", vec![Type::I64], Type::Null),
         ("db_exec", vec![Type::I64, Type::String], Type::String),
-        ("db_error_detail", vec![Type::String], Type::Tuple(vec![Type::String, Type::String])),
+        (
+            "db_error_detail",
+            vec![Type::String],
+            Type::Tuple(vec![Type::String, Type::String]),
+        ),
         ("db_error_status", vec![Type::String], Type::I32),
         ("db_close", vec![Type::I64], Type::Null),
         ("db_store", vec![Type::I64, Type::String], Type::I64),
-        ("db_find", vec![Type::I64, Type::I64], Type::Tuple(vec![Type::String, Type::String])),
-        ("db_find_map", vec![Type::I64, Type::I64], Type::Map(Box::new(Type::String), Box::new(Type::String))),
-        ("db_find_model", vec![Type::I64, Type::I64, Type::Map(Box::new(Type::String), Box::new(Type::String))], Type::Map(Box::new(Type::String), Box::new(Type::String))),
-        ("db_related", vec![Type::I64, Type::String, Type::I64], Type::List(Box::new(Type::Map(Box::new(Type::String), Box::new(Type::String))))),
-        ("db_map_i64", vec![Type::Map(Box::new(Type::String), Box::new(Type::String)), Type::String], Type::I64),
-        ("db_map_i32", vec![Type::Map(Box::new(Type::String), Box::new(Type::String)), Type::String], Type::I32),
-        ("db_map_bool", vec![Type::Map(Box::new(Type::String), Box::new(Type::String)), Type::String], Type::Bool),
-        ("db_map_string", vec![Type::Map(Box::new(Type::String), Box::new(Type::String)), Type::String], Type::String),
-        ("db_set_i32", vec![Type::Map(Box::new(Type::String), Box::new(Type::String)), Type::String, Type::I32], Type::Null),
-        ("db_set_i64", vec![Type::Map(Box::new(Type::String), Box::new(Type::String)), Type::String, Type::I64], Type::Null),
-        ("db_set_bool", vec![Type::Map(Box::new(Type::String), Box::new(Type::String)), Type::String, Type::Bool], Type::Null),
-        ("db_set_string", vec![Type::Map(Box::new(Type::String), Box::new(Type::String)), Type::String, Type::String], Type::Null),
-        ("db_validate", vec![Type::Map(Box::new(Type::String), Box::new(Type::String)), Type::Map(Box::new(Type::String), Box::new(Type::String))], Type::String),
-        ("db_insert_validated", vec![Type::I64, Type::Map(Box::new(Type::String), Box::new(Type::String)), Type::Map(Box::new(Type::String), Box::new(Type::String))], Type::I64),
-        ("db_insert_model", vec![Type::I64, Type::Map(Box::new(Type::String), Box::new(Type::String)), Type::Map(Box::new(Type::String), Box::new(Type::String))], Type::I64),
-        ("db_update_validated", vec![Type::I64, Type::I64, Type::Map(Box::new(Type::String), Box::new(Type::String)), Type::Map(Box::new(Type::String), Box::new(Type::String))], Type::String),
-        ("db_update_model", vec![Type::I64, Type::I64, Type::Map(Box::new(Type::String), Box::new(Type::String)), Type::Map(Box::new(Type::String), Box::new(Type::String))], Type::String),
-        ("db_insert", vec![Type::I64, Type::Map(Box::new(Type::String), Box::new(Type::String))], Type::I64),
+        (
+            "db_find",
+            vec![Type::I64, Type::I64],
+            Type::Tuple(vec![Type::String, Type::String]),
+        ),
+        (
+            "db_find_map",
+            vec![Type::I64, Type::I64],
+            Type::Map(Box::new(Type::String), Box::new(Type::String)),
+        ),
+        (
+            "db_find_model",
+            vec![
+                Type::I64,
+                Type::I64,
+                Type::Map(Box::new(Type::String), Box::new(Type::String)),
+            ],
+            Type::Map(Box::new(Type::String), Box::new(Type::String)),
+        ),
+        (
+            "db_related",
+            vec![Type::I64, Type::String, Type::I64],
+            Type::List(Box::new(Type::Map(
+                Box::new(Type::String),
+                Box::new(Type::String),
+            ))),
+        ),
+        (
+            "db_map_i64",
+            vec![
+                Type::Map(Box::new(Type::String), Box::new(Type::String)),
+                Type::String,
+            ],
+            Type::I64,
+        ),
+        (
+            "db_map_i32",
+            vec![
+                Type::Map(Box::new(Type::String), Box::new(Type::String)),
+                Type::String,
+            ],
+            Type::I32,
+        ),
+        (
+            "db_map_bool",
+            vec![
+                Type::Map(Box::new(Type::String), Box::new(Type::String)),
+                Type::String,
+            ],
+            Type::Bool,
+        ),
+        (
+            "db_map_string",
+            vec![
+                Type::Map(Box::new(Type::String), Box::new(Type::String)),
+                Type::String,
+            ],
+            Type::String,
+        ),
+        (
+            "db_set_i32",
+            vec![
+                Type::Map(Box::new(Type::String), Box::new(Type::String)),
+                Type::String,
+                Type::I32,
+            ],
+            Type::Null,
+        ),
+        (
+            "db_set_i64",
+            vec![
+                Type::Map(Box::new(Type::String), Box::new(Type::String)),
+                Type::String,
+                Type::I64,
+            ],
+            Type::Null,
+        ),
+        (
+            "db_set_bool",
+            vec![
+                Type::Map(Box::new(Type::String), Box::new(Type::String)),
+                Type::String,
+                Type::Bool,
+            ],
+            Type::Null,
+        ),
+        (
+            "db_set_string",
+            vec![
+                Type::Map(Box::new(Type::String), Box::new(Type::String)),
+                Type::String,
+                Type::String,
+            ],
+            Type::Null,
+        ),
+        (
+            "db_validate",
+            vec![
+                Type::Map(Box::new(Type::String), Box::new(Type::String)),
+                Type::Map(Box::new(Type::String), Box::new(Type::String)),
+            ],
+            Type::String,
+        ),
+        (
+            "db_insert_validated",
+            vec![
+                Type::I64,
+                Type::Map(Box::new(Type::String), Box::new(Type::String)),
+                Type::Map(Box::new(Type::String), Box::new(Type::String)),
+            ],
+            Type::I64,
+        ),
+        (
+            "db_insert_model",
+            vec![
+                Type::I64,
+                Type::Map(Box::new(Type::String), Box::new(Type::String)),
+                Type::Map(Box::new(Type::String), Box::new(Type::String)),
+            ],
+            Type::I64,
+        ),
+        (
+            "db_update_validated",
+            vec![
+                Type::I64,
+                Type::I64,
+                Type::Map(Box::new(Type::String), Box::new(Type::String)),
+                Type::Map(Box::new(Type::String), Box::new(Type::String)),
+            ],
+            Type::String,
+        ),
+        (
+            "db_update_model",
+            vec![
+                Type::I64,
+                Type::I64,
+                Type::Map(Box::new(Type::String), Box::new(Type::String)),
+                Type::Map(Box::new(Type::String), Box::new(Type::String)),
+            ],
+            Type::String,
+        ),
+        (
+            "db_insert",
+            vec![
+                Type::I64,
+                Type::Map(Box::new(Type::String), Box::new(Type::String)),
+            ],
+            Type::I64,
+        ),
         ("db_delete", vec![Type::I64, Type::I64], Type::String),
-        ("db_update", vec![Type::I64, Type::I64, Type::Map(Box::new(Type::String), Box::new(Type::String))], Type::String),
-        ("db_all", vec![Type::I64], Type::List(Box::new(Type::Map(Box::new(Type::String), Box::new(Type::String))))),
-        ("db_filter", vec![Type::I64, Type::String, Type::String], Type::List(Box::new(Type::Map(Box::new(Type::String), Box::new(Type::String))))),
-        ("db_order", vec![Type::I64, Type::String, Type::Bool], Type::List(Box::new(Type::Map(Box::new(Type::String), Box::new(Type::String))))),
-        ("db_page", vec![Type::I64, Type::I64, Type::I64], Type::List(Box::new(Type::Map(Box::new(Type::String), Box::new(Type::String))))),
-        ("db_query", vec![Type::I64, Type::String, Type::String, Type::String, Type::Bool, Type::I64, Type::I64], Type::List(Box::new(Type::Map(Box::new(Type::String), Box::new(Type::String))))),
+        (
+            "db_update",
+            vec![
+                Type::I64,
+                Type::I64,
+                Type::Map(Box::new(Type::String), Box::new(Type::String)),
+            ],
+            Type::String,
+        ),
+        (
+            "db_all",
+            vec![Type::I64],
+            Type::List(Box::new(Type::Map(
+                Box::new(Type::String),
+                Box::new(Type::String),
+            ))),
+        ),
+        (
+            "db_filter",
+            vec![Type::I64, Type::String, Type::String],
+            Type::List(Box::new(Type::Map(
+                Box::new(Type::String),
+                Box::new(Type::String),
+            ))),
+        ),
+        (
+            "db_order",
+            vec![Type::I64, Type::String, Type::Bool],
+            Type::List(Box::new(Type::Map(
+                Box::new(Type::String),
+                Box::new(Type::String),
+            ))),
+        ),
+        (
+            "db_page",
+            vec![Type::I64, Type::I64, Type::I64],
+            Type::List(Box::new(Type::Map(
+                Box::new(Type::String),
+                Box::new(Type::String),
+            ))),
+        ),
+        (
+            "db_query",
+            vec![
+                Type::I64,
+                Type::String,
+                Type::String,
+                Type::String,
+                Type::Bool,
+                Type::I64,
+                Type::I64,
+            ],
+            Type::List(Box::new(Type::Map(
+                Box::new(Type::String),
+                Box::new(Type::String),
+            ))),
+        ),
         ("db_begin", vec![Type::I64], Type::String),
         ("db_commit", vec![Type::I64], Type::String),
         ("db_rollback", vec![Type::I64], Type::String),
         ("http_bind", vec![Type::String], Type::I64),
         ("http_accept", vec![Type::I64], Type::I64),
-        ("http_read", vec![Type::I64], Type::Tuple(vec![Type::String, Type::String])),
-        ("http_write", vec![Type::I64, Type::I32, Type::String], Type::String),
+        (
+            "http_read",
+            vec![Type::I64],
+            Type::Tuple(vec![Type::String, Type::String]),
+        ),
+        (
+            "http_write",
+            vec![Type::I64, Type::I32, Type::String],
+            Type::String,
+        ),
         ("http_close", vec![Type::I64], Type::Null),
         ("http_router_new", vec![], Type::I64),
-        ("http_router_get", vec![Type::I64, Type::String, Type::Function(vec![Type::String, Type::String, Type::String], Box::new(Type::Tuple(vec![Type::I32, Type::String])))], Type::String),
-        ("http_router_post", vec![Type::I64, Type::String, Type::Function(vec![Type::String, Type::String, Type::String], Box::new(Type::Tuple(vec![Type::I32, Type::String])))], Type::String),
-        ("http_router_use", vec![Type::I64, Type::Function(vec![Type::String, Type::String, Type::String], Box::new(Type::Tuple(vec![Type::I32, Type::String])))], Type::String),
-        ("http_router_get_request", vec![Type::I64, Type::String, Type::Function(vec![Type::I64], Box::new(Type::Tuple(vec![Type::I32, Type::String])))], Type::String),
-        ("http_router_post_request", vec![Type::I64, Type::String, Type::Function(vec![Type::I64], Box::new(Type::Tuple(vec![Type::I32, Type::String])))], Type::String),
-        ("http_router_get_response", vec![Type::I64, Type::String, Type::Function(vec![Type::I64], Box::new(Type::I64))], Type::String),
-        ("http_router_post_response", vec![Type::I64, Type::String, Type::Function(vec![Type::I64], Box::new(Type::I64))], Type::String),
-        ("http_router_use_request", vec![Type::I64, Type::Function(vec![Type::I64], Box::new(Type::I64))], Type::String),
-        ("http_router_use_validation", vec![Type::I64, Type::String, Type::String, Type::Map(Box::new(Type::String), Box::new(Type::I64))], Type::String),
-        ("http_router_use_session", vec![Type::I64, Type::I64, Type::String], Type::String),
-        ("http_router_use_role", vec![Type::I64, Type::I64, Type::String, Type::String], Type::String),
-        ("http_router_use_csrf", vec![Type::I64, Type::I64, Type::String], Type::String),
-        ("http_router_dispatch_request", vec![Type::I64, Type::String], Type::Tuple(vec![Type::I32, Type::String])),
-        ("http_router_dispatch_request_pool", vec![Type::I64, Type::I64, Type::String], Type::Tuple(vec![Type::I32, Type::String])),
-        ("http_router_dispatch_response", vec![Type::I64, Type::String], Type::I64),
+        (
+            "http_router_get",
+            vec![
+                Type::I64,
+                Type::String,
+                Type::Function(
+                    vec![Type::String, Type::String, Type::String],
+                    Box::new(Type::Tuple(vec![Type::I32, Type::String])),
+                ),
+            ],
+            Type::String,
+        ),
+        (
+            "http_router_post",
+            vec![
+                Type::I64,
+                Type::String,
+                Type::Function(
+                    vec![Type::String, Type::String, Type::String],
+                    Box::new(Type::Tuple(vec![Type::I32, Type::String])),
+                ),
+            ],
+            Type::String,
+        ),
+        (
+            "http_router_use",
+            vec![
+                Type::I64,
+                Type::Function(
+                    vec![Type::String, Type::String, Type::String],
+                    Box::new(Type::Tuple(vec![Type::I32, Type::String])),
+                ),
+            ],
+            Type::String,
+        ),
+        (
+            "http_router_get_request",
+            vec![
+                Type::I64,
+                Type::String,
+                Type::Function(
+                    vec![Type::I64],
+                    Box::new(Type::Tuple(vec![Type::I32, Type::String])),
+                ),
+            ],
+            Type::String,
+        ),
+        (
+            "http_router_post_request",
+            vec![
+                Type::I64,
+                Type::String,
+                Type::Function(
+                    vec![Type::I64],
+                    Box::new(Type::Tuple(vec![Type::I32, Type::String])),
+                ),
+            ],
+            Type::String,
+        ),
+        (
+            "http_router_get_response",
+            vec![
+                Type::I64,
+                Type::String,
+                Type::Function(vec![Type::I64], Box::new(Type::I64)),
+            ],
+            Type::String,
+        ),
+        (
+            "http_router_post_response",
+            vec![
+                Type::I64,
+                Type::String,
+                Type::Function(vec![Type::I64], Box::new(Type::I64)),
+            ],
+            Type::String,
+        ),
+        (
+            "http_router_use_request",
+            vec![
+                Type::I64,
+                Type::Function(vec![Type::I64], Box::new(Type::I64)),
+            ],
+            Type::String,
+        ),
+        (
+            "http_router_use_validation",
+            vec![
+                Type::I64,
+                Type::String,
+                Type::String,
+                Type::Map(Box::new(Type::String), Box::new(Type::I64)),
+            ],
+            Type::String,
+        ),
+        (
+            "http_router_use_session",
+            vec![Type::I64, Type::I64, Type::String],
+            Type::String,
+        ),
+        (
+            "http_router_use_role",
+            vec![Type::I64, Type::I64, Type::String, Type::String],
+            Type::String,
+        ),
+        (
+            "http_router_use_csrf",
+            vec![Type::I64, Type::I64, Type::String],
+            Type::String,
+        ),
+        (
+            "http_router_dispatch_request",
+            vec![Type::I64, Type::String],
+            Type::Tuple(vec![Type::I32, Type::String]),
+        ),
+        (
+            "http_router_dispatch_request_pool",
+            vec![Type::I64, Type::I64, Type::String],
+            Type::Tuple(vec![Type::I32, Type::String]),
+        ),
+        (
+            "http_router_dispatch_response",
+            vec![Type::I64, Type::String],
+            Type::I64,
+        ),
         ("http_request_db", vec![], Type::I64),
         ("http_request_begin", vec![], Type::String),
         ("http_request_commit", vec![], Type::String),
@@ -373,24 +1537,121 @@ fn signatures(
         ("http_request_method", vec![Type::I64], Type::String),
         ("http_request_path", vec![Type::I64], Type::String),
         ("http_request_body", vec![Type::I64], Type::String),
-        ("http_request_header", vec![Type::I64, Type::String], Type::String),
-        ("http_request_cookie", vec![Type::I64, Type::String], Type::String),
-        ("http_request_query", vec![Type::I64, Type::String], Type::String),
-        ("http_request_param", vec![Type::I64, Type::String, Type::String], Type::String),
-        ("http_require_header", vec![Type::I64, Type::String], Type::Tuple(vec![Type::String, Type::String])),
-        ("http_require_query", vec![Type::I64, Type::String], Type::Tuple(vec![Type::String, Type::String])),
-        ("http_require_param", vec![Type::I64, Type::String, Type::String], Type::Tuple(vec![Type::String, Type::String])),
-        ("http_json_validate_schema", vec![Type::String, Type::Map(Box::new(Type::String), Box::new(Type::String))], Type::String),
-        ("http_validate", vec![Type::Map(Box::new(Type::String), Box::new(Type::String)), Type::Map(Box::new(Type::String), Box::new(Type::I64))], Type::Map(Box::new(Type::String), Box::new(Type::String))),
-        ("http_validate_json", vec![Type::String, Type::Map(Box::new(Type::String), Box::new(Type::I64))], Type::Map(Box::new(Type::String), Box::new(Type::String))),
-        ("http_validate_query", vec![Type::I64, Type::Map(Box::new(Type::String), Box::new(Type::I64))], Type::Map(Box::new(Type::String), Box::new(Type::String))),
-        ("http_validate_params", vec![Type::I64, Type::String, Type::Map(Box::new(Type::String), Box::new(Type::I64))], Type::Map(Box::new(Type::String), Box::new(Type::String))),
-        ("http_validate_form", vec![Type::I64, Type::Map(Box::new(Type::String), Box::new(Type::I64))], Type::Map(Box::new(Type::String), Box::new(Type::String))),
-        ("http_validate_form_body", vec![Type::String, Type::Map(Box::new(Type::String), Box::new(Type::I64))], Type::Map(Box::new(Type::String), Box::new(Type::String))),
-        ("http_validate_status", vec![Type::Map(Box::new(Type::String), Box::new(Type::String))], Type::I32),
-        ("http_validation_error", vec![Type::Map(Box::new(Type::String), Box::new(Type::String)), Type::String], Type::Tuple(vec![Type::String, Type::String])),
-        ("http_error_response", vec![Type::String, Type::String, Type::I32, Type::String], Type::I64),
-        ("http_validation_response", vec![Type::Map(Box::new(Type::String), Box::new(Type::String))], Type::I64),
+        (
+            "http_request_header",
+            vec![Type::I64, Type::String],
+            Type::String,
+        ),
+        (
+            "http_request_cookie",
+            vec![Type::I64, Type::String],
+            Type::String,
+        ),
+        (
+            "http_request_query",
+            vec![Type::I64, Type::String],
+            Type::String,
+        ),
+        (
+            "http_request_param",
+            vec![Type::I64, Type::String, Type::String],
+            Type::String,
+        ),
+        (
+            "http_require_header",
+            vec![Type::I64, Type::String],
+            Type::Tuple(vec![Type::String, Type::String]),
+        ),
+        (
+            "http_require_query",
+            vec![Type::I64, Type::String],
+            Type::Tuple(vec![Type::String, Type::String]),
+        ),
+        (
+            "http_require_param",
+            vec![Type::I64, Type::String, Type::String],
+            Type::Tuple(vec![Type::String, Type::String]),
+        ),
+        (
+            "http_json_validate_schema",
+            vec![
+                Type::String,
+                Type::Map(Box::new(Type::String), Box::new(Type::String)),
+            ],
+            Type::String,
+        ),
+        (
+            "http_validate",
+            vec![
+                Type::Map(Box::new(Type::String), Box::new(Type::String)),
+                Type::Map(Box::new(Type::String), Box::new(Type::I64)),
+            ],
+            Type::Map(Box::new(Type::String), Box::new(Type::String)),
+        ),
+        (
+            "http_validate_json",
+            vec![
+                Type::String,
+                Type::Map(Box::new(Type::String), Box::new(Type::I64)),
+            ],
+            Type::Map(Box::new(Type::String), Box::new(Type::String)),
+        ),
+        (
+            "http_validate_query",
+            vec![
+                Type::I64,
+                Type::Map(Box::new(Type::String), Box::new(Type::I64)),
+            ],
+            Type::Map(Box::new(Type::String), Box::new(Type::String)),
+        ),
+        (
+            "http_validate_params",
+            vec![
+                Type::I64,
+                Type::String,
+                Type::Map(Box::new(Type::String), Box::new(Type::I64)),
+            ],
+            Type::Map(Box::new(Type::String), Box::new(Type::String)),
+        ),
+        (
+            "http_validate_form",
+            vec![
+                Type::I64,
+                Type::Map(Box::new(Type::String), Box::new(Type::I64)),
+            ],
+            Type::Map(Box::new(Type::String), Box::new(Type::String)),
+        ),
+        (
+            "http_validate_form_body",
+            vec![
+                Type::String,
+                Type::Map(Box::new(Type::String), Box::new(Type::I64)),
+            ],
+            Type::Map(Box::new(Type::String), Box::new(Type::String)),
+        ),
+        (
+            "http_validate_status",
+            vec![Type::Map(Box::new(Type::String), Box::new(Type::String))],
+            Type::I32,
+        ),
+        (
+            "http_validation_error",
+            vec![
+                Type::Map(Box::new(Type::String), Box::new(Type::String)),
+                Type::String,
+            ],
+            Type::Tuple(vec![Type::String, Type::String]),
+        ),
+        (
+            "http_error_response",
+            vec![Type::String, Type::String, Type::I32, Type::String],
+            Type::I64,
+        ),
+        (
+            "http_validation_response",
+            vec![Type::Map(Box::new(Type::String), Box::new(Type::String))],
+            Type::I64,
+        ),
         ("http_rule_required", vec![], Type::I64),
         ("http_rule_optional", vec![], Type::I64),
         ("http_rule_string", vec![], Type::I64),
@@ -399,36 +1660,122 @@ fn signatures(
         ("http_rule_min", vec![Type::I64], Type::I64),
         ("http_rule_max", vec![Type::I64], Type::I64),
         ("http_rules", vec![Type::I64], Type::I64),
-        ("http_response_new", vec![Type::I32, Type::String], Type::I64),
-        ("http_response_header", vec![Type::I64, Type::String, Type::String], Type::String),
-        ("http_response_cookie", vec![Type::I64, Type::String, Type::String, Type::I64, Type::Bool, Type::Bool], Type::String),
+        (
+            "http_response_new",
+            vec![Type::I32, Type::String],
+            Type::I64,
+        ),
+        (
+            "http_response_header",
+            vec![Type::I64, Type::String, Type::String],
+            Type::String,
+        ),
+        (
+            "http_response_cookie",
+            vec![
+                Type::I64,
+                Type::String,
+                Type::String,
+                Type::I64,
+                Type::Bool,
+                Type::Bool,
+            ],
+            Type::String,
+        ),
         ("http_response_status", vec![Type::I64], Type::I32),
         ("http_response_body", vec![Type::I64], Type::String),
-        ("http_response_header_value", vec![Type::I64, Type::String], Type::String),
+        (
+            "http_response_header_value",
+            vec![Type::I64, Type::String],
+            Type::String,
+        ),
         ("http_response_close", vec![Type::I64], Type::Null),
-        ("http_router_dispatch", vec![Type::I64, Type::String, Type::String, Type::String], Type::Tuple(vec![Type::I32, Type::String])),
+        (
+            "http_router_dispatch",
+            vec![Type::I64, Type::String, Type::String, Type::String],
+            Type::Tuple(vec![Type::I32, Type::String]),
+        ),
         ("http_router_close", vec![Type::I64], Type::Null),
         ("http_serve", vec![Type::I64, Type::String], Type::String),
         ("http_query", vec![Type::String, Type::String], Type::String),
-        ("http_json", vec![Type::I32, Type::String], Type::Tuple(vec![Type::I32, Type::String])),
-        ("http_json_body", vec![Type::String], Type::Tuple(vec![Type::String, Type::String])),
+        (
+            "http_json",
+            vec![Type::I32, Type::String],
+            Type::Tuple(vec![Type::I32, Type::String]),
+        ),
+        (
+            "http_json_body",
+            vec![Type::String],
+            Type::Tuple(vec![Type::String, Type::String]),
+        ),
         ("http_json_validate", vec![Type::String], Type::String),
         ("http_json_escape", vec![Type::String], Type::String),
-        ("http_json_object", vec![Type::String], Type::Tuple(vec![Type::Map(Box::new(Type::String), Box::new(Type::String)), Type::String])),
-        ("http_json_string", vec![Type::String], Type::Tuple(vec![Type::String, Type::String])),
-        ("http_json_i64", vec![Type::String], Type::Tuple(vec![Type::I64, Type::String])),
-        ("http_json_bool", vec![Type::String], Type::Tuple(vec![Type::Bool, Type::String])),
-        ("http_header", vec![Type::String, Type::String], Type::String),
-        ("http_param", vec![Type::String, Type::String, Type::String], Type::String),
+        (
+            "http_json_object",
+            vec![Type::String],
+            Type::Tuple(vec![
+                Type::Map(Box::new(Type::String), Box::new(Type::String)),
+                Type::String,
+            ]),
+        ),
+        (
+            "http_json_string",
+            vec![Type::String],
+            Type::Tuple(vec![Type::String, Type::String]),
+        ),
+        (
+            "http_json_i64",
+            vec![Type::String],
+            Type::Tuple(vec![Type::I64, Type::String]),
+        ),
+        (
+            "http_json_bool",
+            vec![Type::String],
+            Type::Tuple(vec![Type::Bool, Type::String]),
+        ),
+        (
+            "http_header",
+            vec![Type::String, Type::String],
+            Type::String,
+        ),
+        (
+            "http_param",
+            vec![Type::String, Type::String, Type::String],
+            Type::String,
+        ),
         ("http_server_bind", vec![Type::String], Type::I64),
-        ("http_server_bind_config", vec![Type::String, Type::I64, Type::I64, Type::I64, Type::I64], Type::I64),
+        (
+            "http_server_bind_config",
+            vec![Type::String, Type::I64, Type::I64, Type::I64, Type::I64],
+            Type::I64,
+        ),
         ("http_server_shutdown", vec![Type::I64], Type::Null),
         ("http_server_run", vec![Type::I64, Type::I64], Type::String),
-        ("http_server_run_pool", vec![Type::I64, Type::I64, Type::I64], Type::String),
-        ("http_server_run_for", vec![Type::I64, Type::I64, Type::I64], Type::String),
-        ("http_server_run_for_pool", vec![Type::I64, Type::I64, Type::I64, Type::I64], Type::String),
-        ("http_server_run_workers", vec![Type::I64, Type::I64, Type::I64], Type::String),
-        ("http_server_run_workers_pool", vec![Type::I64, Type::I64, Type::I64, Type::I64], Type::String),
+        (
+            "http_server_run_pool",
+            vec![Type::I64, Type::I64, Type::I64],
+            Type::String,
+        ),
+        (
+            "http_server_run_for",
+            vec![Type::I64, Type::I64, Type::I64],
+            Type::String,
+        ),
+        (
+            "http_server_run_for_pool",
+            vec![Type::I64, Type::I64, Type::I64, Type::I64],
+            Type::String,
+        ),
+        (
+            "http_server_run_workers",
+            vec![Type::I64, Type::I64, Type::I64],
+            Type::String,
+        ),
+        (
+            "http_server_run_workers_pool",
+            vec![Type::I64, Type::I64, Type::I64, Type::I64],
+            Type::String,
+        ),
     ] {
         signatures.insert(name.into(), FunctionSignature { parameters, result });
     }
@@ -710,7 +2057,11 @@ fn check_function(
                     });
                 }
             }
-            Stmt::TryCatch { body, binding, catch_body } => {
+            Stmt::TryCatch {
+                body,
+                binding,
+                catch_body,
+            } => {
                 let _ = check_block(body, &names, function, signatures, layouts, errors, 0);
                 let mut catch_names = names.clone();
                 catch_names.insert(binding.clone(), (Type::Named("Error".into()), false));
@@ -982,8 +2333,14 @@ fn check_block(
                     });
                 }
             }
-            Stmt::TryCatch { body, binding, catch_body } => {
-                let _ = check_block(body, &names, function, signatures, layouts, errors, loop_depth);
+            Stmt::TryCatch {
+                body,
+                binding,
+                catch_body,
+            } => {
+                let _ = check_block(
+                    body, &names, function, signatures, layouts, errors, loop_depth,
+                );
                 let mut catch_names = names.clone();
                 catch_names.insert(binding.clone(), (Type::Named("Error".into()), false));
                 let catch_flow = check_block(
@@ -1380,7 +2737,9 @@ fn expr(
                 });
                 None
             }),
-        Expr::Call { name, arguments, .. } => {
+        Expr::Call {
+            name, arguments, ..
+        } => {
             if let Some((Type::Function(parameters, result), _)) = names.get(name) {
                 if arguments.len() != parameters.len() {
                     errors.push(Diagnostic {
@@ -1433,26 +2792,59 @@ fn expr(
                 }
                 return Some(Type::I32);
             }
-            if matches!(name.as_str(), "required" | "optional" | "string" | "i64" | "email") {
-                if !arguments.is_empty() { errors.push(Diagnostic { message: format!("rule `{name}` takes no arguments"), span: None }); }
+            if matches!(
+                name.as_str(),
+                "required" | "optional" | "string" | "i64" | "email"
+            ) {
+                if !arguments.is_empty() {
+                    errors.push(Diagnostic {
+                        message: format!("rule `{name}` takes no arguments"),
+                        span: None,
+                    });
+                }
                 return Some(Type::I64);
             }
             if name == "min" || name == "max" {
-                if arguments.len() != 1 || expr(&arguments[0], names, signatures, layouts, errors) != Some(Type::I32) && expr(&arguments[0], names, signatures, layouts, errors) != Some(Type::I64) {
-                    errors.push(Diagnostic { message: format!("rule `{name}` expects one integer"), span: None });
+                if arguments.len() != 1
+                    || expr(&arguments[0], names, signatures, layouts, errors) != Some(Type::I32)
+                        && expr(&arguments[0], names, signatures, layouts, errors)
+                            != Some(Type::I64)
+                {
+                    errors.push(Diagnostic {
+                        message: format!("rule `{name}` expects one integer"),
+                        span: None,
+                    });
                 }
                 return Some(Type::I64);
             }
             if name == "rules" {
-                for argument in arguments { expr(argument, names, signatures, layouts, errors); }
+                for argument in arguments {
+                    expr(argument, names, signatures, layouts, errors);
+                }
                 return Some(Type::I64);
             }
             if name == "validate" {
-                if arguments.len() != 2 { errors.push(Diagnostic { message: "validate expects input and schema".into(), span: None }); return Some(Type::Map(Box::new(Type::String), Box::new(Type::String))); }
+                if arguments.len() != 2 {
+                    errors.push(Diagnostic {
+                        message: "validate expects input and schema".into(),
+                        span: None,
+                    });
+                    return Some(Type::Map(Box::new(Type::String), Box::new(Type::String)));
+                }
                 let input = expr(&arguments[0], names, signatures, layouts, errors);
                 let schema = expr(&arguments[1], names, signatures, layouts, errors);
-                if input != Some(Type::Map(Box::new(Type::String), Box::new(Type::String))) { errors.push(Diagnostic { message: "validate input must be map<string, string>".into(), span: None }); }
-                if schema != Some(Type::Map(Box::new(Type::String), Box::new(Type::I64))) { errors.push(Diagnostic { message: "validate schema must map field names to rules".into(), span: None }); }
+                if input != Some(Type::Map(Box::new(Type::String), Box::new(Type::String))) {
+                    errors.push(Diagnostic {
+                        message: "validate input must be map<string, string>".into(),
+                        span: None,
+                    });
+                }
+                if schema != Some(Type::Map(Box::new(Type::String), Box::new(Type::I64))) {
+                    errors.push(Diagnostic {
+                        message: "validate schema must map field names to rules".into(),
+                        span: None,
+                    });
+                }
                 return Some(Type::Map(Box::new(Type::String), Box::new(Type::String)));
             }
             if name == "append" {
@@ -1534,11 +2926,38 @@ fn expr(
                     return Some(Type::Bool);
                 }
                 if let Some((receiver, method)) = name.split_once("__") {
-                    if (method == "find" || method == "all" || method == "filter" || method == "related" || method == "order" || method == "page" || method == "query") && layouts.contains_key(receiver) {
-                        let expected = if method == "find" { 2 } else if method == "all" { 1 } else if method == "query" { 7 } else { 3 };
-                        if arguments.len() != expected { errors.push(Diagnostic { message: format!("model `{receiver}.{method}` expects {expected} arguments"), span: None }); }
-                        for argument in arguments { expr(argument, names, signatures, layouts, errors); }
-                        if method == "find" { return Some(Type::Named(receiver.to_string())); }
+                    if (method == "find"
+                        || method == "all"
+                        || method == "filter"
+                        || method == "related"
+                        || method == "order"
+                        || method == "page"
+                        || method == "query")
+                        && layouts.contains_key(receiver)
+                    {
+                        let expected = if method == "find" {
+                            2
+                        } else if method == "all" {
+                            1
+                        } else if method == "query" {
+                            7
+                        } else {
+                            3
+                        };
+                        if arguments.len() != expected {
+                            errors.push(Diagnostic {
+                                message: format!(
+                                    "model `{receiver}.{method}` expects {expected} arguments"
+                                ),
+                                span: None,
+                            });
+                        }
+                        for argument in arguments {
+                            expr(argument, names, signatures, layouts, errors);
+                        }
+                        if method == "find" {
+                            return Some(Type::Named(receiver.to_string()));
+                        }
                         return Some(Type::List(Box::new(Type::Named(receiver.to_string()))));
                     }
                 }

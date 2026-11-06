@@ -27,6 +27,34 @@ fn new_rejects_an_invalid_package_name() {
     assert!(String::from_utf8_lossy(&output.stderr).contains("package name"));
 }
 
+#[test]
+fn native_generic_function_is_specialized_from_argument_types() {
+    let dir = fixture_project(
+        "function identity<T>(value: T) -> T { return value }\nfunction main() -> i32 { return identity(42) }",
+    );
+    let output = xenith(&dir.path().join("app")).arg("run").output().unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(42),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn native_generic_collection_function_is_specialized() {
+    let dir = fixture_project(
+        "function first<T>(items: list<T>) -> T { return items[0] }\nfunction main() -> i32 { let values: list<i32> = [7, 8] return first(values) }",
+    );
+    let output = xenith(&dir.path().join("app")).arg("run").output().unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(7),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
 fn fixture_project(source: &str) -> tempfile::TempDir {
     let dir = tempfile::tempdir().unwrap();
     xenith(dir.path()).args(["new", "app"]).status().unwrap();
@@ -57,7 +85,12 @@ fn native_project_builds_and_runs_a_standard_library_import() {
     );
     let project = dir.path().join("app");
     let output = xenith(&project).arg("run").output().unwrap();
-    assert_eq!(output.status.code(), Some(42), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(
+        output.status.code(),
+        Some(42),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 }
 
 #[test]
@@ -109,7 +142,9 @@ fn native_project_builds_an_imported_struct() {
 
 #[test]
 fn native_project_builds_namespace_imported_struct_and_enum() {
-    let dir = fixture_project("grab * as types from \"types\"\nfn main() -> i32 { let pair = types.Pair { value: 9 } return match types::Color::Red { types::Color::Red => pair.value types::Color::Blue => 0 } }");
+    let dir = fixture_project(
+        "grab * as types from \"types\"\nfn main() -> i32 { let pair = types.Pair { value: 9 } return match types::Color::Red { types::Color::Red => pair.value types::Color::Blue => 0 } }",
+    );
     let project = dir.path().join("app");
     std::fs::write(
         project.join("src/types.xen"),
@@ -182,7 +217,9 @@ fn native_project_imports_a_function_under_an_alias() {
 
 #[test]
 fn native_project_rejects_duplicate_imported_names() {
-    let dir = fixture_project("grab { value } from \"first\"\ngrab { value } from \"second\"\nfn main() -> i32 { return 0 }");
+    let dir = fixture_project(
+        "grab { value } from \"first\"\ngrab { value } from \"second\"\nfn main() -> i32 { return 0 }",
+    );
     let project = dir.path().join("app");
     std::fs::write(
         project.join("src/first.xen"),
@@ -206,32 +243,56 @@ fn native_project_reports_missing_imported_modules_clearly() {
     let output = xenith(&project).arg("check").output().unwrap();
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(!output.status.success());
-    assert!(stderr.contains("cannot find imported module `missing`"), "{stderr}");
+    assert!(
+        stderr.contains("cannot find imported module `missing`"),
+        "{stderr}"
+    );
 }
 
 #[test]
 fn native_project_rejects_duplicate_import_namespaces() {
-    let dir = fixture_project("grab * as helper from \"first\"\ngrab * as helper from \"second\"\nfn main() -> i32 { return 0 }");
+    let dir = fixture_project(
+        "grab * as helper from \"first\"\ngrab * as helper from \"second\"\nfn main() -> i32 { return 0 }",
+    );
     let project = dir.path().join("app");
-    std::fs::write(project.join("src/first.xen"), "export fn answer() -> i32 { return 1 }").unwrap();
-    std::fs::write(project.join("src/second.xen"), "export fn answer() -> i32 { return 2 }").unwrap();
+    std::fs::write(
+        project.join("src/first.xen"),
+        "export fn answer() -> i32 { return 1 }",
+    )
+    .unwrap();
+    std::fs::write(
+        project.join("src/second.xen"),
+        "export fn answer() -> i32 { return 2 }",
+    )
+    .unwrap();
     let output = xenith(&project).arg("check").output().unwrap();
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(!output.status.success());
-    assert!(stderr.contains("duplicate import namespace `helper`"), "{stderr}");
+    assert!(
+        stderr.contains("duplicate import namespace `helper`"),
+        "{stderr}"
+    );
 }
 
 #[test]
 fn native_project_resolves_transitive_imports_once() {
-    let dir = fixture_project("grab { answer } from \"middle\"\nfn main() -> i32 { return answer() }");
+    let dir =
+        fixture_project("grab { answer } from \"middle\"\nfn main() -> i32 { return answer() }");
     let project = dir.path().join("app");
     std::fs::write(
         project.join("src/middle.xen"),
         "grab { base } from \"base\"\nexport fn answer() -> i32 { return base() }",
     )
     .unwrap();
-    std::fs::write(project.join("src/base.xen"), "export fn base() -> i32 { return 42 }").unwrap();
-    assert_eq!(xenith(&project).arg("run").status().unwrap().code(), Some(42));
+    std::fs::write(
+        project.join("src/base.xen"),
+        "export fn base() -> i32 { return 42 }",
+    )
+    .unwrap();
+    assert_eq!(
+        xenith(&project).arg("run").status().unwrap().code(),
+        Some(42)
+    );
 }
 
 #[test]
@@ -442,10 +503,14 @@ fn check_renders_located_binding_and_condition_diagnostics() {
         .arg("check")
         .output()
         .unwrap();
-    assert!(String::from_utf8_lossy(&duplicate_output.stderr)
-        .contains("error: duplicate binding `value`"));
-    assert!(String::from_utf8_lossy(&duplicate_output.stderr)
-        .contains("note: previous binding `value` here"));
+    assert!(
+        String::from_utf8_lossy(&duplicate_output.stderr)
+            .contains("error: duplicate binding `value`")
+    );
+    assert!(
+        String::from_utf8_lossy(&duplicate_output.stderr)
+            .contains("note: previous binding `value` here")
+    );
     assert!(String::from_utf8_lossy(&duplicate_output.stderr).contains("^"));
 
     let condition = fixture_project("fn main() -> i32 { if 1 { return 1 } else { return 0 } }");
@@ -453,8 +518,10 @@ fn check_renders_located_binding_and_condition_diagnostics() {
         .arg("check")
         .output()
         .unwrap();
-    assert!(String::from_utf8_lossy(&condition_output.stderr)
-        .contains("error: if condition must be bool"));
+    assert!(
+        String::from_utf8_lossy(&condition_output.stderr)
+            .contains("error: if condition must be bool")
+    );
     assert!(String::from_utf8_lossy(&condition_output.stderr).contains("^"));
 }
 

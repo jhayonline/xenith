@@ -455,6 +455,17 @@ let matches: list<User> = User.query(user_store, "active", "true", "name", false
 
 ## Standard library and imports
 
+Generic functions are specialized at compile time from their call-site types.
+They keep reusable algorithms type safe without adding a runtime type system:
+
+```xenith
+function identity<T>(value: T) -> T { return value }
+
+function main() -> i32 {
+    return identity(42)
+}
+```
+
 Native projects can import the filesystem and environment modules:
 
 ```xenith
@@ -501,6 +512,7 @@ Implemented native compiler capabilities include:
 
 - Native project creation, checking, building, and running.
 - Static type checking and homogeneous typed collections.
+- Compile-time generic function specialization with inferred type parameters.
 - Lists, maps, bytes, literals, indexing, mutation, and iteration.
 - Enums, pattern matching, closures, function values, methods, and string
   interpolation.

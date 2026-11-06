@@ -14,6 +14,8 @@ pub enum Type {
     Tuple(Vec<Type>),
     Function(Vec<Type>, Box<Type>),
     Named(String),
+    /// A type parameter declared on a generic function.
+    Generic(String),
 }
 #[derive(Debug, Clone)]
 pub struct Program {
@@ -64,6 +66,7 @@ pub struct Function {
     pub source: String,
     pub span: Span,
     pub exported: bool,
+    pub type_params: Vec<String>,
     pub params: Vec<Parameter>,
     pub result: Type,
     pub body: Vec<Stmt>,
@@ -113,7 +116,10 @@ pub enum Stmt {
         value: Expr,
     },
     Return(Expr),
-    Panic { value: Expr, span: Span },
+    Panic {
+        value: Expr,
+        span: Span,
+    },
     TryCatch {
         body: Vec<Stmt>,
         binding: String,
@@ -638,6 +644,29 @@ impl Parser {
             let function_span = self.location();
             self.take();
             let name = self.identifier("function name")?;
+            let mut type_params = Vec::new();
+            if self.peek() == Some("<") {
+                self.take();
+                while self.peek() != Some(">") {
+                    let parameter = self.identifier("type parameter")?;
+                    if type_params.contains(&parameter) {
+                        return Err(vec![Diagnostic::at(
+                            format!("duplicate type parameter `{parameter}`"),
+                            self.previous_location(),
+                        )]);
+                    }
+                    type_params.push(parameter);
+                    if self.peek() == Some(",") {
+                        self.take();
+                    } else if self.peek() != Some(">") {
+                        return Err(vec![Diagnostic::at(
+                            "expected `,` or `>` after type parameter",
+                            self.location(),
+                        )]);
+                    }
+                }
+                self.need(">")?;
+            }
             self.need("(")?;
             let mut params = vec![];
             while self.tokens.get(self.i).map(String::as_str) != Some(")") {
@@ -659,20 +688,30 @@ impl Parser {
             }
             self.need(")")?;
             self.need("->")?;
-            let result = self.ty()?;
-            let body = match self.block() {
+            let mut result = self.ty()?;
+            let mut body = match self.block() {
                 Ok(body) => body,
                 Err(mut block_errors) => {
                     errors.append(&mut block_errors);
                     vec![]
                 }
             };
+            let generic_names = type_params
+                .iter()
+                .cloned()
+                .collect::<std::collections::HashSet<_>>();
+            for parameter in &mut params {
+                genericize_type(&mut parameter.ty, &generic_names);
+            }
+            genericize_type(&mut result, &generic_names);
+            genericize_statements(&mut body, &generic_names);
             functions.push(Function {
                 name,
                 file: self.file.clone(),
                 source: self.source.clone(),
                 span: function_span,
                 exported,
+                type_params,
                 params,
                 result,
                 body,
@@ -701,7 +740,9 @@ impl Parser {
         }
     }
     fn synchronize_struct_field(&mut self) {
-        while !matches!(self.peek(), Some("," | "}" | "fn" | "function" | "struct")) && self.peek().is_some() {
+        while !matches!(self.peek(), Some("," | "}" | "fn" | "function" | "struct"))
+            && self.peek().is_some()
+        {
             self.take();
         }
         if self.peek() == Some(",") {
@@ -750,12 +791,19 @@ impl Parser {
                 let binding = self.identifier("catch binding")?;
                 self.need(")")?;
                 let catch_body = self.block()?;
-                Ok(Stmt::TryCatch { body, binding, catch_body })
+                Ok(Stmt::TryCatch {
+                    body,
+                    binding,
+                    catch_body,
+                })
             }
             Some("panic") => {
                 let span = self.location();
                 self.take();
-                Ok(Stmt::Panic { value: self.expr()?, span })
+                Ok(Stmt::Panic {
+                    value: self.expr()?,
+                    span,
+                })
             }
             Some("stop") => {
                 self.take();
@@ -973,7 +1021,11 @@ impl Parser {
                         }
                     }
                     self.need(")")?;
-                    left = Expr::Call { name, arguments, span: Span::new(0, 0) };
+                    left = Expr::Call {
+                        name,
+                        arguments,
+                        span: Span::new(0, 0),
+                    };
                 } else {
                     left = Expr::Field {
                         base: Box::new(left),
@@ -1330,7 +1382,10 @@ impl Parser {
                 )]);
             }
             self.need(")")?;
-            Ok(Expr::Bytes(value.trim_matches('"').to_owned(), self.previous_location()))
+            Ok(Expr::Bytes(
+                value.trim_matches('"').to_owned(),
+                self.previous_location(),
+            ))
         } else if self.tokens.get(self.i).map(String::as_str) == Some("(") {
             self.call(s)
         } else {
@@ -1353,7 +1408,147 @@ impl Parser {
             }
         }
         self.need(")")?;
-        Ok(Expr::Call { name, arguments, span })
+        Ok(Expr::Call {
+            name,
+            arguments,
+            span,
+        })
+    }
+}
+
+fn genericize_type(ty: &mut Type, names: &std::collections::HashSet<String>) {
+    match ty {
+        Type::Named(name) if names.contains(name) => *ty = Type::Generic(name.clone()),
+        Type::List(inner) => genericize_type(inner, names),
+        Type::Map(key, value) => {
+            genericize_type(key, names);
+            genericize_type(value, names);
+        }
+        Type::Tuple(items) => {
+            for item in items {
+                genericize_type(item, names);
+            }
+        }
+        Type::Function(params, result) => {
+            for item in params {
+                genericize_type(item, names);
+            }
+            genericize_type(result, names);
+        }
+        _ => {}
+    }
+}
+
+fn genericize_statements(statements: &mut [Stmt], names: &std::collections::HashSet<String>) {
+    for statement in statements {
+        match statement {
+            Stmt::While { condition, body } => {
+                genericize_expr(condition, names);
+                genericize_statements(body, names);
+            }
+            Stmt::For {
+                init,
+                condition,
+                step,
+                body,
+            } => {
+                genericize_statements(std::slice::from_mut(init), names);
+                genericize_expr(condition, names);
+                genericize_statements(std::slice::from_mut(step), names);
+                genericize_statements(body, names);
+            }
+            Stmt::ForIn { iterable, body, .. } => {
+                genericize_expr(iterable, names);
+                genericize_statements(body, names);
+            }
+            Stmt::If {
+                condition,
+                then_body,
+                else_body,
+            } => {
+                genericize_expr(condition, names);
+                genericize_statements(then_body, names);
+                genericize_statements(else_body, names);
+            }
+            Stmt::Let { ty, value, .. } => {
+                if let Some(ty) = ty {
+                    genericize_type(ty, names);
+                }
+                genericize_expr(value, names);
+            }
+            Stmt::Assign { value, .. } => genericize_expr(value, names),
+            Stmt::IndexAssign { base, index, value } => {
+                genericize_expr(base, names);
+                genericize_expr(index, names);
+                genericize_expr(value, names);
+            }
+            Stmt::Return(value) | Stmt::Expr(value) => genericize_expr(value, names),
+            Stmt::Panic { value, .. } => genericize_expr(value, names),
+            Stmt::TryCatch {
+                body, catch_body, ..
+            } => {
+                genericize_statements(body, names);
+                genericize_statements(catch_body, names);
+            }
+            Stmt::Stop | Stmt::Skip => {}
+        }
+    }
+}
+
+fn genericize_expr(expression: &mut Expr, names: &std::collections::HashSet<String>) {
+    match expression {
+        Expr::Closure {
+            params,
+            result,
+            body,
+            ..
+        } => {
+            for parameter in params {
+                genericize_type(&mut parameter.ty, names);
+            }
+            genericize_type(result, names);
+            genericize_expr(body, names);
+        }
+        Expr::Call { arguments, .. } | Expr::Tuple(arguments) | Expr::List(arguments, _) => {
+            for argument in arguments {
+                genericize_expr(argument, names);
+            }
+        }
+        Expr::Map(items, _) => {
+            for (key, value) in items {
+                genericize_expr(key, names);
+                genericize_expr(value, names);
+            }
+        }
+        Expr::EnumVariant { arguments, .. } => {
+            for argument in arguments {
+                genericize_expr(argument, names);
+            }
+        }
+        Expr::Match { subject, arms } => {
+            genericize_expr(subject, names);
+            for arm in arms {
+                genericize_expr(&mut arm.body, names);
+            }
+        }
+        Expr::StructLiteral { fields, .. } => {
+            for (_, value) in fields {
+                genericize_expr(value, names);
+            }
+        }
+        Expr::Field { base, .. } => genericize_expr(base, names),
+        Expr::Index { base, index, .. } => {
+            genericize_expr(base, names);
+            genericize_expr(index, names);
+        }
+        Expr::Neg(value) | Expr::Not(value) => genericize_expr(value, names),
+        Expr::Logical(left, _, right)
+        | Expr::Compare(left, _, right)
+        | Expr::Binary(left, _, right, _) => {
+            genericize_expr(left, names);
+            genericize_expr(right, names);
+        }
+        _ => {}
     }
 }
 
