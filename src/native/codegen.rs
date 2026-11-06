@@ -3265,6 +3265,15 @@ fn lower(
                 let _ = runtime_call(b, m, name, vec![AbiParam::new(types::I64); 7], vec![], &args);
                 return (vec![b.ins().load(types::I64, MemFlags::new(), args[3], 0), b.ins().load(types::I64, MemFlags::new(), args[4], 0), b.ins().load(types::I64, MemFlags::new(), args[5], 0), b.ins().load(types::I64, MemFlags::new(), args[6], 0)], Type::Tuple(vec![Type::String, Type::String]));
             }
+            if name == "http_error_response" {
+                let code = lower(b, &arguments[0], v, ids, m, l).0;
+                let message = lower(b, &arguments[1], v, ids, m, l).0;
+                let status = lower(b, &arguments[2], v, ids, m, l).0[0];
+                let field = lower(b, &arguments[3], v, ids, m, l).0;
+                let args = [code[0], code[1], message[0], message[1], status, field[0], field[1]];
+                let value = runtime_call(b, m, name, vec![AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I32), AbiParam::new(types::I64), AbiParam::new(types::I64)], vec![AbiParam::new(types::I64)], &args)[0];
+                return (vec![value], Type::I64);
+            }
             if name == "http_validation_response" {
                 let errors = lower(b, &arguments[0], v, ids, m, l).0[0];
                 let value = runtime_call(b, m, name, vec![AbiParam::new(types::I64)], vec![AbiParam::new(types::I64)], &[errors])[0];
