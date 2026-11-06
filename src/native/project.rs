@@ -412,6 +412,13 @@ fn standard_native_source(name: &str) -> Option<&'static str> {
              export function run_workers(server: i64, router: i64, workers: i64) -> string { return http_server_run_workers(server, router, workers) }\n\
              export function run_workers_with_pool(server: i64, router: i64, pool: i64, workers: i64) -> string { return http_server_run_workers_pool(server, router, pool, workers) }",
         ),
+        "net" => Some(
+            "export function bind(address: string, backlog: i64) -> i64 { return tcp_bind(address, backlog) }\n\
+             export function accept(listener: i64) -> i64 { return tcp_accept(listener) }\n\
+             export function read(connection: i64, maximum: i64) -> tuple<bytes, string> { return tcp_read(connection, maximum) }\n\
+             export function write(connection: i64, data: bytes) -> string { return tcp_write(connection, data) }\n\
+             export function close(connection: i64) -> null { return tcp_close(connection) }",
+        ),
         "auth" => Some(
             "export function hash_password(password: string) -> string { return auth_hash_password(password) }\n\
              export function verify_password(password: string, encoded: string) -> bool { return auth_verify_password(password, encoded) }\n\

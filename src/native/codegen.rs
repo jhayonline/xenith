@@ -3939,6 +3939,55 @@ fn lower(
                 )[0];
                 return (vec![value], Type::I64);
             }
+            if name == "tcp_bind" {
+                let address = lower(b, &arguments[0], v, ids, m, l).0;
+                let backlog = lower(b, &arguments[1], v, ids, m, l).0[0];
+                let value = runtime_call(
+                    b,
+                    m,
+                    "xenith_tcp_bind",
+                    vec![AbiParam::new(types::I64); 3],
+                    vec![AbiParam::new(types::I64)],
+                    &[address[0], address[1], backlog],
+                )[0];
+                return (vec![value], Type::I64);
+            }
+            if name == "tcp_accept" {
+                let listener = lower(b, &arguments[0], v, ids, m, l).0[0];
+                let value = runtime_call(
+                    b,
+                    m,
+                    "xenith_tcp_accept",
+                    vec![AbiParam::new(types::I64)],
+                    vec![AbiParam::new(types::I64)],
+                    &[listener],
+                )[0];
+                return (vec![value], Type::I64);
+            }
+            if name == "tcp_read" {
+                let connection = lower(b, &arguments[0], v, ids, m, l).0[0];
+                let maximum = lower(b, &arguments[1], v, ids, m, l).0[0];
+                let data_ptr = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let error_ptr = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let error_len = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let args = [connection, maximum, b.ins().stack_addr(types::I64, data_ptr, 0), b.ins().stack_addr(types::I64, error_ptr, 0), b.ins().stack_addr(types::I64, error_len, 0)];
+                let _ = runtime_call(b, m, "xenith_tcp_read", vec![AbiParam::new(types::I64); 5], vec![], &args);
+                return (vec![b.ins().load(types::I64, MemFlags::new(), args[2], 0), b.ins().load(types::I64, MemFlags::new(), args[3], 0), b.ins().load(types::I64, MemFlags::new(), args[4], 0)], Type::Tuple(vec![Type::Bytes, Type::String]));
+            }
+            if name == "tcp_write" {
+                let connection = lower(b, &arguments[0], v, ids, m, l).0[0];
+                let body = lower(b, &arguments[1], v, ids, m, l).0;
+                let error_ptr = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let error_len = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let args = [connection, body[0], body[1], b.ins().stack_addr(types::I64, error_ptr, 0), b.ins().stack_addr(types::I64, error_len, 0)];
+                let _ = runtime_call(b, m, "xenith_tcp_write", vec![AbiParam::new(types::I64); 5], vec![], &args);
+                return (vec![b.ins().load(types::I64, MemFlags::new(), args[3], 0), b.ins().load(types::I64, MemFlags::new(), args[4], 0)], Type::String);
+            }
+            if name == "tcp_close" {
+                let connection = lower(b, &arguments[0], v, ids, m, l).0[0];
+                let _ = runtime_call(b, m, "xenith_tcp_close", vec![AbiParam::new(types::I64)], vec![], &[connection]);
+                return (vec![b.ins().iconst(types::I8, 0)], Type::Null);
+            }
             if name == "http_read" {
                 let connection = lower(b, &arguments[0], v, ids, m, l).0[0];
                 let data_ptr = b.create_sized_stack_slot(StackSlotData::new(

@@ -186,3 +186,11 @@ fn native_nested_string_values_are_owned_by_collections() {
     );
     assert_eq!(Command::new(executable).status().unwrap().code(), Some(42));
 }
+
+#[test]
+fn native_net_module_binds_and_closes_a_tcp_listener() {
+    let (_directory, executable) = build_source(
+        "fn main() -> i32 { let listener: i64 = tcp_bind(\"127.0.0.1:0\", 8i64) tcp_close(listener) return 42 }",
+    );
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(42));
+}

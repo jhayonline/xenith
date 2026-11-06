@@ -1555,6 +1555,11 @@ fn signatures(
         ("db_rollback", vec![Type::I64], Type::String),
         ("http_bind", vec![Type::String], Type::I64),
         ("http_accept", vec![Type::I64], Type::I64),
+        ("tcp_bind", vec![Type::String, Type::I64], Type::I64),
+        ("tcp_accept", vec![Type::I64], Type::I64),
+        ("tcp_read", vec![Type::I64, Type::I64], Type::Tuple(vec![Type::Bytes, Type::String])),
+        ("tcp_write", vec![Type::I64, Type::Bytes], Type::String),
+        ("tcp_close", vec![Type::I64], Type::Null),
         (
             "http_read",
             vec![Type::I64],

@@ -384,6 +384,26 @@ fn native_runtime_map_assignment_releases_old_and_retains_new_value() {
 }
 
 #[test]
+fn native_runtime_tcp_bind_reports_invalid_configuration_recoverably() {
+    let directory = tempfile::tempdir().unwrap();
+    let runtime = xenith::native::runtime::write_source(directory.path()).unwrap();
+    let harness = directory.path().join("harness.c");
+    fs::write(&harness, r#"#include <stdint.h>
+        int64_t xenith_tcp_bind(const unsigned char *, int64_t, int64_t);
+        int8_t xenith_error_pending(void); int64_t xenith_error_code_len(void);
+        const unsigned char *xenith_error_code(void); void xenith_error_clear(void);
+        int main(void) { const unsigned char address[] = "not-an-address";
+            xenith_tcp_bind(address, 14, 128);
+            if (!xenith_error_pending() || xenith_error_code_len() != 6) return 1;
+            xenith_error_clear(); return 0; }
+        "#).unwrap();
+    let executable = directory.path().join("harness");
+    let status = Command::new("cc").args([runtime.as_os_str(), harness.as_os_str(), "-lcrypt".as_ref(), "-o".as_ref(), executable.as_os_str()]).status().unwrap();
+    assert!(status.success());
+    assert!(Command::new(executable).status().unwrap().success());
+}
+
+#[test]
 fn native_runtime_append_retains_managed_elements() {
     let directory = tempfile::tempdir().unwrap();
     let runtime = xenith::native::runtime::write_source(directory.path()).unwrap();
