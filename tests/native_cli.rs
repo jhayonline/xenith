@@ -55,6 +55,24 @@ fn native_generic_collection_function_is_specialized() {
     );
 }
 
+#[test]
+fn native_nested_generic_calls_propagate_inferred_types() {
+    let dir = fixture_project(
+        "function identity<T>(value: T) -> T { return value }\nfunction twice<T>(value: T) -> T { return identity(identity(value)) }\nfunction main() -> i32 { return twice(42) }",
+    );
+    let output = xenith(&dir.path().join("app")).arg("run").output().unwrap();
+    assert_eq!(output.status.code(), Some(42), "{}", String::from_utf8_lossy(&output.stderr));
+}
+
+#[test]
+fn native_generic_function_can_be_passed_as_a_typed_value() {
+    let dir = fixture_project(
+        "function apply(op: fn(i32) -> i32, value: i32) -> i32 { return op(value) }\nfunction identity<T>(value: T) -> T { return value }\nfunction main() -> i32 { return apply(identity, 42) }",
+    );
+    let output = xenith(&dir.path().join("app")).arg("run").output().unwrap();
+    assert_eq!(output.status.code(), Some(42), "{}", String::from_utf8_lossy(&output.stderr));
+}
+
 fn fixture_project(source: &str) -> tempfile::TempDir {
     let dir = tempfile::tempdir().unwrap();
     xenith(dir.path()).args(["new", "app"]).status().unwrap();

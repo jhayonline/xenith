@@ -124,7 +124,7 @@ fn monomorphize(program: &Program) -> Result<Program, Vec<Diagnostic>> {
             &function.body,
             &mut env,
             &generic,
-            &signatures,
+            &mut signatures,
             &mut cache,
             &mut generated,
             &mut errors,
@@ -143,7 +143,7 @@ fn monomorphize(program: &Program) -> Result<Program, Vec<Diagnostic>> {
             &function.body,
             &mut env,
             &generic,
-            &signatures,
+            &mut signatures,
             &mut cache,
             &mut generated,
             &mut errors,
@@ -297,7 +297,7 @@ fn specialize_call(
     arguments: &[Expr],
     env: &HashMap<String, Type>,
     generic: &HashMap<String, Function>,
-    signatures: &HashMap<String, FunctionSignature>,
+    signatures: &mut HashMap<String, FunctionSignature>,
     cache: &mut HashMap<(String, String), String>,
     generated: &mut Vec<Function>,
     errors: &mut Vec<Diagnostic>,
@@ -360,9 +360,62 @@ fn specialize_call(
         p.ty = substitute_type(&p.ty, &substitutions);
     }
     specialized.result = substitute_type(&specialized.result, &substitutions);
+    signatures.insert(
+        specialized.name.clone(),
+        FunctionSignature {
+            parameters: specialized.params.iter().map(|p| p.ty.clone()).collect(),
+            result: specialized.result.clone(),
+        },
+    );
     substitute_statements(&mut specialized.body, &substitutions);
     generated.push(specialized);
     cache.get(&(name.into(), concrete_key)).cloned().unwrap()
+}
+
+fn specialize_function_value(
+    name: &str,
+    expected: &Type,
+    generic: &HashMap<String, Function>,
+    signatures: &mut HashMap<String, FunctionSignature>,
+    cache: &mut HashMap<(String, String), String>,
+    generated: &mut Vec<Function>,
+    errors: &mut Vec<Diagnostic>,
+) -> Option<String> {
+    let template = generic.get(name)?;
+    let Type::Function(parameters, result) = expected else {
+        errors.push(Diagnostic { message: format!("generic function `{name}` needs a concrete function type"), span: None });
+        return None;
+    };
+    if parameters.len() != template.params.len() {
+        errors.push(Diagnostic { message: format!("function value `{name}` has the wrong number of parameters"), span: None });
+        return None;
+    }
+    let mut substitutions = HashMap::new();
+    for (parameter, actual) in template.params.iter().zip(parameters) {
+        if !unify_generic(&parameter.ty, actual, &mut substitutions) {
+            errors.push(Diagnostic { message: format!("cannot infer generic type parameters for `{name}`"), span: None });
+            return None;
+        }
+    }
+    if !unify_generic(&template.result, result, &mut substitutions) {
+        errors.push(Diagnostic { message: format!("generic result type for `{name}` does not match the expected function type"), span: None });
+        return None;
+    }
+    let concrete: Vec<_> = template.type_params.iter().map(|n| substitutions.get(n).cloned()).collect::<Option<Vec<_>>>()?;
+    let key_text = concrete.iter().map(type_key).collect::<Vec<_>>().join("_");
+    let key = (name.to_owned(), key_text.clone());
+    if let Some(existing) = cache.get(&key) { return Some(existing.clone()); }
+    let mangled = format!("{}__generic__{}", name, key_text);
+    cache.insert(key, mangled.clone());
+    let mut specialized = template.clone();
+    specialized.name = mangled.clone();
+    specialized.type_params.clear();
+    for parameter in &mut specialized.params { parameter.ty = substitute_type(&parameter.ty, &substitutions); }
+    specialized.result = substitute_type(&specialized.result, &substitutions);
+    signatures.insert(mangled.clone(), FunctionSignature { parameters: specialized.params.iter().map(|p| p.ty.clone()).collect(), result: specialized.result.clone() });
+    substitute_statements(&mut specialized.body, &substitutions);
+    generated.push(specialized);
+    Some(mangled)
 }
 
 fn substitute_expr(expr: &mut Expr, substitutions: &HashMap<String, Type>) {
@@ -479,7 +532,7 @@ fn specialize_statements(
     statements: &[Stmt],
     env: &mut HashMap<String, Type>,
     generic: &HashMap<String, Function>,
-    signatures: &HashMap<String, FunctionSignature>,
+    signatures: &mut HashMap<String, FunctionSignature>,
     cache: &mut HashMap<(String, String), String>,
     generated: &mut Vec<Function>,
     errors: &mut Vec<Diagnostic>,
@@ -665,7 +718,7 @@ fn specialize_expr(
     expr: &Expr,
     env: &HashMap<String, Type>,
     generic: &HashMap<String, Function>,
-    signatures: &HashMap<String, FunctionSignature>,
+    signatures: &mut HashMap<String, FunctionSignature>,
     cache: &mut HashMap<(String, String), String>,
     generated: &mut Vec<Function>,
     errors: &mut Vec<Diagnostic>,
@@ -676,10 +729,19 @@ fn specialize_expr(
             arguments,
             span,
         } => {
-            let arguments: Vec<_> = arguments
-                .iter()
-                .map(|e| specialize_expr(e, env, generic, signatures, cache, generated, errors))
-                .collect();
+            let expected_parameters = signatures.get(name).map(|signature| signature.parameters.clone());
+            let arguments: Vec<_> = arguments.iter().enumerate().map(|(index, expression)| {
+                if let (Expr::Name(value), Some(parameters)) = (expression, &expected_parameters) {
+                    if let Some(expected) = parameters.get(index) {
+                        if generic.contains_key(value) {
+                            if let Some(mangled) = specialize_function_value(value, expected, generic, signatures, cache, generated, errors) {
+                                return Expr::Name(mangled);
+                            }
+                        }
+                    }
+                }
+                specialize_expr(expression, env, generic, signatures, cache, generated, errors)
+            }).collect();
             let name = if generic.contains_key(name) {
                 specialize_call(
                     name, &arguments, env, generic, signatures, cache, generated, errors,
