@@ -6983,6 +6983,12 @@ fn lower(
                     let filtered = runtime_call(b, m, "xenith_list_filter_string", vec![AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64)], vec![AbiParam::new(types::I64)], &[list[0], callback[0], callback[1]]);
                     return (filtered, Type::List(Box::new(Type::String)));
                 }
+                if matches!(*element, Type::Named(_)) && parameters.len() == 1 && parameters[0] == *element && *result == Type::Bool {
+                    let (offsets, widths, count) = lane_metadata(b, &element, l);
+                    let count_value = b.ins().iconst(types::I64, count);
+                    let filtered = runtime_call(b, m, "xenith_list_filter_lanes", vec![AbiParam::new(types::I64); 6], vec![AbiParam::new(types::I64)], &[list[0], callback[0], callback[1], count_value, offsets, widths]);
+                    return (filtered, Type::List(element));
+                }
                 unreachable!("filter callback type is not supported by the native fast path")
             }
             if name == "find" && !ids.contains_key(name) {
@@ -6993,6 +6999,11 @@ fn lower(
                 if *element == Type::I32 && parameters == vec![Type::I32] && *result == Type::Bool { return (runtime_call(b, m, "xenith_list_find_i32", vec![AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64)], vec![AbiParam::new(types::I32)], &[list[0], callback[0], callback[1]]), Type::I32); }
                 if *element == Type::I64 && parameters == vec![Type::I64] && *result == Type::Bool { return (runtime_call(b, m, "xenith_list_find_i64", vec![AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64)], vec![AbiParam::new(types::I32)], &[list[0], callback[0], callback[1]]), Type::I32); }
                 if *element == Type::String && parameters == vec![Type::String] && *result == Type::Bool { return (runtime_call(b, m, "xenith_list_find_string", vec![AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64)], vec![AbiParam::new(types::I32)], &[list[0], callback[0], callback[1]]), Type::I32); }
+                if matches!(*element, Type::Named(_)) && parameters.len() == 1 && parameters[0] == *element && *result == Type::Bool {
+                    let (offsets, widths, count) = lane_metadata(b, &element, l);
+                    let count_value = b.ins().iconst(types::I64, count);
+                    return (runtime_call(b, m, "xenith_list_find_lanes", vec![AbiParam::new(types::I64); 6], vec![AbiParam::new(types::I32)], &[list[0], callback[0], callback[1], count_value, offsets, widths]), Type::I32);
+                }
                 unreachable!("find callback type is not supported by the native fast path")
             }
             if name == "reduce" && !ids.contains_key(name) {
@@ -7027,6 +7038,15 @@ fn lower(
                     let Type::List(element) = collection_type else { unreachable!() };
                     if *element == Type::I64 { return (runtime_call(b, m, "xenith_list_contains_i64", vec![AbiParam::new(types::I64), AbiParam::new(types::I64)], vec![AbiParam::new(types::I8)], &[collection[0], key[0]]), Type::Bool); }
                     if *element == Type::String { return (runtime_call(b, m, "xenith_list_contains_string", vec![AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64)], vec![AbiParam::new(types::I8)], &[collection[0], key[0], key[1]]), Type::Bool); }
+                    if matches!(*element, Type::Named(_)) {
+                        let (width, lanes) = return_layout(&element, l);
+                        let slot = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, width, 3));
+                        let pointer = b.ins().stack_addr(types::I64, slot, 0);
+                        for (value, (_, offset)) in key.into_iter().zip(lanes) { b.ins().store(MemFlags::new(), value, pointer, offset); }
+                        let (offsets, widths, count) = lane_metadata(b, &element, l);
+                        let count_value = b.ins().iconst(types::I64, count);
+                        return (runtime_call(b, m, "xenith_list_contains_lanes", vec![AbiParam::new(types::I64); 5], vec![AbiParam::new(types::I8)], &[collection[0], pointer, count_value, offsets, widths]), Type::Bool);
+                    }
                     let result = runtime_call(b, m, "xenith_list_contains_i32", vec![AbiParam::new(types::I64), AbiParam::new(types::I32)], vec![AbiParam::new(types::I8)], &[collection[0], key[0]]);
                     return (result, Type::Bool);
                 }
@@ -7310,6 +7330,39 @@ fn runtime_call(
     let callee = m.declare_func_in_func(function, b.func);
     let call = b.ins().call(callee, arguments);
     b.inst_results(call).to_vec()
+}
+
+fn lane_metadata(
+    b: &mut FunctionBuilder,
+    ty: &Type,
+    layouts: &HashMap<String, StructLayout>,
+) -> (Value, Value, i64) {
+    let (_, lanes) = return_layout(ty, layouts);
+    let count = lanes.len() as i64;
+    let offsets = b.create_sized_stack_slot(StackSlotData::new(
+        StackSlotKind::ExplicitSlot,
+        (count.max(1) * 8) as u32,
+        3,
+    ));
+    let widths = b.create_sized_stack_slot(StackSlotData::new(
+        StackSlotKind::ExplicitSlot,
+        (count.max(1) * 8) as u32,
+        3,
+    ));
+    for (index, (lane, offset)) in lanes.iter().enumerate() {
+        let position = (index * 8) as i32;
+        let offset_slot = b.ins().stack_addr(types::I64, offsets, position);
+        let offset_value = b.ins().iconst(types::I64, *offset as i64);
+        b.ins().store(MemFlags::new(), offset_value, offset_slot, 0);
+        let width_slot = b.ins().stack_addr(types::I64, widths, position);
+        let width_value = b.ins().iconst(types::I64, lane.bytes() as i64);
+        b.ins().store(MemFlags::new(), width_value, width_slot, 0);
+    }
+    (
+        b.ins().stack_addr(types::I64, offsets, 0),
+        b.ins().stack_addr(types::I64, widths, 0),
+        count,
+    )
 }
 
 fn lower_index_assignment(

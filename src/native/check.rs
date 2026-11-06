@@ -238,6 +238,25 @@ fn type_key(ty: &Type) -> String {
     }
 }
 
+fn scalar_collection_lanes(ty: &Type, layouts: &HashMap<String, StructLayout>) -> Option<Vec<Type>> {
+    match ty {
+        Type::I32 | Type::I64 | Type::Bool => Some(vec![ty.clone()]),
+        Type::Named(name) => layouts.get(name).and_then(|layout| {
+            layout.fields.iter().try_fold(Vec::new(), |mut lanes, (_, field)| {
+                let field_lanes = scalar_collection_lanes(field, layouts)?;
+                lanes.extend(field_lanes);
+                Some(lanes)
+            })
+        }),
+        _ => None,
+    }
+}
+
+fn scalar_collection_supported(ty: &Type, layouts: &HashMap<String, StructLayout>) -> bool {
+    matches!(ty, Type::I32 | Type::I64 | Type::Named(_))
+        && scalar_collection_lanes(ty, layouts).is_some_and(|lanes| !lanes.is_empty() && lanes.len() <= 8)
+}
+
 fn infer_generic_expr(
     expr: &Expr,
     env: &HashMap<String, Type>,
@@ -3029,7 +3048,7 @@ fn expr(
                     return Some(Type::Bytes);
                 }
                 if let (Some(Type::List(element)), Some(Type::Function(parameters, result))) = (list_type, callback_type) {
-                    if parameters != vec![*element.clone()] || *result != Type::Bool || !matches!(*element, Type::I32 | Type::I64 | Type::String) { errors.push(Diagnostic { message: "filter currently supports i32, i64, and string predicates returning bool".into(), span: None }); }
+                    if parameters != vec![*element.clone()] || *result != Type::Bool || (!scalar_collection_supported(&element, layouts) && *element != Type::String) { errors.push(Diagnostic { message: "filter supports i32, i64, string, and scalar-only struct or enum elements with at most eight lanes".into(), span: None }); }
                     return Some(Type::List(element));
                 }
                 errors.push(Diagnostic { message: "filter expects a typed list and predicate".into(), span: None });
@@ -3048,7 +3067,7 @@ fn expr(
                     return Some(Type::I32);
                 }
                 if let (Some(Type::List(element)), Some(Type::Function(parameters, result))) = (list_type, callback_type) {
-                    if parameters != vec![*element.clone()] || *result != Type::Bool || !matches!(*element, Type::I32 | Type::I64 | Type::String) { errors.push(Diagnostic { message: "find currently supports i32, i64, and string predicates returning bool".into(), span: None }); }
+                    if parameters != vec![*element.clone()] || *result != Type::Bool || (!scalar_collection_supported(&element, layouts) && *element != Type::String) { errors.push(Diagnostic { message: "find supports i32, i64, string, and scalar-only struct or enum elements with at most eight lanes".into(), span: None }); }
                     return Some(Type::I32);
                 }
                 errors.push(Diagnostic { message: "find expects a typed list and predicate".into(), span: None }); return None;
@@ -3130,7 +3149,7 @@ fn expr(
                     let key_type = expr(&arguments[1], names, signatures, layouts, errors);
                     if let Some(Type::List(element)) = map_type.clone() {
                         if key_type != Some(*element.clone()) { errors.push(Diagnostic { message: "contains value must match the list element type".into(), span: None }); }
-                        if !matches!(*element, Type::I32 | Type::I64 | Type::String) { errors.push(Diagnostic { message: "contains currently supports list<i32>, list<i64>, and list<string>".into(), span: None }); }
+                        if !scalar_collection_supported(&element, layouts) && *element != Type::String { errors.push(Diagnostic { message: "contains supports scalar lists and scalar-only struct or enum elements with at most eight lanes".into(), span: None }); }
                         return Some(Type::Bool);
                     }
                     if matches!(&map_type, Some(Type::Bytes)) {
