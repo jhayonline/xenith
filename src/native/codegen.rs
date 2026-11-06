@@ -593,10 +593,15 @@ fn emit(
                     name, ty, value, ..
                 } => {
                     let v = lower_binding(&mut b, value, ty.as_ref(), &vals, ids, m, l);
+                    emit_retain_borrowed(&mut b, value, &v.0, &v.1, m);
                     vals.insert(name.clone(), v);
                 }
                 Stmt::Assign { name, value } => {
                     let v = lower(&mut b, value, &vals, ids, m, l);
+                    emit_retain_borrowed(&mut b, value, &v.0, &v.1, m);
+                    if let Some((old, old_ty)) = vals.get(name) {
+                        emit_release_one(&mut b, old, old_ty, m);
+                    }
                     vals.insert(name.clone(), v);
                 }
                 Stmt::IndexAssign { base, index, value } => {
@@ -623,7 +628,7 @@ fn emit(
                     );
                 }
                 Stmt::Return(v) => {
-                    emit_return(&mut b, v, &vals, ids, m, l, return_area);
+                    emit_return_and_release(&mut b, v, &vals, ids, m, l, return_area);
                     break;
                 }
             }
@@ -695,6 +700,94 @@ fn emit_return(
     return_area: Option<Value>,
 ) {
     let (returned, ty) = lower(b, expression, values, ids, m, layouts);
+    let _ = runtime_call(b, m, "xenith_error_abort_if_pending", vec![], vec![], &[]);
+    if let Some(return_area) = return_area {
+        for (value, (_, offset)) in returned
+            .into_iter()
+            .zip(return_layout(&ty, layouts).1.into_iter())
+        {
+            b.ins().store(MemFlags::new(), value, return_area, offset);
+        }
+        b.ins().return_(&[]);
+    } else {
+        b.ins().return_(&returned);
+    }
+}
+
+fn managed_type(ty: &Type) -> bool {
+    matches!(ty, Type::List(_) | Type::Map(_, _) | Type::Bytes)
+}
+
+fn emit_release_values(
+    b: &mut FunctionBuilder,
+    values: &Values,
+    m: &mut ObjectModule,
+    layouts: &HashMap<String, StructLayout>,
+) {
+    for (lanes, ty) in values.values() {
+        if managed_type(ty) {
+            let _ = runtime_call(
+                b,
+                m,
+                "xenith_release",
+                vec![AbiParam::new(m.target_config().pointer_type())],
+                vec![],
+                &[lanes[0]],
+            );
+        }
+    }
+    let _ = layouts;
+}
+
+fn emit_retain_borrowed(
+    b: &mut FunctionBuilder,
+    expression: &Expr,
+    lowered: &[Value],
+    ty: &Type,
+    m: &mut ObjectModule,
+) {
+    if managed_type(ty) && matches!(expression, Expr::Name(_)) {
+        let _ = runtime_call(
+            b,
+            m,
+            "xenith_retain",
+            vec![AbiParam::new(m.target_config().pointer_type())],
+            vec![],
+            &[lowered[0]],
+        );
+    }
+}
+
+fn emit_release_one(
+    b: &mut FunctionBuilder,
+    lanes: &[Value],
+    ty: &Type,
+    m: &mut ObjectModule,
+) {
+    if managed_type(ty) {
+        let _ = runtime_call(
+            b,
+            m,
+            "xenith_release",
+            vec![AbiParam::new(m.target_config().pointer_type())],
+            vec![],
+            &[lanes[0]],
+        );
+    }
+}
+
+fn emit_return_and_release(
+    b: &mut FunctionBuilder,
+    expression: &Expr,
+    values: &Values,
+    ids: &HashMap<String, (FuncId, Type)>,
+    m: &mut ObjectModule,
+    layouts: &HashMap<String, StructLayout>,
+    return_area: Option<Value>,
+) {
+    let (returned, ty) = lower(b, expression, values, ids, m, layouts);
+    emit_retain_borrowed(b, expression, &returned, &ty, m);
+    emit_release_values(b, values, m, layouts);
     let _ = runtime_call(b, m, "xenith_error_abort_if_pending", vec![], vec![], &[]);
     if let Some(return_area) = return_area {
         for (value, (_, offset)) in returned
@@ -1929,6 +2022,16 @@ fn lower(
             )[0];
             let mut slot_index = 0;
             for capture in capture_names.iter() {
+                if managed_type(&v[capture].1) {
+                    let _ = runtime_call(
+                        b,
+                        m,
+                        "xenith_retain",
+                        vec![AbiParam::new(m.target_config().pointer_type())],
+                        vec![],
+                        &[v[capture].0[0]],
+                    );
+                }
                 for (lane_type, value) in flat(&v[capture].1, l).into_iter().zip(&v[capture].0) {
                     let stored = match lane_type {
                         lane if lane == types::I32 => b.ins().sextend(types::I64, *value),

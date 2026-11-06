@@ -271,6 +271,64 @@ fn native_runtime_reference_counting_is_deterministic() {
 }
 
 #[test]
+fn native_codegen_emits_arc_release_for_collection_locals() {
+    let source = r#"
+function main() -> i32 {
+    let values: list<i32> = [1, 2, 3]
+    return 0
+}
+"#;
+    let program = parse(Path::new("main.xen"), source).unwrap();
+    let typed = check(&program).unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let object = directory.path().join("main.o");
+    emit_object(&typed, &object).unwrap();
+    let bytes = fs::read(object).unwrap();
+    assert!(bytes.windows(b"xenith_release".len()).any(|window| window == b"xenith_release"));
+}
+
+#[test]
+fn native_codegen_retains_collection_aliases_before_releasing_locals() {
+    let source = r#"
+function main() -> i32 {
+    let first: list<i32> = [1, 2, 3]
+    let second: list<i32> = first
+    return 0
+}
+"#;
+    let program = parse(Path::new("main.xen"), source).unwrap();
+    let typed = check(&program).unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let object = directory.path().join("main.o");
+    let executable = directory.path().join("main");
+    emit_object(&typed, &object).unwrap();
+    link_host(&object, &executable).unwrap();
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(0));
+}
+
+#[test]
+fn native_codegen_preserves_managed_values_returned_from_functions() {
+    let source = r#"
+function make() -> list<i32> {
+    let values: list<i32> = [1, 2, 3]
+    return values
+}
+function main() -> i32 {
+    let values: list<i32> = make()
+    return values[0]
+}
+"#;
+    let program = parse(Path::new("main.xen"), source).unwrap();
+    let typed = check(&program).unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let object = directory.path().join("main.o");
+    let executable = directory.path().join("main");
+    emit_object(&typed, &object).unwrap();
+    link_host(&object, &executable).unwrap();
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(1));
+}
+
+#[test]
 fn native_filesystem_builtins_read_and_write_text() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("message.txt");
