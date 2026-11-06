@@ -991,12 +991,17 @@ fn layouts(program: &Program, errors: &mut Vec<Diagnostic>) -> HashMap<String, S
         ("string", Type::String),
         ("bool", Type::Bool),
     ];
+    let mut concrete_types: Vec<(String, Type)> = primitive_types.iter().map(|(key, ty)| ((*key).into(), ty.clone())).collect();
+    for (key, ty) in &primitive_types {
+        concrete_types.push((format!("list_{key}"), Type::List(Box::new(ty.clone()))));
+    }
     for structure in &program.structs {
-        if structure.type_params.len() != 1 { continue; }
-        for (key, concrete) in &primitive_types {
-            let name = format!("{}__{}", structure.name, key);
+        if structure.type_params.is_empty() { continue; }
+        let combinations = concrete_combinations(&concrete_types, structure.type_params.len());
+        for (keys, types) in combinations {
+            let name = format!("{}__{}", structure.name, keys.join("__"));
             if layouts.contains_key(&name) { continue; }
-            let substitutions = HashMap::from([(structure.type_params[0].clone(), concrete.clone())]);
+            let substitutions = structure.type_params.iter().cloned().zip(types).collect::<HashMap<_, _>>();
             layouts.insert(name, StructLayout {
                 fields: structure.fields.iter().map(|field| (field.name.clone(), substitute_type(&field.ty, &substitutions))).collect(),
                 variants: None,
@@ -1040,7 +1045,7 @@ fn layouts(program: &Program, errors: &mut Vec<Diagnostic>) -> HashMap<String, S
     }
     for enumeration in &program.enums {
         if enumeration.type_params.len() != 1 { continue; }
-        for (key, concrete) in &primitive_types {
+        for (key, concrete) in &concrete_types {
             let name = format!("{}__{}", enumeration.name, key);
             if layouts.contains_key(&name) { continue; }
             let substitutions = HashMap::from([(enumeration.type_params[0].clone(), concrete.clone())]);
@@ -1056,6 +1061,19 @@ fn layouts(program: &Program, errors: &mut Vec<Diagnostic>) -> HashMap<String, S
         validate_layout(&name, &layouts, &mut states, errors);
     }
     layouts
+}
+
+fn concrete_combinations(values: &[(String, Type)], count: usize) -> Vec<(Vec<String>, Vec<Type>)> {
+    if count == 0 { return vec![(Vec::new(), Vec::new())]; }
+    let mut output = Vec::new();
+    for (key, ty) in values {
+        for (mut keys, mut types) in concrete_combinations(values, count - 1) {
+            keys.insert(0, key.clone());
+            types.insert(0, ty.clone());
+            output.push((keys, types));
+        }
+    }
+    output
 }
 
 fn validate_layout(

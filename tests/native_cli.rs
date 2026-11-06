@@ -91,6 +91,15 @@ fn native_generic_enums_specialize_variant_payloads() {
     assert_eq!(output.status.code(), Some(0), "{}", String::from_utf8_lossy(&output.stderr));
 }
 
+#[test]
+fn native_generic_structs_support_multiple_and_nested_type_arguments() {
+    let dir = fixture_project(
+        "struct Pair<K, V> { key: K, value: V }\nstruct Box<T> { value: T }\nfunction main() -> i32 { let pair: Pair<i32, string> = Pair<i32, string> { key: 42, value: \"ok\" } let boxed: Box<list<i32>> = Box<list<i32>> { value: [7] } return pair.key + boxed.value[0] - 7 }",
+    );
+    let output = xenith(&dir.path().join("app")).arg("run").output().unwrap();
+    assert_eq!(output.status.code(), Some(42), "{}", String::from_utf8_lossy(&output.stderr));
+}
+
 fn fixture_project(source: &str) -> tempfile::TempDir {
     let dir = tempfile::tempdir().unwrap();
     xenith(dir.path()).args(["new", "app"]).status().unwrap();
