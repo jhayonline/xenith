@@ -221,6 +221,8 @@ fn standard_native_source(name: &str) -> Option<&'static str> {
              export function migrate(handle: i64, name: string, schema: i64) -> string { return db_migrate(handle, name, schema) }\n\
              export function schema_close(schema: i64) -> null { return db_schema_close(schema) }\n\
              export function execute(handle: i64, sql: string) -> string { return db_exec(handle, sql) }\n\
+             export function error_detail(error: string) -> tuple<string, string> { return db_error_detail(error) }\n\
+             export function error_status(error: string) -> i32 { return db_error_status(error) }\n\
              export function store(handle: i64, table: string) -> i64 { return db_store(handle, table) }\n\
              export function find(store: i64, id: i64) -> tuple<string, string> { return db_find(store, id) }\n\
              export function find_map(store: i64, id: i64) -> map<string, string> { return db_find_map(store, id) }\n\

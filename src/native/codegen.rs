@@ -2966,6 +2966,21 @@ fn lower(
                 let _ = runtime_call(b, m, "xenith_db_exec", vec![AbiParam::new(types::I64); 5], vec![], &args);
                 return (vec![b.ins().load(types::I64, MemFlags::new(), args[3], 0), b.ins().load(types::I64, MemFlags::new(), args[4], 0)], Type::String);
             }
+            if name == "db_error_detail" {
+                let error = lower(b, &arguments[0], v, ids, m, l).0;
+                let code_ptr = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let code_len = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let message_ptr = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let message_len = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let args = [error[0], error[1], b.ins().stack_addr(types::I64, code_ptr, 0), b.ins().stack_addr(types::I64, code_len, 0), b.ins().stack_addr(types::I64, message_ptr, 0), b.ins().stack_addr(types::I64, message_len, 0)];
+                let _ = runtime_call(b, m, "xenith_db_error_detail", vec![AbiParam::new(types::I64); 6], vec![], &args);
+                return (vec![b.ins().load(types::I64, MemFlags::new(), args[2], 0), b.ins().load(types::I64, MemFlags::new(), args[3], 0), b.ins().load(types::I64, MemFlags::new(), args[4], 0), b.ins().load(types::I64, MemFlags::new(), args[5], 0)], Type::Tuple(vec![Type::String, Type::String]));
+            }
+            if name == "db_error_status" {
+                let error = lower(b, &arguments[0], v, ids, m, l).0;
+                let value = runtime_call(b, m, "xenith_db_error_status", vec![AbiParam::new(types::I64); 2], vec![AbiParam::new(types::I32)], &error)[0];
+                return (vec![value], Type::I32);
+            }
             if name == "db_close" {
                 let handle = lower(b, &arguments[0], v, ids, m, l).0[0];
                 let _ = runtime_call(b, m, "xenith_db_close", vec![AbiParam::new(types::I64)], vec![], &[handle]);

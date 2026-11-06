@@ -1,4 +1,4 @@
-use std::{path::Path, process::Command};
+use std::{fs, path::Path, process::Command};
 use xenith::native::{check::check, codegen::{emit_object, link_host}, syntax::parse};
 
 #[test]
@@ -14,6 +14,30 @@ function main() -> i32 {
     let program = parse(Path::new("src/main.xen"), source).unwrap();
     let typed = check(&program).unwrap();
     let directory = tempfile::tempdir().unwrap();
+    let object = directory.path().join("main.o");
+    let executable = directory.path().join("main");
+    emit_object(&typed, &object).unwrap();
+    link_host(&object, &executable).unwrap();
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(0));
+}
+
+#[test]
+fn std_db_errors_are_classified_without_exposing_sqlite_details() {
+    let directory = tempfile::tempdir().unwrap();
+    let source = r#"
+grab { error_detail, error_status } from "std::db"
+function main() -> i32 {
+    let detail: tuple<string, string> = error_detail("UNIQUE constraint failed: users.email")
+    if (detail[0] != "conflict") { return 10 }
+    if (detail[1] != "database constraint violated") { return 20 }
+    if (error_status("UNIQUE constraint failed: users.email") != 409) { return 30 }
+    return 0
+}
+"#;
+    let main = directory.path().join("main.xen");
+    fs::write(&main, source).unwrap();
+    let (program, _) = xenith::native::project::load_program(&main).unwrap();
+    let typed = check(&program).unwrap();
     let object = directory.path().join("main.o");
     let executable = directory.path().join("main");
     emit_object(&typed, &object).unwrap();

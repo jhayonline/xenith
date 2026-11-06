@@ -313,6 +313,8 @@ fn signatures(
         ("db_migrate", vec![Type::I64, Type::String, Type::I64], Type::String),
         ("db_schema_close", vec![Type::I64], Type::Null),
         ("db_exec", vec![Type::I64, Type::String], Type::String),
+        ("db_error_detail", vec![Type::String], Type::Tuple(vec![Type::String, Type::String])),
+        ("db_error_status", vec![Type::String], Type::I32),
         ("db_close", vec![Type::I64], Type::Null),
         ("db_store", vec![Type::I64, Type::String], Type::I64),
         ("db_find", vec![Type::I64, Type::I64], Type::Tuple(vec![Type::String, Type::String])),
