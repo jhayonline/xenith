@@ -257,6 +257,23 @@ fn scalar_collection_supported(ty: &Type, layouts: &HashMap<String, StructLayout
         && scalar_collection_lanes(ty, layouts).is_some_and(|lanes| !lanes.is_empty() && lanes.len() <= 8)
 }
 
+fn map_collection_supported(ty: &Type, layouts: &HashMap<String, StructLayout>) -> bool {
+    fn lanes(ty: &Type, layouts: &HashMap<String, StructLayout>) -> Option<usize> {
+        match ty {
+            Type::I32 | Type::I64 | Type::Bool => Some(1),
+            Type::String | Type::Function(_, _) => Some(2),
+            Type::Bytes | Type::List(_) | Type::Map(_, _) => Some(1),
+            Type::Named(name) => layouts.get(name).and_then(|layout| {
+                layout.fields.iter().try_fold(0usize, |count, (_, field)| {
+                    Some(count + lanes(field, layouts)?)
+                })
+            }),
+            _ => None,
+        }
+    }
+    matches!(ty, Type::Named(_)) && lanes(ty, layouts).is_some_and(|count| count > 0 && count <= 8)
+}
+
 fn infer_generic_expr(
     expr: &Expr,
     env: &HashMap<String, Type>,
@@ -3028,9 +3045,9 @@ fn expr(
                         errors.push(Diagnostic { message: "map callback must accept the list element type".into(), span: None });
                     }
                     if !matches!((&*element, &*result), (Type::I32, Type::I32) | (Type::I64, Type::I64) | (Type::String, Type::String))
-                        && !(scalar_collection_supported(&element, layouts) && matches!(&*result, Type::I32 | Type::I64))
+                        && !(map_collection_supported(&element, layouts) && matches!(&*result, Type::I32 | Type::I64 | Type::String))
                     {
-                        errors.push(Diagnostic { message: "map supports scalar i32/i64, string, and scalar-only struct or enum inputs mapped to i32 or i64".into(), span: None });
+                        errors.push(Diagnostic { message: "map supports scalar i32/i64, string, and struct or enum inputs with at most eight managed lanes mapped to i32, i64, or string".into(), span: None });
                     }
                     return Some(Type::List(result));
                 }

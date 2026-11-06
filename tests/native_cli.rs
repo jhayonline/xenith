@@ -236,6 +236,15 @@ fn native_struct_and_enum_maps_use_scalar_lane_abi() {
 }
 
 #[test]
+fn native_managed_struct_map_retains_input_and_output_strings() {
+    let dir = fixture_project(
+        "struct User { name: string, age: i32 } function main() -> i32 { let users: list<User> = [User { name: \"Ada\", age: 30 }, User { name: \"Lin\", age: 20 }] let scores: list<i32> = map(users, fn(value: User) -> i32 => len(value.name) + value.age) let names: list<string> = map(users, fn(value: User) -> string => value.name) if (scores[0] == 33 && scores[1] == 23 && names[1] == \"Lin\") { return 42 } return 1 }",
+    );
+    let output = xenith(&dir.path().join("app")).arg("run").output().unwrap();
+    assert_eq!(output.status.code(), Some(42), "{}", String::from_utf8_lossy(&output.stderr));
+}
+
+#[test]
 fn native_collection_algorithms_handle_empty_lists() {
     let dir = fixture_project(
         "function main() -> i32 { let values: list<i32> = [] let doubled: list<i32> = map(values, fn(value: i32) -> i32 => value * 2) let filtered: list<i32> = filter(doubled, fn(value: i32) -> bool => value > 0) if (len(filtered) == 0 && find(filtered, fn(value: i32) -> bool => value > 0) == -1) { return 42 } return 1 }",
