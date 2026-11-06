@@ -3447,6 +3447,17 @@ fn lower(
                 return (vec![value], Type::I64);
             }
             if let Some((_, Type::Function(parameters, result))) = v.get(name) {
+                // Function parameters are released by the callee's normal
+                // local cleanup. Keep the caller's function value alive while
+                // transferring that temporary ownership to the callee.
+                let _ = runtime_call(
+                    b,
+                    m,
+                    "xenith_retain",
+                    vec![AbiParam::new(m.target_config().pointer_type())],
+                    vec![],
+                    &[v[name].0[1]],
+                );
                 let mut args = Vec::new();
                 args.push(v[name].0[1]);
                 for argument in arguments {

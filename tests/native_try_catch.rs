@@ -271,6 +271,53 @@ fn native_runtime_reference_counting_is_deterministic() {
 }
 
 #[test]
+fn native_runtime_releases_closure_captures_with_the_environment() {
+    let directory = tempfile::tempdir().unwrap();
+    let runtime = xenith::native::runtime::write_source(directory.path()).unwrap();
+    let harness = directory.path().join("harness.c");
+    fs::write(
+        &harness,
+        r#"#include <stdint.h>
+        #include <stddef.h>
+        void *xenith_rc_alloc(int64_t);
+        void xenith_retain(void *);
+        void xenith_release(void *);
+        int64_t xenith_rc_live(void);
+        void *xenith_closure_new(int64_t);
+        void xenith_closure_set(void *, int64_t, int64_t);
+        void xenith_closure_set_mask(void *, int64_t);
+        int main(void) {
+            void *captured = xenith_rc_alloc(8);
+            void *closure = xenith_closure_new(1);
+            if (!captured || !closure || xenith_rc_live() != 2) return 1;
+            xenith_closure_set(closure, 0, (int64_t)(intptr_t)captured);
+            xenith_retain(captured);
+            xenith_closure_set_mask(closure, 1);
+            xenith_release(closure);
+            if (xenith_rc_live() != 1) return 2;
+            xenith_release(captured);
+            xenith_release(captured);
+            return xenith_rc_live() == 0 ? 0 : 3;
+        }
+        "#,
+    )
+    .unwrap();
+    let executable = directory.path().join("harness");
+    let status = Command::new("cc")
+        .args([
+            runtime.as_os_str(),
+            harness.as_os_str(),
+            "-lcrypt".as_ref(),
+            "-o".as_ref(),
+            executable.as_os_str(),
+        ])
+        .status()
+        .unwrap();
+    assert!(status.success());
+    assert!(Command::new(executable).status().unwrap().success());
+}
+
+#[test]
 fn native_codegen_emits_arc_release_for_collection_locals() {
     let source = r#"
 function main() -> i32 {

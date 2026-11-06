@@ -119,3 +119,48 @@ fn compiles_native_closure_captures_with_arc_cleanup() {
     link_host(&object, &executable).unwrap();
     assert_eq!(Command::new(executable).status().unwrap().code(), Some(41));
 }
+
+#[test]
+fn preserves_closure_environment_across_repeated_function_calls() {
+    let source = "function apply(f: fn() -> i32) -> i32 { return f() } function main() -> i32 { let values: list<i32> = [41] let f: fn() -> i32 = fn() -> i32 => values[0] return apply(f) + apply(f) - 82 }";
+    let dir = tempfile::tempdir().unwrap();
+    let source_path = dir.path().join("main.xen");
+    std::fs::write(&source_path, source).unwrap();
+    let program = parse(&source_path, source).unwrap();
+    let checked = check(&program).unwrap();
+    let object = dir.path().join("main.o");
+    emit_object(&checked, &object).unwrap();
+    let executable = dir.path().join("main");
+    link_host(&object, &executable).unwrap();
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(0));
+}
+
+#[test]
+fn preserves_closure_environment_when_returned_from_a_function() {
+    let source = "function make() -> fn() -> i32 { let values: list<i32> = [41] return fn() -> i32 => values[0] } function main() -> i32 { let f: fn() -> i32 = make() return f() }";
+    let dir = tempfile::tempdir().unwrap();
+    let source_path = dir.path().join("main.xen");
+    std::fs::write(&source_path, source).unwrap();
+    let program = parse(&source_path, source).unwrap();
+    let checked = check(&program).unwrap();
+    let object = dir.path().join("main.o");
+    emit_object(&checked, &object).unwrap();
+    let executable = dir.path().join("main");
+    link_host(&object, &executable).unwrap();
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(41));
+}
+
+#[test]
+fn preserves_nested_closure_environments() {
+    let source = "function make() -> fn() -> fn() -> i32 { let base: i32 = 40 return fn() -> fn() -> i32 => fn() -> i32 => base + 2 } function main() -> i32 { let outer: fn() -> fn() -> i32 = make() let inner: fn() -> i32 = outer() return inner() }";
+    let dir = tempfile::tempdir().unwrap();
+    let source_path = dir.path().join("main.xen");
+    std::fs::write(&source_path, source).unwrap();
+    let program = parse(&source_path, source).unwrap();
+    let checked = check(&program).unwrap();
+    let object = dir.path().join("main.o");
+    emit_object(&checked, &object).unwrap();
+    let executable = dir.path().join("main");
+    link_host(&object, &executable).unwrap();
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(42));
+}
