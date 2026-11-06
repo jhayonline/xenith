@@ -557,6 +557,30 @@ function main() -> i32 {
 }
 
 #[test]
+fn native_codegen_releases_nested_managed_aggregate_lanes() {
+    let source = r#"
+struct Bucket { values: list<i32> }
+function main() -> i32 {
+    let bucket: Bucket = Bucket { values: [1, 2, 3] }
+    let copy: Bucket = bucket
+    return len(copy.values)
+}
+"#;
+    let program = parse(Path::new("main.xen"), source).unwrap();
+    let typed = check(&program).unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let object = directory.path().join("main.o");
+    emit_object(&typed, &object).unwrap();
+    let dump = Command::new("objdump")
+        .args(["-dr", object.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(dump.status.success());
+    let text = String::from_utf8_lossy(&dump.stdout);
+    assert!(text.matches("xenith_release").count() >= 2, "{text}");
+}
+
+#[test]
 fn native_filesystem_builtins_read_and_write_text() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("message.txt");

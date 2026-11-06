@@ -615,14 +615,14 @@ fn emit(
                     name, ty, value, ..
                 } => {
                     let v = lower_binding(&mut b, value, ty.as_ref(), &vals, ids, m, l);
-                    emit_retain_borrowed(&mut b, value, &v.0, &v.1, m);
+                    emit_retain_borrowed_with_layouts(&mut b, value, &v.0, &v.1, m, l);
                     vals.insert(name.clone(), v);
                 }
                 Stmt::Assign { name, value } => {
                     let v = lower(&mut b, value, &vals, ids, m, l);
                     emit_retain_borrowed(&mut b, value, &v.0, &v.1, m);
                     if let Some((old, old_ty)) = vals.get(name) {
-                        emit_release_one(&mut b, old, old_ty, m);
+                        emit_release_one_with_layouts(&mut b, old, old_ty, m, l);
                     }
                     vals.insert(name.clone(), v);
                 }
@@ -631,7 +631,7 @@ fn emit(
                 }
                 Stmt::Expr(value) => {
                     let lowered = lower(&mut b, value, &vals, ids, m, l);
-                    release_temporary(&mut b, value, &lowered.0, &lowered.1, m);
+                    release_temporary_with_layouts(&mut b, value, &lowered.0, &lowered.1, m, l);
                 }
                 Stmt::Panic { value, span } => {
                     emit_panic(&mut b, value, &vals, ids, m, l, *span);
@@ -750,6 +750,38 @@ fn managed_lane(ty: &Type) -> Option<usize> {
     }
 }
 
+fn managed_lanes(ty: &Type, layouts: &HashMap<String, StructLayout>) -> Vec<usize> {
+    fn collect(
+        ty: &Type,
+        layouts: &HashMap<String, StructLayout>,
+        offset: &mut usize,
+        out: &mut Vec<usize>,
+    ) {
+        match ty {
+            Type::List(_) | Type::Map(_, _) | Type::Bytes => out.push(*offset),
+            Type::Function(_, _) => out.push(*offset + 1),
+            Type::Tuple(elements) => {
+                for element in elements {
+                    collect(element, layouts, offset, out);
+                }
+            }
+            Type::Named(name) => {
+                if let Some(layout) = layouts.get(name) {
+                    for (_, field) in &layout.fields {
+                        collect(field, layouts, offset, out);
+                    }
+                }
+            }
+            _ => {}
+        }
+        *offset += flat(ty, layouts).len();
+    }
+    let mut out = Vec::new();
+    let mut offset = 0;
+    collect(ty, layouts, &mut offset, &mut out);
+    out
+}
+
 fn emit_release_values(
     b: &mut FunctionBuilder,
     values: &Values,
@@ -757,7 +789,7 @@ fn emit_release_values(
     layouts: &HashMap<String, StructLayout>,
 ) {
     for (lanes, ty) in values.values() {
-        if let Some(lane) = managed_lane(ty) {
+        for lane in managed_lanes(ty, layouts) {
             let _ = runtime_call(
                 b,
                 m,
@@ -769,6 +801,30 @@ fn emit_release_values(
         }
     }
     let _ = layouts;
+}
+
+fn emit_retain_borrowed_with_layouts(
+    b: &mut FunctionBuilder,
+    expression: &Expr,
+    lowered: &[Value],
+    ty: &Type,
+    m: &mut ObjectModule,
+    layouts: &HashMap<String, StructLayout>,
+) {
+    if matches!(expression, Expr::Name(_) | Expr::Field { .. })
+        || matches!(expression, Expr::Index { .. }) && !projection_is_owned(expression)
+    {
+        for lane in managed_lanes(ty, layouts) {
+        let _ = runtime_call(
+            b,
+            m,
+            "xenith_retain",
+            vec![AbiParam::new(m.target_config().pointer_type())],
+            vec![],
+            &[lowered[lane]],
+        );
+        }
+    }
 }
 
 fn emit_retain_borrowed(
@@ -793,6 +849,25 @@ fn emit_retain_borrowed(
     }
 }
 
+fn emit_release_one_with_layouts(
+    b: &mut FunctionBuilder,
+    lanes: &[Value],
+    ty: &Type,
+    m: &mut ObjectModule,
+    layouts: &HashMap<String, StructLayout>,
+) {
+    for lane in managed_lanes(ty, layouts) {
+        let _ = runtime_call(
+            b,
+            m,
+            "xenith_release",
+            vec![AbiParam::new(m.target_config().pointer_type())],
+            vec![],
+            &[lanes[lane]],
+        );
+    }
+}
+
 fn emit_release_one(b: &mut FunctionBuilder, lanes: &[Value], ty: &Type, m: &mut ObjectModule) {
     if let Some(lane) = managed_lane(ty) {
         let _ = runtime_call(
@@ -806,6 +881,20 @@ fn emit_release_one(b: &mut FunctionBuilder, lanes: &[Value], ty: &Type, m: &mut
     }
 }
 
+fn emit_release_extras_with_layouts(
+    b: &mut FunctionBuilder,
+    values: &Values,
+    keep: &HashSet<String>,
+    m: &mut ObjectModule,
+    layouts: &HashMap<String, StructLayout>,
+) {
+    for (name, (lanes, ty)) in values {
+        if !keep.contains(name) {
+            emit_release_one_with_layouts(b, lanes, ty, m, layouts);
+        }
+    }
+}
+
 fn emit_release_extras(
     b: &mut FunctionBuilder,
     values: &Values,
@@ -816,6 +905,25 @@ fn emit_release_extras(
         if !keep.contains(name) {
             emit_release_one(b, lanes, ty, m);
         }
+    }
+}
+
+fn retain_call_argument_with_layouts(
+    b: &mut FunctionBuilder,
+    lowered: &[Value],
+    ty: &Type,
+    m: &mut ObjectModule,
+    layouts: &HashMap<String, StructLayout>,
+) {
+    for lane in managed_lanes(ty, layouts) {
+        let _ = runtime_call(
+            b,
+            m,
+            "xenith_retain",
+            vec![AbiParam::new(m.target_config().pointer_type())],
+            vec![],
+            &[lowered[lane]],
+        );
     }
 }
 
@@ -837,6 +945,17 @@ fn retain_call_argument(
     }
 }
 
+fn release_temporary_with_layouts(
+    b: &mut FunctionBuilder,
+    expression: &Expr,
+    lowered: &[Value],
+    ty: &Type,
+    m: &mut ObjectModule,
+    layouts: &HashMap<String, StructLayout>,
+) {
+    release_owned_temporary_with_layouts(b, expression, lowered, ty, m, layouts);
+}
+
 fn release_temporary(
     b: &mut FunctionBuilder,
     expression: &Expr,
@@ -844,7 +963,34 @@ fn release_temporary(
     ty: &Type,
     m: &mut ObjectModule,
 ) {
-    release_owned_temporary(b, expression, lowered, ty, m);
+    if matches!(expression, Expr::Name(_)) {
+        return;
+    }
+    release_managed(b, lowered, ty, m);
+}
+
+fn release_owned_temporary_with_layouts(
+    b: &mut FunctionBuilder,
+    expression: &Expr,
+    lowered: &[Value],
+    ty: &Type,
+    m: &mut ObjectModule,
+    layouts: &HashMap<String, StructLayout>,
+) {
+    if matches!(expression, Expr::Name(_) | Expr::Field { .. })
+        || matches!(expression, Expr::Index { .. }) && !projection_is_owned(expression)
+    {
+        return;
+    }
+    release_managed_with_layouts(b, lowered, ty, m, layouts);
+}
+
+fn projection_is_owned(expression: &Expr) -> bool {
+    match expression {
+        Expr::Index { base, .. } | Expr::Field { base, .. } => projection_is_owned(base),
+        Expr::Name(_) => false,
+        _ => true,
+    }
 }
 
 fn release_owned_temporary(
@@ -862,11 +1008,22 @@ fn release_owned_temporary(
     release_managed(b, lowered, ty, m);
 }
 
-fn projection_is_owned(expression: &Expr) -> bool {
-    match expression {
-        Expr::Index { base, .. } | Expr::Field { base, .. } => projection_is_owned(base),
-        Expr::Name(_) => false,
-        _ => true,
+fn release_managed_with_layouts(
+    b: &mut FunctionBuilder,
+    lowered: &[Value],
+    ty: &Type,
+    m: &mut ObjectModule,
+    layouts: &HashMap<String, StructLayout>,
+) {
+    for lane in managed_lanes(ty, layouts) {
+        let _ = runtime_call(
+            b,
+            m,
+            "xenith_release",
+            vec![AbiParam::new(m.target_config().pointer_type())],
+            vec![],
+            &[lowered[lane]],
+        );
     }
 }
 
@@ -893,7 +1050,7 @@ fn emit_return_and_release(
     return_area: Option<Value>,
 ) {
     let (returned, ty) = lower(b, expression, values, ids, m, layouts);
-    emit_retain_borrowed(b, expression, &returned, &ty, m);
+    emit_retain_borrowed_with_layouts(b, expression, &returned, &ty, m, layouts);
     emit_release_values(b, values, m, layouts);
     let _ = runtime_call(b, m, "xenith_error_abort_if_pending", vec![], vec![], &[]);
     if let Some(return_area) = return_area {
@@ -1059,7 +1216,7 @@ fn lower_try_catch(
         b.ins().brif(pending, catch_block, &[], success_block, &[]);
         b.switch_to_block(success_block);
         b.seal_block(success_block);
-        emit_retain_borrowed(b, expression, &returned, &return_type, m);
+        emit_retain_borrowed_with_layouts(b, expression, &returned, &return_type, m, layouts);
         emit_release_values(b, values, m, layouts);
         let _ = runtime_call(b, m, "xenith_error_abort_if_pending", vec![], vec![], &[]);
         if let Some(area) = return_area {
@@ -1292,7 +1449,7 @@ fn lower_branch(
                 let target = loops.last_mut().expect("checked loop control has a target");
                 target.has_stop = true;
                 let keep = target.keep.clone();
-                emit_release_extras(b, values, &keep, m);
+                emit_release_extras_with_layouts(b, values, &keep, m, layouts);
                 let args = loop_args(target);
                 b.ins().jump(target.exit, &args);
                 return LowerFlow::LoopJump;
@@ -1300,7 +1457,7 @@ fn lower_branch(
             Stmt::Skip => {
                 let target = loops.last().expect("checked loop control has a target");
                 let keep = target.keep.clone();
-                emit_release_extras(b, values, &keep, m);
+                emit_release_extras_with_layouts(b, values, &keep, m, layouts);
                 let args = loop_args(target);
                 b.ins().jump(target.continue_to, &args);
                 return LowerFlow::LoopJump;
@@ -1309,7 +1466,7 @@ fn lower_branch(
                 name, ty, value, ..
             } => {
                 let lowered = lower_binding(b, value, ty.as_ref(), values, ids, m, layouts);
-                emit_retain_borrowed(b, value, &lowered.0, &lowered.1, m);
+                emit_retain_borrowed_with_layouts(b, value, &lowered.0, &lowered.1, m, layouts);
                 values.insert(name.clone(), lowered);
                 shadowed.insert(name.clone());
                 for target in &mut *loops {
@@ -1318,9 +1475,9 @@ fn lower_branch(
             }
             Stmt::Assign { name, value } => {
                 let lowered = lower(b, value, values, ids, m, layouts);
-                emit_retain_borrowed(b, value, &lowered.0, &lowered.1, m);
+                emit_retain_borrowed_with_layouts(b, value, &lowered.0, &lowered.1, m, layouts);
                 if let Some((old, old_ty)) = values.get(name) {
-                    emit_release_one(b, old, old_ty, m);
+                    emit_release_one_with_layouts(b, old, old_ty, m, layouts);
                 }
                 if !shadowed.contains(name) {
                     record_assignment(loops, name, &lowered.0);
@@ -1332,7 +1489,7 @@ fn lower_branch(
             }
             Stmt::Expr(value) => {
                 let lowered = lower(b, value, values, ids, m, layouts);
-                release_temporary(b, value, &lowered.0, &lowered.1, m);
+                release_temporary_with_layouts(b, value, &lowered.0, &lowered.1, m, layouts);
             }
             Stmt::Panic { value, span } => {
                 emit_panic(b, value, values, ids, m, layouts, *span);
@@ -1470,7 +1627,7 @@ fn lower_for_in(
         return LowerFlow::FallsThrough;
     }
     let (iter_values, iterable_type) = lower(b, iterable, values, ids, m, layouts);
-    emit_retain_borrowed(b, iterable, &iter_values, &iterable_type, m);
+    emit_retain_borrowed_with_layouts(b, iterable, &iter_values, &iterable_type, m, layouts);
     let (binding_type, binding_expr) = match iterable_type.clone() {
         Type::List(element) => (
             *element,
@@ -1542,7 +1699,7 @@ fn lower_for_in(
     );
     if flow != LowerFlow::Returns {
         if let Some((iter_values, iter_type)) = values.get(&iter_name) {
-            emit_release_one(b, iter_values, iter_type, m);
+            emit_release_one_with_layouts(b, iter_values, iter_type, m, layouts);
         }
     }
     values.remove(&iter_name);
@@ -1577,7 +1734,7 @@ fn lower_for(
     let init_name = match init {
         Stmt::Let { name, value, .. } => {
             let lowered = lower(b, value, &for_values, ids, m, layouts);
-            emit_retain_borrowed(b, value, &lowered.0, &lowered.1, m);
+            emit_retain_borrowed_with_layouts(b, value, &lowered.0, &lowered.1, m, layouts);
             for_values.insert(name.clone(), lowered);
             name.clone()
         }
@@ -1602,7 +1759,7 @@ fn lower_for(
     );
     if flow == LowerFlow::FallsThrough {
         if let Some((lanes, ty)) = for_values.get(&init_name) {
-            emit_release_one(b, lanes, ty, m);
+            emit_release_one_with_layouts(b, lanes, ty, m, layouts);
         }
     }
     for name in outer_names {
@@ -1715,7 +1872,7 @@ fn lower_while(
             .cloned()
             .chain(names.iter().cloned())
             .collect();
-        emit_release_extras(b, &loop_values, &keep, m);
+        emit_release_extras_with_layouts(b, &loop_values, &keep, m, layouts);
         let next: Vec<Value> = names
             .iter()
             .flat_map(|name| loop_values[name].0.iter().copied())
@@ -1846,7 +2003,7 @@ fn lower_if(
                 .cloned()
                 .chain(names.iter().cloned())
                 .collect();
-            emit_release_extras(b, &branch_values, &keep, m);
+            emit_release_extras_with_layouts(b, &branch_values, &keep, m, layouts);
             let args: Vec<Value> = names
                 .iter()
                 .flat_map(|name| branch_values[name].0.iter().copied())
@@ -2113,6 +2270,21 @@ fn lower(
                 vec![AbiParam::new(types::I64)],
                 &[length, width_value],
             )[0];
+            let managed_descriptor = if managed_descriptor_supported(&element_type, l) {
+                let (offsets, kinds, count) = managed_lane_metadata(b, &element_type, l);
+                let count_value = b.ins().iconst(types::I64, count);
+                let _ = runtime_call(
+                    b,
+                    m,
+                    "xenith_list_set_managed_descriptor",
+                    vec![AbiParam::new(types::I64); 4],
+                    vec![],
+                    &[raw, count_value, offsets, kinds],
+                );
+                true
+            } else {
+                false
+            };
             for (offset, element) in elements.iter().enumerate() {
                 let offset_value = b.ins().iconst(types::I64, offset as i64);
                 let pointer = runtime_call(
@@ -2123,8 +2295,19 @@ fn lower(
                     vec![AbiParam::new(types::I64)],
                     &[raw, offset_value],
                 )[0];
-                for (value, (_, field_offset)) in lower(b, element, v, ids, m, l)
-                    .0
+                let values = lower(b, element, v, ids, m, l).0;
+                if managed_descriptor {
+                    let element_type_ref = infer_lowered_type(element, v, ids, l);
+                    emit_retain_borrowed_with_layouts(
+                        b,
+                        element,
+                        &values,
+                        &element_type_ref,
+                        m,
+                        l,
+                    );
+                }
+                for (value, (_, field_offset)) in values
                     .into_iter()
                     .zip(lanes.iter())
                 {
@@ -2480,7 +2663,7 @@ fn lower(
             if element_type == Type::Bytes {
                 let byte = b.ins().load(types::I8, MemFlags::new(), pointer, 0);
                 if base_is_owned {
-                    release_owned_temporary(b, base, &raw, &base_type, m);
+                    release_owned_temporary_with_layouts(b, base, &raw, &base_type, m, l);
                 }
                 return (vec![b.ins().uextend(types::I32, byte)], Type::I32);
             }
@@ -2502,7 +2685,7 @@ fn lower(
                 }
             }
             if base_is_owned {
-                release_owned_temporary(b, base, &raw, &base_type, m);
+                release_owned_temporary_with_layouts(b, base, &raw, &base_type, m, l);
             }
             (values, element_type)
         }
@@ -7970,6 +8153,14 @@ fn managed_lane_kinds(ty: &Type, layouts: &HashMap<String, StructLayout>) -> Vec
             .collect(),
         Type::Float | Type::Null | Type::Generic(_) => vec![0],
     }
+}
+
+fn managed_descriptor_supported(ty: &Type, layouts: &HashMap<String, StructLayout>) -> bool {
+    let kinds = managed_lane_kinds(ty, layouts);
+    !kinds.is_empty()
+        && kinds.len() <= 8
+        && kinds.iter().any(|kind| *kind == 2)
+        && kinds.iter().all(|kind| *kind == 0 || *kind == 2)
 }
 
 fn managed_lane_metadata(

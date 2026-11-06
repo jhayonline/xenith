@@ -272,6 +272,15 @@ fn native_managed_struct_filter_find_contains_use_content_ownership() {
 }
 
 #[test]
+fn native_nested_managed_list_elements_are_released_safely() {
+    let dir = fixture_project(
+        "struct Bucket { values: list<i32> } function main() -> i32 { let buckets: list<Bucket> = [Bucket { values: [1, 2, 3] }] if (len(buckets[0].values) == 3) { return 42 } return 1 }",
+    );
+    let output = xenith(&dir.path().join("app")).arg("run").output().unwrap();
+    assert_eq!(output.status.code(), Some(42), "{}", String::from_utf8_lossy(&output.stderr));
+}
+
+#[test]
 fn native_collection_algorithms_handle_empty_lists() {
     let dir = fixture_project(
         "function main() -> i32 { let values: list<i32> = [] let doubled: list<i32> = map(values, fn(value: i32) -> i32 => value * 2) let filtered: list<i32> = filter(doubled, fn(value: i32) -> bool => value > 0) if (len(filtered) == 0 && find(filtered, fn(value: i32) -> bool => value > 0) == -1) { return 42 } return 1 }",
