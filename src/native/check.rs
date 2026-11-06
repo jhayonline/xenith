@@ -2887,19 +2887,21 @@ fn expr(
                 }
                 return Some((**result).clone());
             }
-            if let Some(signature) = signatures.get(name) {
-                if arguments.len() != signature.parameters.len() {
-                    errors.push(Diagnostic { message: format!("function `{name}` expects {} arguments", signature.parameters.len()), span: None });
-                }
-                for (argument, expected) in arguments.iter().zip(&signature.parameters) {
-                    if expr(argument, names, signatures, layouts, errors) != Some(expected.clone()) {
-                        errors.push(Diagnostic { message: format!("function `{name}` argument type mismatch"), span: None });
+            if matches!(name.as_str(), "map" | "filter" | "find" | "contains" | "validate") {
+                if let Some(signature) = signatures.get(name) {
+                    if arguments.len() != signature.parameters.len() {
+                        errors.push(Diagnostic { message: format!("function `{name}` expects {} arguments", signature.parameters.len()), span: None });
                     }
+                    for (argument, expected) in arguments.iter().zip(&signature.parameters) {
+                        if expr(argument, names, signatures, layouts, errors) != Some(expected.clone()) {
+                            errors.push(Diagnostic { message: format!("function `{name}` argument type mismatch"), span: None });
+                        }
+                    }
+                    for argument in arguments.iter().skip(signature.parameters.len()) {
+                        expr(argument, names, signatures, layouts, errors);
+                    }
+                    return Some(signature.result.clone());
                 }
-                for argument in arguments.iter().skip(signature.parameters.len()) {
-                    expr(argument, names, signatures, layouts, errors);
-                }
-                return Some(signature.result.clone());
             }
             if name == "echo" {
                 if arguments.len() != 1
