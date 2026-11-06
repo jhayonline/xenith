@@ -163,6 +163,15 @@ fn native_collection_algorithms_handle_empty_lists() {
     assert_eq!(output.status.code(), Some(42), "{}", String::from_utf8_lossy(&output.stderr));
 }
 
+#[test]
+fn native_i64_collection_algorithms_share_the_wide_integer_abi() {
+    let dir = fixture_project(
+        "function main() -> i32 { let values: list<i64> = [3i64, 4i64, 5i64] let filtered: list<i64> = filter(values, fn(value: i64) -> bool => value > 3i64) let found: i32 = find(filtered, fn(value: i64) -> bool => value == 5i64) let total: i64 = reduce(filtered, 1i64, fn(acc: i64, value: i64) -> i64 => acc + value) if (contains(filtered, 5i64) && found == 1 && total == 10i64) { return 42 } return 1 }",
+    );
+    let output = xenith(&dir.path().join("app")).arg("run").output().unwrap();
+    assert_eq!(output.status.code(), Some(42), "{}", String::from_utf8_lossy(&output.stderr));
+}
+
 fn fixture_project(source: &str) -> tempfile::TempDir {
     let dir = tempfile::tempdir().unwrap();
     xenith(dir.path()).args(["new", "app"]).status().unwrap();

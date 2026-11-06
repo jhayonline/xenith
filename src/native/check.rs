@@ -2997,7 +2997,7 @@ fn expr(
                 let list_type = expr(&arguments[0], names, signatures, layouts, errors);
                 let callback_type = expr(&arguments[1], names, signatures, layouts, errors);
                 if let (Some(Type::List(element)), Some(Type::Function(parameters, result))) = (list_type, callback_type) {
-                    if parameters != vec![*element.clone()] || *result != Type::Bool { errors.push(Diagnostic { message: "filter predicate must accept the list element and return bool".into(), span: None }); }
+                    if parameters != vec![*element.clone()] || *result != Type::Bool || !matches!(*element, Type::I32 | Type::I64) { errors.push(Diagnostic { message: "filter currently supports i32 and i64 predicates returning bool".into(), span: None }); }
                     return Some(Type::List(element));
                 }
                 errors.push(Diagnostic { message: "filter expects a typed list and predicate".into(), span: None });
@@ -3008,7 +3008,7 @@ fn expr(
                 let list_type = expr(&arguments[0], names, signatures, layouts, errors);
                 let callback_type = expr(&arguments[1], names, signatures, layouts, errors);
                 if let (Some(Type::List(element)), Some(Type::Function(parameters, result))) = (list_type, callback_type) {
-                    if parameters != vec![*element] || *result != Type::Bool { errors.push(Diagnostic { message: "find predicate must accept the list element and return bool".into(), span: None }); }
+                    if parameters != vec![*element.clone()] || *result != Type::Bool || !matches!(*element, Type::I32 | Type::I64) { errors.push(Diagnostic { message: "find currently supports i32 and i64 predicates returning bool".into(), span: None }); }
                     return Some(Type::I32);
                 }
                 errors.push(Diagnostic { message: "find expects a typed list and predicate".into(), span: None }); return None;
@@ -3019,8 +3019,8 @@ fn expr(
                 let initial_type = expr(&arguments[1], names, signatures, layouts, errors);
                 let callback_type = expr(&arguments[2], names, signatures, layouts, errors);
                 if let (Some(Type::List(element)), Some(initial), Some(Type::Function(parameters, result))) = (list_type, initial_type, callback_type) {
-                    if initial != Type::I32 || *element != Type::I32 || parameters != vec![Type::I32, Type::I32] || *result != Type::I32 { errors.push(Diagnostic { message: "reduce currently expects i32 values and an i32 -> i32 accumulator callback".into(), span: None }); }
-                    return Some(Type::I32);
+                    if !matches!(initial, Type::I32 | Type::I64) || *element != initial || parameters != vec![initial.clone(), initial.clone()] || *result != initial { errors.push(Diagnostic { message: "reduce currently supports matching i32 or i64 values and accumulator callbacks".into(), span: None }); }
+                    return Some(initial);
                 }
                 errors.push(Diagnostic { message: "reduce expects a typed list, accumulator, and callback".into(), span: None }); return None;
             }
