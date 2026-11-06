@@ -2896,6 +2896,9 @@ fn expr(
                         errors.push(Diagnostic { message: format!("function `{name}` argument type mismatch"), span: None });
                     }
                 }
+                for argument in arguments.iter().skip(signature.parameters.len()) {
+                    expr(argument, names, signatures, layouts, errors);
+                }
                 return Some(signature.result.clone());
             }
             if name == "echo" {
