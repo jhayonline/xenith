@@ -174,11 +174,12 @@ fn std_http_module_exposes_bounded_client_pool() {
     });
     let (_directory, executable) = build_project_source(
         &format!(r#"
-grab {{ client_pool, pool_request }} from "std::http"
+grab {{ client_pool, pool_request, pool_close }} from "std::http"
 function main() -> i32 {{
     let pool: i64 = client_pool(1i64, 1000i64)
     let result: tuple<i64, string, string> = pool_request(pool, "{address}", "GET", "/", "")
     let again: tuple<i64, string, string> = pool_request(pool, "{address}", "GET", "/again", "")
+    pool_close(pool)
     if (result[0] == 200i64 && result[1] == "ok" && result[2] == "" && again[0] == 200i64 && again[1] == "ok" && again[2] == "") {{ return 42 }}
     return 10
 }}
