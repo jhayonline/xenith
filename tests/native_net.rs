@@ -1,4 +1,4 @@
-use std::{fs, path::Path, process::Command};
+use std::{fs, io::Write, net::TcpListener, path::Path, process::Command, thread};
 use xenith::native::{
     check::check,
     codegen::{emit_object, link_host},
@@ -205,9 +205,26 @@ function main() -> i32 {
     if (len(received[1]) == 0) { return 20 }
     return 42
 }
+
 "#,
     );
     assert_eq!(Command::new(executable).status().unwrap().code(), Some(42));
+}
+
+#[test]
+fn native_tcp_connect_resolves_hostnames() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        stream.write_all(b"ok").unwrap();
+    });
+    let (_directory, executable) = build_builtin_source(&format!(
+        "fn main() -> i32 {{ let connection: i64 = tcp_connect(\"localhost:{}\") tcp_close(connection) return 42 }}",
+        port
+    ));
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(42));
+    server.join().unwrap();
 }
 
 #[test]
