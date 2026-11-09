@@ -570,6 +570,18 @@ let clients: i64 = client_pool(8i64, 5000i64)
 let result: tuple<i64, string, string> = pool_request(clients, "api.example.com:443", "GET", "/health", "")
 ```
 
+When a response should not be buffered in one string, use a stream handle:
+
+```xenith
+grab { stream_open, stream_read, stream_close } from "std::http"
+let stream: i64 = stream_open("api.example.com:80", "GET", "/large", "", 5000i64)
+let chunk: tuple<bytes, string, bool> = stream_read(stream, 65536i64)
+stream_close(stream)
+```
+
+`stream_read` returns the next bytes, a recoverable error string, and an EOF
+flag. The stream keeps its socket open between reads.
+
 HTTPS servers use the same router and request lifecycle as plain HTTP. The
 certificate and private key are loaded when the listener is created, and every
 accepted connection performs a TLS handshake before routing:
