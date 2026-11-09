@@ -24,7 +24,7 @@ fn xenith_http_worker_pool_with_database_serves_concurrent_requests() {
     drop(reservation);
     let directory = tempfile::tempdir().unwrap();
     let source = format!(r#"
-grab {{ server_with_config, router, get_request, run_workers_with_pool, request_db }} from "std::http"
+grab {{ server_with_config, router, get_request, run_workers_for_with_pool, request_db }} from "std::http"
 grab {{ pool_new }} from "std::db"
 function show(request: i64) -> tuple<i32, string> {{
     if (request_db() != 0i64) {{ return (200, "db") }}
@@ -35,7 +35,7 @@ function main() -> i32 {{
     get_request(routes, "/", show)
     let pool: i64 = pool_new(":memory:", 2i64, 2i64)
     let server: i64 = server_with_config("127.0.0.1:{port}", 65536i64, 1000i64, 1000i64, 16i64)
-    let error: string = run_workers_with_pool(server, routes, pool, 2i64)
+    let error: string = run_workers_for_with_pool(server, routes, pool, 2i64, 2i64)
     return len(error)
 }}
 "#);
@@ -49,8 +49,7 @@ function main() -> i32 {{
         client.read_to_end(&mut response).unwrap();
         assert!(response.ends_with(b"db"));
     }
-    child.kill().unwrap();
-    let _ = child.wait();
+    assert_eq!(child.wait().unwrap().code(), Some(0));
 }
 
 #[test]

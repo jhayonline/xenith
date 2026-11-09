@@ -1957,6 +1957,11 @@ fn signatures(
             Type::String,
         ),
         (
+            "http_server_run_workers_for",
+            vec![Type::I64, Type::I64, Type::I64, Type::I64],
+            Type::String,
+        ),
+        (
             "http_server_run_workers",
             vec![Type::I64, Type::I64, Type::I64],
             Type::String,
@@ -1964,6 +1969,11 @@ fn signatures(
         (
             "http_server_run_workers_pool",
             vec![Type::I64, Type::I64, Type::I64, Type::I64],
+            Type::String,
+        ),
+        (
+            "http_server_run_workers_for_pool",
+            vec![Type::I64, Type::I64, Type::I64, Type::I64, Type::I64],
             Type::String,
         ),
     ] {

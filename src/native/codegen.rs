@@ -5755,7 +5755,7 @@ fn lower(
                     Type::String,
                 );
             }
-            if name == "http_server_run_workers_pool" {
+            if name == "http_server_run_workers_pool" || name == "http_server_run_workers_for_pool" {
                 let server = lower(b, &arguments[0], v, ids, m, l).0[0];
                 let router = lower(b, &arguments[1], v, ids, m, l).0[0];
                 let pool = lower(b, &arguments[2], v, ids, m, l).0[0];
@@ -5770,31 +5770,29 @@ fn lower(
                     8,
                     3,
                 ));
-                let args = [
-                    server,
-                    router,
-                    pool,
-                    workers,
-                    b.ins().stack_addr(types::I64, error_ptr, 0),
-                    b.ins().stack_addr(types::I64, error_len, 0),
-                ];
+                let mut args = vec![server, router, pool, workers];
+                if name == "http_server_run_workers_for_pool" {
+                    args.push(lower(b, &arguments[4], v, ids, m, l).0[0]);
+                }
+                args.push(b.ins().stack_addr(types::I64, error_ptr, 0));
+                args.push(b.ins().stack_addr(types::I64, error_len, 0));
                 let _ = runtime_call(
                     b,
                     m,
-                    "xenith_http_server_run_workers_pool",
-                    vec![AbiParam::new(types::I64); 6],
+                    if name == "http_server_run_workers_pool" { "xenith_http_server_run_workers_pool" } else { "xenith_http_server_run_workers_for_pool" },
+                    vec![AbiParam::new(types::I64); args.len()],
                     vec![],
                     &args,
                 );
                 return (
                     vec![
-                        b.ins().load(types::I64, MemFlags::new(), args[4], 0),
-                        b.ins().load(types::I64, MemFlags::new(), args[5], 0),
+                        b.ins().load(types::I64, MemFlags::new(), args[args.len() - 2], 0),
+                        b.ins().load(types::I64, MemFlags::new(), args[args.len() - 1], 0),
                     ],
                     Type::String,
                 );
             }
-            if name == "http_server_run_workers" {
+            if name == "http_server_run_workers" || name == "http_server_run_workers_for" {
                 let server = lower(b, &arguments[0], v, ids, m, l).0[0];
                 let router = lower(b, &arguments[1], v, ids, m, l).0[0];
                 let workers = lower(b, &arguments[2], v, ids, m, l).0[0];
@@ -5808,25 +5806,24 @@ fn lower(
                     8,
                     3,
                 ));
-                let args = [
-                    server,
-                    router,
-                    workers,
-                    b.ins().stack_addr(types::I64, error_ptr, 0),
-                    b.ins().stack_addr(types::I64, error_len, 0),
-                ];
+                let mut args = vec![server, router, workers];
+                if name == "http_server_run_workers_for" {
+                    args.push(lower(b, &arguments[3], v, ids, m, l).0[0]);
+                }
+                args.push(b.ins().stack_addr(types::I64, error_ptr, 0));
+                args.push(b.ins().stack_addr(types::I64, error_len, 0));
                 let _ = runtime_call(
                     b,
                     m,
-                    "xenith_http_server_run_workers",
-                    vec![AbiParam::new(types::I64); 5],
+                    if name == "http_server_run_workers" { "xenith_http_server_run_workers" } else { "xenith_http_server_run_workers_for" },
+                    vec![AbiParam::new(types::I64); args.len()],
                     vec![],
                     &args,
                 );
                 return (
                     vec![
-                        b.ins().load(types::I64, MemFlags::new(), args[3], 0),
-                        b.ins().load(types::I64, MemFlags::new(), args[4], 0),
+                        b.ins().load(types::I64, MemFlags::new(), args[args.len() - 2], 0),
+                        b.ins().load(types::I64, MemFlags::new(), args[args.len() - 1], 0),
                     ],
                     Type::String,
                 );

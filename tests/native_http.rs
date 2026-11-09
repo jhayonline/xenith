@@ -644,7 +644,7 @@ fn xenith_https_server_serves_a_real_tls_request() {
     assert!(generated.status.success(), "{}", String::from_utf8_lossy(&generated.stderr));
     let source = format!(
         r#"
-grab {{ secure_server, router, get, run_for }} from "std::http"
+grab {{ secure_server, router, get, run_workers_for }} from "std::http"
 function health(method: string, path: string, body: string) -> tuple<i32, string> {{
     return (200, "secure ok")
 }}
@@ -652,7 +652,7 @@ function main() -> i32 {{
     let routes: i64 = router()
     get(routes, "/health", health)
     let server: i64 = secure_server("127.0.0.1:{port}", "{cert}", "{key}", 65536i64, 5000i64, 5000i64, 16i64)
-    let error: string = run_for(server, routes, 1i64)
+    let error: string = run_workers_for(server, routes, 2i64, 2i64)
     return len(error)
 }}
 "#,
@@ -669,22 +669,31 @@ function main() -> i32 {{
     xenith::native::codegen::link_host(&object, &executable).unwrap();
     let mut child = Command::new(&executable).spawn().unwrap();
     thread::sleep(Duration::from_millis(200));
-    let mut client = Command::new("openssl")
-        .args(["s_client", "-connect", &format!("127.0.0.1:{port}"), "-quiet"])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .unwrap();
-    client
-        .stdin
-        .take()
-        .unwrap()
-        .write_all(b"GET /health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
-        .unwrap();
-    let output = client.wait_with_output().unwrap();
-    assert!(output.status.success());
-    assert!(output.stdout.windows(b"secure ok".len()).any(|w| w == b"secure ok"));
+    let clients: Vec<_> = (0..2)
+        .map(|_| {
+            thread::spawn(move || {
+                let mut client = Command::new("openssl")
+                    .args(["s_client", "-connect", &format!("127.0.0.1:{port}"), "-quiet"])
+                    .stdin(Stdio::piped())
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::null())
+                    .spawn()
+                    .unwrap();
+                client
+                    .stdin
+                    .take()
+                    .unwrap()
+                    .write_all(b"GET /health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+                    .unwrap();
+                client.wait_with_output().unwrap()
+            })
+        })
+        .collect();
+    for client in clients {
+        let output = client.join().unwrap();
+        assert!(output.status.success());
+        assert!(output.stdout.windows(b"secure ok".len()).any(|w| w == b"secure ok"));
+    }
     assert_eq!(child.wait().unwrap().code(), Some(0));
 }
 
