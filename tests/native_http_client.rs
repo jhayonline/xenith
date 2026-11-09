@@ -50,12 +50,6 @@ fn native_http_client_returns_status_body_and_empty_error() {
         stream
             .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")
             .unwrap();
-        drop(stream);
-        let (mut replacement, _) = listener.accept().unwrap();
-        let _ = replacement.read(&mut request).unwrap();
-        replacement
-            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")
-            .unwrap();
     });
     let (_directory, executable) = build_source(&format!(
         r#"
