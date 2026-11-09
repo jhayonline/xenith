@@ -4037,6 +4037,44 @@ fn lower(
                     Type::String,
                 );
             }
+            if name == "tcp_local" || name == "tcp_peer" {
+                let connection = lower(b, &arguments[0], v, ids, m, l).0[0];
+                let output_ptr = b.create_sized_stack_slot(StackSlotData::new(
+                    StackSlotKind::ExplicitSlot,
+                    8,
+                    3,
+                ));
+                let output_len = b.create_sized_stack_slot(StackSlotData::new(
+                    StackSlotKind::ExplicitSlot,
+                    8,
+                    3,
+                ));
+                let args = [
+                    connection,
+                    b.ins().stack_addr(types::I64, output_ptr, 0),
+                    b.ins().stack_addr(types::I64, output_len, 0),
+                ];
+                let symbol = if name == "tcp_local" {
+                    "xenith_tcp_local"
+                } else {
+                    "xenith_tcp_peer"
+                };
+                let _ = runtime_call(
+                    b,
+                    m,
+                    symbol,
+                    vec![AbiParam::new(types::I64); 3],
+                    vec![],
+                    &args,
+                );
+                return (
+                    vec![
+                        b.ins().load(types::I64, MemFlags::new(), args[1], 0),
+                        b.ins().load(types::I64, MemFlags::new(), args[2], 0),
+                    ],
+                    Type::String,
+                );
+            }
             if name == "http_read" {
                 let connection = lower(b, &arguments[0], v, ids, m, l).0[0];
                 let data_ptr = b.create_sized_stack_slot(StackSlotData::new(

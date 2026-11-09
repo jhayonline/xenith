@@ -1566,6 +1566,8 @@ fn signatures(
             vec![Type::I64, Type::I64, Type::I64],
             Type::String,
         ),
+        ("tcp_local", vec![Type::I64], Type::String),
+        ("tcp_peer", vec![Type::I64], Type::String),
         (
             "http_read",
             vec![Type::I64],
