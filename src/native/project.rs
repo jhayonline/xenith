@@ -417,7 +417,11 @@ fn standard_native_source(name: &str) -> Option<&'static str> {
              export function accept(listener: i64) -> i64 { return tcp_accept(listener) }\n\
              export function read(connection: i64, maximum: i64) -> tuple<bytes, string> { return tcp_read(connection, maximum) }\n\
              export function write(connection: i64, data: bytes) -> string { return tcp_write(connection, data) }\n\
-             export function close(connection: i64) -> null { return tcp_close(connection) }",
+             export function close(connection: i64) -> null { return tcp_close(connection) }\n\
+             export function connect(address: string) -> i64 { return tcp_connect(address) }\n\
+             export function timeout(connection: i64, read_ms: i64, write_ms: i64) -> string { return tcp_timeout(connection, read_ms, write_ms) }\n\
+             export function local_address(listener: i64) -> string { return tcp_local(listener) }\n\
+             export function peer_address(connection: i64) -> string { return tcp_peer(connection) }",
         ),
         "auth" => Some(
             "export function hash_password(password: string) -> string { return auth_hash_password(password) }\n\
