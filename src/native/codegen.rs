@@ -3950,6 +3950,7 @@ fn lower(
                 let timeout = lower(b, &arguments[4], v, ids, m, l).0[0];
                 let args = [address[0], address[1], method[0], method[1], path[0], path[1], body[0], body[1], timeout];
                 let value = runtime_call(b, m, "xenith_http_stream_open_v2", vec![AbiParam::new(types::I64); 9], vec![AbiParam::new(types::I64)], &args)[0];
+                let _ = runtime_call(b, m, "xenith_http_stream_bind_metadata_v2", vec![AbiParam::new(types::I64)], vec![], &[value]);
                 return (vec![value], Type::I64);
             }
             if name == "http_stream_close" {
@@ -3959,12 +3960,12 @@ fn lower(
             }
             if name == "http_stream_cancel" {
                 let stream = lower(b, &arguments[0], v, ids, m, l).0[0];
-                let _ = runtime_call(b, m, "xenith_http_stream_cancel_v2", vec![AbiParam::new(types::I64)], vec![], &[stream]);
+                let _ = runtime_call(b, m, "xenith_http_stream_cancel_v3", vec![AbiParam::new(types::I64)], vec![], &[stream]);
                 return (vec![b.ins().iconst(types::I8, 0)], Type::Null);
             }
             if name == "http_stream_status" {
                 let stream = lower(b, &arguments[0], v, ids, m, l).0[0];
-                let value = runtime_call(b, m, "xenith_http_stream_status_v2", vec![AbiParam::new(types::I64)], vec![AbiParam::new(types::I64)], &[stream])[0];
+                let value = runtime_call(b, m, "xenith_http_stream_status_v3", vec![AbiParam::new(types::I64)], vec![AbiParam::new(types::I64)], &[stream])[0];
                 return (vec![value], Type::I64);
             }
             if name == "http_stream_header" {
@@ -3973,7 +3974,7 @@ fn lower(
                 let output_ptr = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
                 let output_len = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
                 let args = [stream, name_value[0], name_value[1], b.ins().stack_addr(types::I64, output_ptr, 0), b.ins().stack_addr(types::I64, output_len, 0)];
-                let _ = runtime_call(b, m, "xenith_http_stream_header_v2", vec![AbiParam::new(types::I64); 5], vec![], &args);
+                let _ = runtime_call(b, m, "xenith_http_stream_header_v3", vec![AbiParam::new(types::I64); 5], vec![], &args);
                 return (vec![b.ins().load(types::I64, MemFlags::new(), args[3], 0), b.ins().load(types::I64, MemFlags::new(), args[4], 0)], Type::String);
             }
             if name == "http_stream_read" {
