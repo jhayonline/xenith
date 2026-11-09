@@ -3988,6 +3988,55 @@ fn lower(
                 let _ = runtime_call(b, m, "xenith_tcp_close", vec![AbiParam::new(types::I64)], vec![], &[connection]);
                 return (vec![b.ins().iconst(types::I8, 0)], Type::Null);
             }
+            if name == "tcp_connect" {
+                let address = lower(b, &arguments[0], v, ids, m, l).0;
+                let value = runtime_call(
+                    b,
+                    m,
+                    "xenith_tcp_connect",
+                    vec![AbiParam::new(types::I64); 2],
+                    vec![AbiParam::new(types::I64)],
+                    &[address[0], address[1]],
+                )[0];
+                return (vec![value], Type::I64);
+            }
+            if name == "tcp_timeout" {
+                let connection = lower(b, &arguments[0], v, ids, m, l).0[0];
+                let read_ms = lower(b, &arguments[1], v, ids, m, l).0[0];
+                let write_ms = lower(b, &arguments[2], v, ids, m, l).0[0];
+                let error_ptr = b.create_sized_stack_slot(StackSlotData::new(
+                    StackSlotKind::ExplicitSlot,
+                    8,
+                    3,
+                ));
+                let error_len = b.create_sized_stack_slot(StackSlotData::new(
+                    StackSlotKind::ExplicitSlot,
+                    8,
+                    3,
+                ));
+                let args = [
+                    connection,
+                    read_ms,
+                    write_ms,
+                    b.ins().stack_addr(types::I64, error_ptr, 0),
+                    b.ins().stack_addr(types::I64, error_len, 0),
+                ];
+                let _ = runtime_call(
+                    b,
+                    m,
+                    "xenith_tcp_timeout",
+                    vec![AbiParam::new(types::I64); 5],
+                    vec![],
+                    &args,
+                );
+                return (
+                    vec![
+                        b.ins().load(types::I64, MemFlags::new(), args[3], 0),
+                        b.ins().load(types::I64, MemFlags::new(), args[4], 0),
+                    ],
+                    Type::String,
+                );
+            }
             if name == "http_read" {
                 let connection = lower(b, &arguments[0], v, ids, m, l).0[0];
                 let data_ptr = b.create_sized_stack_slot(StackSlotData::new(
