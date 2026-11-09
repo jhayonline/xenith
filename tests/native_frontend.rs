@@ -2,7 +2,7 @@ use std::path::Path;
 use std::process::Command;
 use xenith::native::{
     check::check,
-    syntax::{parse, Span},
+    syntax::{Span, parse},
 };
 
 fn assert_error(source: &str, fragment: &str) {
@@ -144,7 +144,10 @@ fn native_program_prints_strings_from_discarded_calls() {
     );
     let output = Command::new(artifact.executable).output().unwrap();
     assert!(output.status.success());
-    assert_eq!(String::from_utf8(output.stdout).unwrap(), "from call\nfrom main\n");
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        "from call\nfrom main\n"
+    );
 }
 
 #[test]
@@ -212,9 +215,11 @@ fn parser_reports_truncated_let_statement_without_panicking() {
     let errors = parse(Path::new("main.xen"), "fn main() -> i32 { let")
         .expect_err("source should not parse");
 
-    assert!(errors
-        .iter()
-        .any(|error| error.message.contains("binding name")));
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message.contains("binding name"))
+    );
 }
 
 #[test]
@@ -380,9 +385,11 @@ fn rejects_out_of_range_i64_literal() {
     )
     .expect_err("source should not parse");
 
-    assert!(errors[0]
-        .message
-        .contains("i64 integer literal out of range"));
+    assert!(
+        errors[0]
+            .message
+            .contains("i64 integer literal out of range")
+    );
 }
 
 #[test]
@@ -495,10 +502,12 @@ fn parser_preserves_invalid_struct_literal_field_diagnostic() {
 
 #[test]
 fn accepts_forward_calls_and_rejects_bad_calls() {
-    assert!(check_source(
-        "fn main() -> i32 { return add(1, 2) } fn add(a: i32, b: i32) -> i32 { return a + b }",
-    )
-    .is_ok());
+    assert!(
+        check_source(
+            "fn main() -> i32 { return add(1, 2) } fn add(a: i32, b: i32) -> i32 { return a + b }",
+        )
+        .is_ok()
+    );
     assert_error("fn main() -> i32 { return missing(1) }", "unknown function");
     assert_error(
         "fn add(a: i32) -> i32 { return a } fn main() -> i32 { return add(1, 2) }",
@@ -512,10 +521,12 @@ fn accepts_forward_calls_and_rejects_bad_calls() {
 
 #[test]
 fn accepts_recursive_calls() {
-    assert!(check_source(
-        "fn recurse(value: i32) -> i32 { return recurse(value) } fn main() -> i32 { return 0 }",
-    )
-    .is_ok());
+    assert!(
+        check_source(
+            "fn recurse(value: i32) -> i32 { return recurse(value) } fn main() -> i32 { return 0 }",
+        )
+        .is_ok()
+    );
 }
 
 #[test]
@@ -525,12 +536,16 @@ fn checks_extra_call_arguments_after_arity_error() {
     )
     .expect_err("source should not type-check");
 
-    assert!(errors
-        .iter()
-        .any(|error| error.message.contains("expects 1 arguments")));
-    assert!(errors
-        .iter()
-        .any(|error| error.message.contains("unknown name `missing`")));
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message.contains("expects 1 arguments"))
+    );
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message.contains("unknown name `missing`"))
+    );
 }
 
 #[test]
@@ -540,12 +555,16 @@ fn checks_unknown_struct_field_values() {
     )
     .expect_err("source should not type-check");
 
-    assert!(errors
-        .iter()
-        .any(|error| error.message.contains("unknown field `y`")));
-    assert!(errors
-        .iter()
-        .any(|error| error.message.contains("unknown name `missing`")));
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message.contains("unknown field `y`"))
+    );
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message.contains("unknown name `missing`"))
+    );
 }
 
 #[test]
@@ -553,12 +572,16 @@ fn checks_arguments_to_unknown_function() {
     let errors = check_source("fn main() -> i32 { return missing_function(missing_argument) }")
         .expect_err("source should not type-check");
 
-    assert!(errors.iter().any(|error| error
-        .message
-        .contains("unknown function `missing_function`")));
-    assert!(errors
-        .iter()
-        .any(|error| error.message.contains("unknown name `missing_argument`")));
+    assert!(errors.iter().any(|error| {
+        error
+            .message
+            .contains("unknown function `missing_function`")
+    }));
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message.contains("unknown name `missing_argument`"))
+    );
 }
 
 #[test]
@@ -567,12 +590,16 @@ fn checks_fields_of_unknown_struct_literal() {
         check_source("fn main() -> i32 { let value = Missing { field: missing_value } return 0 }")
             .expect_err("source should not type-check");
 
-    assert!(errors
-        .iter()
-        .any(|error| error.message.contains("unknown struct `Missing`")));
-    assert!(errors
-        .iter()
-        .any(|error| error.message.contains("unknown name `missing_value`")));
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message.contains("unknown struct `Missing`"))
+    );
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message.contains("unknown name `missing_value`"))
+    );
 }
 
 #[test]
@@ -738,7 +765,9 @@ fn native_program_calls_forward_function() {
 
 #[test]
 fn native_program_passes_returns_and_reads_structs() {
-    let artifact = build_source("struct Pair { first: i32, second: i32 } fn swap(pair: Pair) -> Pair { return Pair { first: pair.second, second: pair.first } } fn main() -> i32 { let pair = swap(Pair { first: 2, second: 40 }) return pair.second + pair.first }");
+    let artifact = build_source(
+        "struct Pair { first: i32, second: i32 } fn swap(pair: Pair) -> Pair { return Pair { first: pair.second, second: pair.first } } fn main() -> i32 { let pair = swap(Pair { first: 2, second: 40 }) return pair.second + pair.first }",
+    );
     assert_eq!(
         Command::new(artifact.executable).status().unwrap().code(),
         Some(42)
@@ -878,7 +907,9 @@ fn native_program_branches_on_boolean_literal() {
 
 #[test]
 fn native_program_branches_on_boolean_parameter() {
-    let artifact = build_source("fn choose(flag: bool) -> i32 { if flag { return 42 } else { return 0 } } fn main() -> i32 { return choose(true) }");
+    let artifact = build_source(
+        "fn choose(flag: bool) -> i32 { if flag { return 42 } else { return 0 } } fn main() -> i32 { return choose(true) }",
+    );
     assert_eq!(
         Command::new(artifact.executable).status().unwrap().code(),
         Some(42)
@@ -1071,7 +1102,9 @@ fn native_program_ignores_statements_after_top_level_return() {
 
 #[test]
 fn native_program_runs_while_loop() {
-    let artifact = build_source("fn main() -> i32 { let mut value = 0 while value < 42 { value = value + 1 } return value }");
+    let artifact = build_source(
+        "fn main() -> i32 { let mut value = 0 while value < 42 { value = value + 1 } return value }",
+    );
     assert_eq!(
         Command::new(artifact.executable).status().unwrap().code(),
         Some(42)
@@ -1080,7 +1113,9 @@ fn native_program_runs_while_loop() {
 
 #[test]
 fn native_while_loop_runs_multiple_assignments() {
-    let artifact = build_source("fn main() -> i32 { let mut value = 0 let mut total = 0 while value < 6 { total = total + 7 value = value + 1 } return total }");
+    let artifact = build_source(
+        "fn main() -> i32 { let mut value = 0 let mut total = 0 while value < 6 { total = total + 7 value = value + 1 } return total }",
+    );
     assert_eq!(
         Command::new(artifact.executable).status().unwrap().code(),
         Some(42)
