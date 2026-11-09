@@ -2,7 +2,7 @@ use std::{
     fs,
     io::{Read, Write},
     net::{TcpListener, TcpStream},
-    process::Command,
+    process::{Command, Stdio},
     thread,
     time::Duration,
 };
@@ -622,6 +622,69 @@ function main() -> i32 {{
         client.read_to_end(&mut response).unwrap();
         assert!(response.ends_with(b"ok"));
     }
+    assert_eq!(child.wait().unwrap().code(), Some(0));
+}
+
+#[test]
+fn xenith_https_server_serves_a_real_tls_request() {
+    let reservation = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = reservation.local_addr().unwrap().port();
+    drop(reservation);
+    let directory = tempfile::tempdir().unwrap();
+    let cert = directory.path().join("cert.pem");
+    let key = directory.path().join("key.pem");
+    let generated = Command::new("openssl")
+        .args([
+            "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1",
+            "-keyout", key.to_str().unwrap(), "-out", cert.to_str().unwrap(),
+            "-subj", "/CN=localhost", "-addext", "subjectAltName=IP:127.0.0.1",
+        ])
+        .output()
+        .unwrap();
+    assert!(generated.status.success(), "{}", String::from_utf8_lossy(&generated.stderr));
+    let source = format!(
+        r#"
+grab {{ secure_server, router, get, run_for }} from "std::http"
+function health(method: string, path: string, body: string) -> tuple<i32, string> {{
+    return (200, "secure ok")
+}}
+function main() -> i32 {{
+    let routes: i64 = router()
+    get(routes, "/health", health)
+    let server: i64 = secure_server("127.0.0.1:{port}", "{cert}", "{key}", 65536i64, 5000i64, 5000i64, 16i64)
+    let error: string = run_for(server, routes, 1i64)
+    return len(error)
+}}
+"#,
+        cert = cert.display(),
+        key = key.display(),
+    );
+    let main = directory.path().join("main.xen");
+    fs::write(&main, source).unwrap();
+    let (program, _) = xenith::native::project::load_program(&main).unwrap();
+    let typed = xenith::native::check::check(&program).unwrap();
+    let object = directory.path().join("main.o");
+    let executable = directory.path().join("main");
+    xenith::native::codegen::emit_object(&typed, &object).unwrap();
+    xenith::native::codegen::link_host(&object, &executable).unwrap();
+    let mut child = Command::new(&executable).spawn().unwrap();
+    thread::sleep(Duration::from_millis(200));
+    let mut client = Command::new("openssl")
+        .args(["s_client", "-connect", &format!("127.0.0.1:{port}"), "-quiet"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    client
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(b"GET /health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+        .unwrap();
+    let output = client.wait_with_output().unwrap();
+    assert!(output.status.success());
+    assert!(output.stdout.windows(b"secure ok".len()).any(|w| w == b"secure ok"));
     assert_eq!(child.wait().unwrap().code(), Some(0));
 }
 
