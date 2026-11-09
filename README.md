@@ -466,7 +466,10 @@ function main() -> i32 {
 }
 ```
 
-Native projects can import the filesystem and environment modules:
+Native projects currently ship seven modules: `std::env`, `std::config`,
+`std::fs`, `std::db`, `std::http`, `std::net`, and `std::auth`. Each is ordinary
+Xenith code over the runtime builtins, so importing one costs nothing it does
+not use:
 
 ```xenith
 grab { cwd } from "std::env"
@@ -482,9 +485,55 @@ function main() -> i32 {
 }
 ```
 
-The standard library is being expanded around the language’s target domains:
-HTTP and networking, JSON and serialization, processes, databases, time,
-randomness, graphics, audio, input, and desktop UI.
+`std::net` is the TCP layer the HTTP server is built on, and it works in both
+directions. Binding to port `0` takes whichever port is free, and
+`local_address` reports which one that turned out to be, so a listener can say
+where it ended up and a client can dial it:
+
+```xenith
+grab { bind, accept, connect, read, write, close, local_address, peer_address } from "std::net"
+
+function main() -> i32 {
+    let listener: i64 = bind("127.0.0.1:0", 8i64)
+    let address: string = local_address(listener)
+    echo("listening on {address}")
+
+    let client: i64 = connect(address)
+    let server: i64 = accept(listener)
+
+    let failure: string = write(client, bytes("ping"))
+    if (failure != "") {
+        echo(failure)
+        return 1
+    }
+
+    let received: tuple<bytes, string> = read(server, 64i64)
+    if (received[1] != "") {
+        echo(received[1])
+        return 1
+    }
+
+    let peer: string = peer_address(server)
+    echo("served {peer}")
+
+    close(client)
+    close(server)
+    close(listener)
+    return 0
+}
+```
+
+Reads and writes return a recoverable error string rather than raising, so a
+peer that disappears mid-request is ordinary control flow. Use `timeout` to put
+a deadline on a socket, otherwise a read on a silent connection waits forever:
+
+```xenith
+let failure: string = timeout(connection, 5000i64, 5000i64)
+```
+
+The standard library is still being expanded around the language’s remaining
+target domains: JSON and serialization, processes, TLS, time, randomness,
+graphics, audio, input, and desktop UI.
 
 ## Memory and safety model
 
