@@ -573,6 +573,14 @@ Implemented native compiler capabilities include:
   unique constraints, and indexes applied by migrations.
 - Bounded native database pools with checked-out handles, safe release, and
   recoverable exhaustion errors.
+- TCP listeners and outbound connections with socket timeouts, local and peer
+  address lookup, and recoverable read and write failures.
+- HTTP servers with routing, path parameters, query and header access, cookies,
+  middleware, CSRF and role guards, JSON body validation, and request-scoped
+  database transactions.
+- Thread-pooled HTTP workers, bounded request loops, and listener shutdown.
+- Password hashing and verification, role grants, and CSRF tokens through
+  native `std::auth`.
 - Source-aware diagnostics with codes, hints, function names, files, lines,
   columns, and byte offsets.
 
@@ -599,8 +607,9 @@ using a default.
 The major work still ahead includes:
 
 - Complete compiler-managed ARC/ORC insertion and cycle-safe weak references.
-- TCP networking, HTTP servers, routing, middleware, and concurrency.
-- JSON, database, TLS, process, and serialization libraries.
+- An HTTP client over `std::net`, plus TLS, so programs can call outward.
+- IPv6 and hostname resolution; the socket layer is IPv4 and numeric today.
+- JSON, process, time, and serialization libraries.
 - Graphics, audio, input, and game-oriented runtime modules.
 - XML parsing and desktop UI tooling.
 - FFI safety, portability across operating systems, optimization modes, and
