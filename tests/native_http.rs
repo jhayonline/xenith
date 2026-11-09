@@ -1,4 +1,11 @@
-use std::{fs, io::{Read, Write}, net::{TcpListener, TcpStream}, process::Command, thread, time::Duration};
+use std::{
+    fs,
+    io::{Read, Write},
+    net::{TcpListener, TcpStream},
+    process::Command,
+    thread,
+    time::Duration,
+};
 use xenith::native::http::{parse_request, HttpError, Response, Server};
 
 #[test]
@@ -95,8 +102,14 @@ function main() -> i32 {
 
 #[test]
 fn http_parser_rejects_incomplete_or_malformed_requests() {
-    assert!(matches!(parse_request(b"GET / HTTP/1.1\r\n"), Err(HttpError::Incomplete)));
-    assert!(matches!(parse_request(b"NOPE\r\n\r\n"), Err(HttpError::Malformed(_))));
+    assert!(matches!(
+        parse_request(b"GET / HTTP/1.1\r\n"),
+        Err(HttpError::Incomplete)
+    ));
+    assert!(matches!(
+        parse_request(b"NOPE\r\n\r\n"),
+        Err(HttpError::Malformed(_))
+    ));
 }
 
 #[test]
@@ -110,10 +123,17 @@ fn http_server_accepts_a_request_and_writes_the_handler_response() {
     let server = Server::bind("127.0.0.1:0").unwrap();
     let address = server.local_addr();
     let worker = thread::spawn(move || {
-        server.accept_once(|request| Response::new(200, format!("{} {}", request.method, request.target).into_bytes()))
+        server.accept_once(|request| {
+            Response::new(
+                200,
+                format!("{} {}", request.method, request.target).into_bytes(),
+            )
+        })
     });
     let mut client = TcpStream::connect(address).unwrap();
-    client.write_all(b"GET /health HTTP/1.1\r\nHost: localhost\r\n\r\n").unwrap();
+    client
+        .write_all(b"GET /health HTTP/1.1\r\nHost: localhost\r\n\r\n")
+        .unwrap();
     let mut response = Vec::new();
     client.read_to_end(&mut response).unwrap();
     worker.join().unwrap().unwrap();
@@ -126,7 +146,8 @@ fn xenith_http_module_serves_a_real_tcp_request() {
     let port = reservation.local_addr().unwrap().port();
     drop(reservation);
     let directory = tempfile::tempdir().unwrap();
-    let source = format!(r#"
+    let source = format!(
+        r#"
 grab {{ bind, accept, read, write, close }} from "std::http"
 function main() -> i32 {{
     let listener: i64 = bind("127.0.0.1:{port}")
@@ -137,7 +158,8 @@ function main() -> i32 {{
     close(listener)
     return len(error)
 }}
-"#);
+"#
+    );
     let main = directory.path().join("main.xen");
     fs::write(&main, source).unwrap();
     let (program, _) = xenith::native::project::load_program(&main).unwrap();
@@ -149,7 +171,9 @@ function main() -> i32 {{
     let mut child = Command::new(&executable).spawn().unwrap();
     thread::sleep(Duration::from_millis(100));
     let mut client = TcpStream::connect(("127.0.0.1", port)).unwrap();
-    client.write_all(b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n").unwrap();
+    client
+        .write_all(b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")
+        .unwrap();
     let mut response = Vec::new();
     client.read_to_end(&mut response).unwrap();
     assert!(response.ends_with(b"ok"));
@@ -249,7 +273,8 @@ fn xenith_http_serve_routes_a_real_request() {
     let port = reservation.local_addr().unwrap().port();
     drop(reservation);
     let directory = tempfile::tempdir().unwrap();
-    let source = format!(r#"
+    let source = format!(
+        r#"
 grab {{ router, get, serve }} from "std::http"
 function health(method: string, path: string, body: string) -> tuple<i32, string> {{
     return (200, "served")
@@ -260,7 +285,8 @@ function main() -> i32 {{
     let error: string = serve(routes, "127.0.0.1:{port}")
     return len(error)
 }}
-"#);
+"#
+    );
     let main = directory.path().join("main.xen");
     fs::write(&main, source).unwrap();
     let (program, _) = xenith::native::project::load_program(&main).unwrap();
@@ -272,7 +298,9 @@ function main() -> i32 {{
     let mut child = Command::new(&executable).spawn().unwrap();
     thread::sleep(Duration::from_millis(100));
     let mut client = TcpStream::connect(("127.0.0.1", port)).unwrap();
-    client.write_all(b"GET /health HTTP/1.1\r\nHost: localhost\r\n\r\n").unwrap();
+    client
+        .write_all(b"GET /health HTTP/1.1\r\nHost: localhost\r\n\r\n")
+        .unwrap();
     let mut response = Vec::new();
     client.read_to_end(&mut response).unwrap();
     assert!(response.ends_with(b"served"));
@@ -404,7 +432,8 @@ fn xenith_http_json_object_decodes_post_fields() {
     let port = reservation.local_addr().unwrap().port();
     drop(reservation);
     let directory = tempfile::tempdir().unwrap();
-    let source = format!(r#"
+    let source = format!(
+        r#"
 grab {{ router, post, serve, json_object }} from "std::http"
 function create(method: string, path: string, body: string) -> tuple<i32, string> {{
     let decoded: tuple<map<string, string>, string> = json_object(body)
@@ -417,7 +446,8 @@ function main() -> i32 {{
     let error: string = serve(routes, "127.0.0.1:{port}")
     return len(error)
 }}
-"#);
+"#
+    );
     let main = directory.path().join("main.xen");
     fs::write(&main, source).unwrap();
     let (program, _) = xenith::native::project::load_program(&main).unwrap();
@@ -429,7 +459,11 @@ function main() -> i32 {{
     let mut child = Command::new(&executable).spawn().unwrap();
     thread::sleep(Duration::from_millis(100));
     let mut client = TcpStream::connect(("127.0.0.1", port)).unwrap();
-    client.write_all(b"POST /users HTTP/1.1\r\nContent-Length: 22\r\n\r\n{\"name\":\"Ada\",\"age\":42}").unwrap();
+    client
+        .write_all(
+            b"POST /users HTTP/1.1\r\nContent-Length: 22\r\n\r\n{\"name\":\"Ada\",\"age\":42}",
+        )
+        .unwrap();
     let mut response = Vec::new();
     client.read_to_end(&mut response).unwrap();
     assert!(response.ends_with(b"\"Ada\""));
@@ -529,7 +563,8 @@ fn xenith_http_run_for_processes_a_bounded_number_of_requests() {
     let port = reservation.local_addr().unwrap().port();
     drop(reservation);
     let directory = tempfile::tempdir().unwrap();
-    let source = format!(r#"
+    let source = format!(
+        r#"
 grab {{ server_with_config, router, get, run_for }} from "std::http"
 function health(method: string, path: string, body: string) -> tuple<i32, string> {{
     return (200, "ok")
@@ -541,7 +576,8 @@ function main() -> i32 {{
     let error: string = run_for(server, routes, 2i64)
     return len(error)
 }}
-"#);
+"#
+    );
     let main = directory.path().join("main.xen");
     fs::write(&main, source).unwrap();
     let (program, _) = xenith::native::project::load_program(&main).unwrap();
@@ -554,7 +590,9 @@ function main() -> i32 {{
     thread::sleep(Duration::from_millis(100));
     for _ in 0..2 {
         let mut client = TcpStream::connect(("127.0.0.1", port)).unwrap();
-        client.write_all(b"GET /health HTTP/1.1\r\nHost: localhost\r\n\r\n").unwrap();
+        client
+            .write_all(b"GET /health HTTP/1.1\r\nHost: localhost\r\n\r\n")
+            .unwrap();
         let mut response = Vec::new();
         client.read_to_end(&mut response).unwrap();
         assert!(response.ends_with(b"ok"));
@@ -568,7 +606,8 @@ fn xenith_http_typed_response_route_serves_headers_over_tcp() {
     let port = reservation.local_addr().unwrap().port();
     drop(reservation);
     let directory = tempfile::tempdir().unwrap();
-    let source = format!(r#"
+    let source = format!(
+        r#"
 grab {{ server_with_config, router, get_response, run_for, response_new, response_header }} from "std::http"
 function health(request: i64) -> i64 {{
     let result: i64 = response_new(201, "created")
@@ -582,7 +621,8 @@ function main() -> i32 {{
     let error: string = run_for(server, routes, 1i64)
     return len(error)
 }}
-"#);
+"#
+    );
     let main = directory.path().join("main.xen");
     fs::write(&main, source).unwrap();
     let (program, _) = xenith::native::project::load_program(&main).unwrap();
@@ -594,11 +634,15 @@ function main() -> i32 {{
     let mut child = Command::new(&executable).spawn().unwrap();
     thread::sleep(Duration::from_millis(100));
     let mut client = TcpStream::connect(("127.0.0.1", port)).unwrap();
-    client.write_all(b"GET /health HTTP/1.1\r\nHost: localhost\r\n\r\n").unwrap();
+    client
+        .write_all(b"GET /health HTTP/1.1\r\nHost: localhost\r\n\r\n")
+        .unwrap();
     let mut response = Vec::new();
     client.read_to_end(&mut response).unwrap();
     assert!(response.starts_with(b"HTTP/1.1 201"));
-    assert!(response.windows(b"X-Test: yes".len()).any(|window| window == b"X-Test: yes"));
+    assert!(response
+        .windows(b"X-Test: yes".len())
+        .any(|window| window == b"X-Test: yes"));
     assert!(response.ends_with(b"created"));
     assert_eq!(child.wait().unwrap().code(), Some(0));
 }
@@ -609,7 +653,8 @@ fn xenith_http_worker_pool_serves_requests_concurrently() {
     let port = reservation.local_addr().unwrap().port();
     drop(reservation);
     let directory = tempfile::tempdir().unwrap();
-    let source = format!(r#"
+    let source = format!(
+        r#"
 grab {{ server_with_config, router, get, run_workers }} from "std::http"
 function health(method: string, path: string, body: string) -> tuple<i32, string> {{
     return (200, "worker")
@@ -621,7 +666,8 @@ function main() -> i32 {{
     let error: string = run_workers(server, routes, 2i64)
     return len(error)
 }}
-"#);
+"#
+    );
     let main = directory.path().join("main.xen");
     fs::write(&main, source).unwrap();
     let (program, _) = xenith::native::project::load_program(&main).unwrap();
@@ -634,7 +680,9 @@ function main() -> i32 {{
     thread::sleep(Duration::from_millis(100));
     for _ in 0..2 {
         let mut client = TcpStream::connect(("127.0.0.1", port)).unwrap();
-        client.write_all(b"GET /health HTTP/1.1\r\nHost: localhost\r\n\r\n").unwrap();
+        client
+            .write_all(b"GET /health HTTP/1.1\r\nHost: localhost\r\n\r\n")
+            .unwrap();
         let mut response = Vec::new();
         client.read_to_end(&mut response).unwrap();
         assert!(response.ends_with(b"worker"));
@@ -1123,7 +1171,12 @@ function main() -> i32 {
 #[test]
 fn xenith_http_validate_json_flattens_nested_objects_and_arrays() {
     let directory = tempfile::tempdir().unwrap();
-    unsafe { std::env::set_var("XENITH_TEST_JSON", r#"{"user":{"name":"Ada"},"items":[{"sku":"A-1"},{"sku":"B-2"}]}"#); }
+    unsafe {
+        std::env::set_var(
+            "XENITH_TEST_JSON",
+            r#"{"user":{"name":"Ada"},"items":[{"sku":"A-1"},{"sku":"B-2"}]}"#,
+        );
+    }
     let source = r#"
 grab { validate_json, required, string, rules } from "std::http"
 grab { get } from "std::env"
@@ -1146,7 +1199,9 @@ function main() -> i32 {
     xenith::native::codegen::emit_object(&typed, &object).unwrap();
     xenith::native::codegen::link_host(&object, &executable).unwrap();
     assert_eq!(Command::new(executable).status().unwrap().code(), Some(0));
-    unsafe { std::env::remove_var("XENITH_TEST_JSON"); }
+    unsafe {
+        std::env::remove_var("XENITH_TEST_JSON");
+    }
 }
 
 #[test]
@@ -1158,6 +1213,7 @@ function main() -> i32 {
     let errors: map<string, string> = validate_form_body("user[name]=Ada&items[0][sku]=A-1", {"user.name": rules(required, string), "items.*.sku": rules(required, string)})
     return len(errors)
 }
+
 "#;
     let main = directory.path().join("main.xen");
     fs::write(&main, source).unwrap();
@@ -1168,4 +1224,19 @@ function main() -> i32 {
     xenith::native::codegen::emit_object(&typed, &object).unwrap();
     xenith::native::codegen::link_host(&object, &executable).unwrap();
     assert_eq!(Command::new(executable).status().unwrap().code(), Some(0));
+}
+
+#[test]
+fn native_http_bind_supports_ipv6_loopback() {
+    let directory = tempfile::tempdir().unwrap();
+    let source = r#"fn main() -> i32 { let server: i64 = http_bind("[::1]:0") http_close(server) return 42 }"#;
+    let main = directory.path().join("main.xen");
+    fs::write(&main, source).unwrap();
+    let program = xenith::native::syntax::parse(&main, source).unwrap();
+    let typed = xenith::native::check::check(&program).unwrap();
+    let object = directory.path().join("main.o");
+    let executable = directory.path().join("main");
+    xenith::native::codegen::emit_object(&typed, &object).unwrap();
+    xenith::native::codegen::link_host(&object, &executable).unwrap();
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(42));
 }

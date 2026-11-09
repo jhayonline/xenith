@@ -228,6 +228,39 @@ fn native_tcp_connect_resolves_hostnames() {
 }
 
 #[test]
+fn native_tcp_connect_supports_ipv6_loopback() {
+    let listener = TcpListener::bind("[::1]:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        stream.write_all(b"ok").unwrap();
+    });
+    let (_directory, executable) = build_builtin_source(&format!(
+        "fn main() -> i32 {{ let connection: i64 = tcp_connect(\"[::1]:{}\") let peer: string = tcp_peer(connection) tcp_close(connection) if (len(peer) < 5) {{ return 10 }} return 42 }}",
+        port
+    ));
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(42));
+    server.join().unwrap();
+}
+
+#[test]
+fn native_tcp_bind_reports_ipv6_addresses_in_brackets() {
+    let (_directory, executable) = build_builtin_source(
+        r#"
+fn main() -> i32 {
+    let listener: i64 = tcp_bind("[::1]:0", 8i64)
+    let address: string = tcp_local(listener)
+    tcp_close(listener)
+    if (len(address) < 8) { return 10 }
+    if (len(address) < 8) { return 20 }
+    return 42
+}
+"#,
+    );
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(42));
+}
+
+#[test]
 fn rejects_malformed_tcp_calls_statically() {
     assert_error(
         "fn main() -> i32 { let socket: i64 = tcp_connect(8080) return 0 }",
