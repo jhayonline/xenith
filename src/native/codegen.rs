@@ -3915,6 +3915,27 @@ fn lower(
                 );
                 return (vec![b.ins().iconst(types::I8, 0)], Type::Null);
             }
+            if name == "http_client_pool_new" {
+                let maximum = lower(b, &arguments[0], v, ids, m, l).0[0];
+                let timeout = lower(b, &arguments[1], v, ids, m, l).0[0];
+                let value = runtime_call(b, m, "xenith_http_client_pool_new", vec![AbiParam::new(types::I64); 2], vec![AbiParam::new(types::I64)], &[maximum, timeout])[0];
+                return (vec![value], Type::I64);
+            }
+            if name == "http_client_pool_request" {
+                let pool = lower(b, &arguments[0], v, ids, m, l).0[0];
+                let address = lower(b, &arguments[1], v, ids, m, l).0;
+                let method = lower(b, &arguments[2], v, ids, m, l).0;
+                let path = lower(b, &arguments[3], v, ids, m, l).0;
+                let body = lower(b, &arguments[4], v, ids, m, l).0;
+                let status = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let response_ptr = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let response_len = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let error_ptr = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let error_len = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let args = [pool, address[0], address[1], method[0], method[1], path[0], path[1], body[0], body[1], b.ins().stack_addr(types::I64, status, 0), b.ins().stack_addr(types::I64, response_ptr, 0), b.ins().stack_addr(types::I64, response_len, 0), b.ins().stack_addr(types::I64, error_ptr, 0), b.ins().stack_addr(types::I64, error_len, 0)];
+                let _ = runtime_call(b, m, "xenith_http_client_pool_request", vec![AbiParam::new(types::I64); 14], vec![], &args);
+                return (vec![b.ins().load(types::I64, MemFlags::new(), args[9], 0), b.ins().load(types::I64, MemFlags::new(), args[10], 0), b.ins().load(types::I64, MemFlags::new(), args[11], 0), b.ins().load(types::I64, MemFlags::new(), args[12], 0), b.ins().load(types::I64, MemFlags::new(), args[13], 0)], Type::Tuple(vec![Type::I64, Type::String, Type::String]));
+            }
             if name == "http_client_request" || name == "https_client_request" {
                 let address = lower(b, &arguments[0], v, ids, m, l).0;
                 let method = lower(b, &arguments[1], v, ids, m, l).0;

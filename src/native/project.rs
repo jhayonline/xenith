@@ -328,6 +328,8 @@ fn standard_native_source(name: &str) -> Option<&'static str> {
         ),
         "http" => Some(
             "export function request(address: string, method: string, path: string, body: string, timeout_ms: i64) -> tuple<i64, string, string> { return http_client_request(address, method, path, body, timeout_ms) }\n\
+             export function client_pool(max_connections: i64, timeout_ms: i64) -> i64 { return http_client_pool_new(max_connections, timeout_ms) }\n\
+             export function pool_request(pool: i64, address: string, method: string, path: string, body: string) -> tuple<i64, string, string> { return http_client_pool_request(pool, address, method, path, body) }\n\
              export function secure_request(address: string, method: string, path: string, body: string, timeout_ms: i64) -> tuple<i64, string, string> { return https_client_request(address, method, path, body, timeout_ms) }\n\
              export function bind(address: string) -> i64 { return http_bind(address) }\n\
              export function accept(listener: i64) -> i64 { return http_accept(listener) }\n\

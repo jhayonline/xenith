@@ -155,3 +155,31 @@ function main() -> i32 {
     );
     assert_eq!(Command::new(executable).status().unwrap().code(), Some(42));
 }
+
+#[test]
+fn std_http_module_exposes_bounded_client_pool() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut request = [0u8; 512];
+        let _ = stream.read(&mut request).unwrap();
+        stream
+            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")
+            .unwrap();
+    });
+    let (_directory, executable) = build_project_source(
+        &format!(r#"
+grab {{ client_pool, pool_request }} from "std::http"
+function main() -> i32 {{
+    let pool: i64 = client_pool(1i64, 1000i64)
+    let result: tuple<i64, string, string> = pool_request(pool, "{address}", "GET", "/", "")
+    # Pool handles are reclaimed with the process until close ownership is finalized.
+    if (result[0] == 200i64 && result[1] == "ok" && result[2] == "") {{ return 42 }}
+    return 10
+}}
+"#),
+    );
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(42));
+    server.join().unwrap();
+}
