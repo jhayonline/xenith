@@ -3915,7 +3915,7 @@ fn lower(
                 );
                 return (vec![b.ins().iconst(types::I8, 0)], Type::Null);
             }
-            if name == "http_client_request" {
+            if name == "http_client_request" || name == "https_client_request" {
                 let address = lower(b, &arguments[0], v, ids, m, l).0;
                 let method = lower(b, &arguments[1], v, ids, m, l).0;
                 let path = lower(b, &arguments[2], v, ids, m, l).0;
@@ -3934,7 +3934,12 @@ fn lower(
                     b.ins().stack_addr(types::I64, error_ptr, 0),
                     b.ins().stack_addr(types::I64, error_len, 0),
                 ];
-                let _ = runtime_call(b, m, "xenith_http_client_request", vec![AbiParam::new(types::I64); 14], vec![], &args);
+                let runtime_name = if name == "https_client_request" {
+                    "xenith_https_client_request"
+                } else {
+                    "xenith_http_client_request"
+                };
+                let _ = runtime_call(b, m, runtime_name, vec![AbiParam::new(types::I64); 14], vec![], &args);
                 return (
                     vec![
                         b.ins().load(types::I64, MemFlags::new(), args[9], 0),
@@ -8615,6 +8620,8 @@ pub fn link_host(object: &Path, executable: &Path) -> Result<(), NativeError> {
         .arg("-pthread")
         .arg("-lsqlite3")
         .arg("-lcrypt")
+        .arg("-lssl")
+        .arg("-lcrypto")
         .arg("-o")
         .arg(executable)
         .output()

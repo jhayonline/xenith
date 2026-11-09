@@ -1574,6 +1574,11 @@ fn signatures(
             Type::Tuple(vec![Type::I64, Type::String, Type::String]),
         ),
         (
+            "https_client_request",
+            vec![Type::String, Type::String, Type::String, Type::String, Type::I64],
+            Type::Tuple(vec![Type::I64, Type::String, Type::String]),
+        ),
+        (
             "http_read",
             vec![Type::I64],
             Type::Tuple(vec![Type::String, Type::String]),

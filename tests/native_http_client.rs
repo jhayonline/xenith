@@ -81,6 +81,33 @@ fn native_http_client_rejects_wrong_argument_types() {
 }
 
 #[test]
+fn native_https_client_reports_recoverable_connection_errors() {
+    let (_directory, executable) = build_source(
+        r#"
+fn main() -> i32 {
+    let result: tuple<i64, string, string> = https_client_request("127.0.0.1:1", "GET", "/", "", 100i64)
+    if (len(result[2]) == 0) { return 10 }
+    return 42
+}
+"#,
+    );
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(42));
+}
+
+#[test]
+fn native_https_client_rejects_wrong_argument_types() {
+    let program = parse(
+        Path::new("src/main.xen"),
+        "fn main() -> i32 { let value: tuple<i64, string, string> = https_client_request(1i64, \"GET\", \"/\", \"\", 100i64) return 0 }",
+    )
+    .unwrap();
+    let errors = check(&program).expect_err("invalid HTTPS address should fail static checking");
+    assert!(errors.iter().any(|error| error
+        .message
+        .contains("argument type does not match `https_client_request`")));
+}
+
+#[test]
 fn std_http_module_exposes_request() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
@@ -112,4 +139,19 @@ function main() -> i32 {{
     ));
     assert_eq!(Command::new(executable).status().unwrap().code(), Some(42));
     server.join().unwrap();
+}
+
+#[test]
+fn std_http_module_exposes_secure_request() {
+    let (_directory, executable) = build_project_source(
+        r#"
+grab { secure_request } from "std::http"
+function main() -> i32 {
+    let result: tuple<i64, string, string> = secure_request("127.0.0.1:1", "GET", "/", "", 100i64)
+    if (len(result[2]) == 0) { return 10 }
+    return 42
+}
+"#,
+    );
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(42));
 }
