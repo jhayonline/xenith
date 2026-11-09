@@ -486,8 +486,9 @@ function main() -> i32 {
 ```
 
 `std::net` is the TCP layer the HTTP server is built on, and it works in both
-directions. Addresses accept numeric IPv4 endpoints or hostnames such as
-`localhost`. Binding to port `0` takes whichever port is free, and
+directions. Addresses accept numeric IPv4 endpoints, bracketed IPv6 endpoints
+such as `[::1]:8080`, or hostnames such as `localhost`. Binding to port `0`
+takes whichever port is free, and
 `local_address` reports which one that turned out to be, so a listener can say
 where it ended up and a client can dial it:
 
@@ -626,7 +627,7 @@ using a default.
 The major work still ahead includes:
 
 - Complete compiler-managed ARC/ORC insertion and cycle-safe weak references.
-- TLS/HTTPS for the outbound HTTP client, plus IPv6 socket support.
+- TLS/HTTPS for the outbound HTTP client.
 - IPv6 and hostname resolution; the socket layer is IPv4 and numeric today.
 - JSON, process, time, and serialization libraries.
 - Graphics, audio, input, and game-oriented runtime modules.
