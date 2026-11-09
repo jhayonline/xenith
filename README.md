@@ -560,6 +560,24 @@ grab { secure_request } from "std::http"
 let result: tuple<i64, string, string> = secure_request("api.example.com:443", "GET", "/health", "", 5000i64)
 ```
 
+HTTPS servers use the same router and request lifecycle as plain HTTP. The
+certificate and private key are loaded when the listener is created, and every
+accepted connection performs a TLS handshake before routing:
+
+```xenith
+grab { secure_server, shutdown } from "std::http"
+
+function main() -> i32 {
+    let server: i64 = secure_server("127.0.0.1:8443", "config/cert.pem", "config/key.pem", 1048576i64, 5000i64, 5000i64, 128i64)
+    # register routes and run the server here
+    shutdown(server)
+    return 0
+}
+```
+
+Invalid certificate files, mismatched keys, unavailable TLS support, and
+handshake failures use Xenith's normal recoverable error status.
+
 The standard library is still being expanded around the language’s remaining
 target domains: JSON and serialization, processes, time, randomness,
 graphics, audio, input, and desktop UI.
