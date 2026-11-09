@@ -823,3 +823,52 @@ fn native_uncaught_errors_print_a_diagnostic() {
     );
     assert!(stderr.contains("main.xen"), "missing source file: {stderr}");
 }
+
+#[test]
+fn native_runtime_raised_messages_are_exactly_their_literal_length() {
+    let directory = tempfile::tempdir().unwrap();
+    let runtime = xenith::native::runtime::write_source(directory.path()).unwrap();
+    let harness = directory.path().join("harness.c");
+    fs::write(
+        &harness,
+        r#"#include <stdint.h>
+        #include <string.h>
+        int64_t xenith_tcp_bind(const unsigned char *, int64_t, int64_t);
+        int8_t xenith_error_pending(void);
+        const unsigned char *xenith_error_message(void); int64_t xenith_error_message_len(void);
+        const unsigned char *xenith_error_name(void); int64_t xenith_error_name_len(void);
+        void xenith_error_clear(void);
+        int main(void) {
+            const char expected[] = "TCP address or backlog is invalid";
+            const char expected_name[] = "TCP Error";
+            const unsigned char address[] = "not-an-address";
+            xenith_tcp_bind(address, 14, 128);
+            if (!xenith_error_pending()) return 1;
+            if (xenith_error_message_len() != (int64_t)strlen(expected)) return 2;
+            if (memcmp(xenith_error_message(), expected, strlen(expected))) return 3;
+            if (xenith_error_name_len() != (int64_t)strlen(expected_name)) return 4;
+            if (memcmp(xenith_error_name(), expected_name, strlen(expected_name))) return 5;
+            xenith_error_clear();
+            return 0;
+        }
+        "#,
+    )
+    .unwrap();
+    let executable = directory.path().join("harness");
+    let status = Command::new("cc")
+        .args([
+            runtime.as_os_str(),
+            harness.as_os_str(),
+            "-lcrypt".as_ref(),
+            "-o".as_ref(),
+            executable.as_os_str(),
+        ])
+        .status()
+        .unwrap();
+    assert!(status.success());
+    assert_eq!(
+        Command::new(executable).status().unwrap().code(),
+        Some(0),
+        "raised message or name did not match its literal exactly"
+    );
+}
