@@ -330,6 +330,7 @@ fn standard_native_source(name: &str) -> Option<&'static str> {
             "export function request(address: string, method: string, path: string, body: string, timeout_ms: i64) -> tuple<i64, string, string> { return http_client_request(address, method, path, body, timeout_ms) }\n\
              export function client_pool(max_connections: i64, timeout_ms: i64) -> i64 { return http_client_pool_new(max_connections, timeout_ms) }\n\
              export function pool_request(pool: i64, address: string, method: string, path: string, body: string) -> tuple<i64, string, string> { return http_client_pool_request(pool, address, method, path, body) }\n\
+             export function pool_close(pool: i64) -> null { return http_client_pool_close(pool) }\n\
              export function stream_open(address: string, method: string, path: string, body: string, timeout_ms: i64) -> i64 { return http_stream_open(address, method, path, body, timeout_ms) }\n\
              export function stream_read(stream: i64, maximum: i64) -> tuple<bytes, string, bool> { return http_stream_read(stream, maximum) }\n\
              export function stream_close(stream: i64) -> null { return http_stream_close(stream) }\n\

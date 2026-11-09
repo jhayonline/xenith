@@ -1584,6 +1584,7 @@ fn signatures(
             vec![Type::I64, Type::String, Type::String, Type::String, Type::String],
             Type::Tuple(vec![Type::I64, Type::String, Type::String]),
         ),
+        ("http_client_pool_close", vec![Type::I64], Type::Null),
         (
             "http_stream_open",
             vec![Type::String, Type::String, Type::String, Type::String, Type::I64],

@@ -50,6 +50,12 @@ fn native_http_client_returns_status_body_and_empty_error() {
         stream
             .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")
             .unwrap();
+        drop(stream);
+        let (mut replacement, _) = listener.accept().unwrap();
+        let _ = replacement.read(&mut request).unwrap();
+        replacement
+            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")
+            .unwrap();
     });
     let (_directory, executable) = build_source(&format!(
         r#"
@@ -171,6 +177,12 @@ fn std_http_module_exposes_bounded_client_pool() {
         stream
             .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")
             .unwrap();
+        drop(stream);
+        let (mut replacement, _) = listener.accept().unwrap();
+        let _ = replacement.read(&mut request).unwrap();
+        replacement
+            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")
+            .unwrap();
     });
     let (_directory, executable) = build_project_source(
         &format!(r#"
@@ -179,8 +191,9 @@ function main() -> i32 {{
     let pool: i64 = client_pool(1i64, 1000i64)
     let result: tuple<i64, string, string> = pool_request(pool, "{address}", "GET", "/", "")
     let again: tuple<i64, string, string> = pool_request(pool, "{address}", "GET", "/again", "")
+    let recovered: tuple<i64, string, string> = pool_request(pool, "{address}", "GET", "/recovered", "")
     pool_close(pool)
-    if (result[0] == 200i64 && result[1] == "ok" && result[2] == "" && again[0] == 200i64 && again[1] == "ok" && again[2] == "") {{ return 42 }}
+    if (result[0] == 200i64 && result[1] == "ok" && result[2] == "" && again[0] == 200i64 && again[1] == "ok" && again[2] == "" && recovered[0] == 200i64 && recovered[1] == "ok" && recovered[2] == "") {{ return 42 }}
     return 10
 }}
 "#),

@@ -3918,7 +3918,7 @@ fn lower(
             if name == "http_client_pool_new" {
                 let maximum = lower(b, &arguments[0], v, ids, m, l).0[0];
                 let timeout = lower(b, &arguments[1], v, ids, m, l).0[0];
-                let value = runtime_call(b, m, "xenith_http_client_pool_new", vec![AbiParam::new(types::I64); 2], vec![AbiParam::new(types::I64)], &[maximum, timeout])[0];
+                let value = runtime_call(b, m, "xenith_http_client_pool_new_v2", vec![AbiParam::new(types::I64); 2], vec![AbiParam::new(types::I64)], &[maximum, timeout])[0];
                 return (vec![value], Type::I64);
             }
             if name == "http_client_pool_request" {
@@ -3933,8 +3933,13 @@ fn lower(
                 let error_ptr = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
                 let error_len = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
                 let args = [pool, address[0], address[1], method[0], method[1], path[0], path[1], body[0], body[1], b.ins().stack_addr(types::I64, status, 0), b.ins().stack_addr(types::I64, response_ptr, 0), b.ins().stack_addr(types::I64, response_len, 0), b.ins().stack_addr(types::I64, error_ptr, 0), b.ins().stack_addr(types::I64, error_len, 0)];
-                let _ = runtime_call(b, m, "xenith_http_client_pool_request_reuse", vec![AbiParam::new(types::I64); 14], vec![], &args);
+                let _ = runtime_call(b, m, "xenith_http_client_pool_request_v2", vec![AbiParam::new(types::I64); 14], vec![], &args);
                 return (vec![b.ins().load(types::I64, MemFlags::new(), args[9], 0), b.ins().load(types::I64, MemFlags::new(), args[10], 0), b.ins().load(types::I64, MemFlags::new(), args[11], 0), b.ins().load(types::I64, MemFlags::new(), args[12], 0), b.ins().load(types::I64, MemFlags::new(), args[13], 0)], Type::Tuple(vec![Type::I64, Type::String, Type::String]));
+            }
+            if name == "http_client_pool_close" {
+                let pool = lower(b, &arguments[0], v, ids, m, l).0[0];
+                let _ = runtime_call(b, m, "xenith_http_client_pool_close_v2", vec![AbiParam::new(types::I64)], vec![], &[pool]);
+                return (vec![b.ins().iconst(types::I8, 0)], Type::Null);
             }
             if name == "http_stream_open" {
                 let address = lower(b, &arguments[0], v, ids, m, l).0;
@@ -5931,7 +5936,7 @@ fn lower(
                 );
                 return (vec![b.ins().iconst(types::I8, 0)], Type::Null);
             }
-            if name == "db_pool_close" || name == "pool_close" {
+            if name == "db_pool_close" {
                 let pool = lower(b, &arguments[0], v, ids, m, l).0[0];
                 let _ = runtime_call(
                     b,
