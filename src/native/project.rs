@@ -406,6 +406,7 @@ fn standard_native_source(name: &str) -> Option<&'static str> {
              export function param(path: string, pattern: string, name: string) -> string { return http_param(path, pattern, name) }\n\
              export function server(address: string) -> i64 { return http_server_bind(address) }\n\
              export function server_with_config(address: string, max_request_size: i64, read_timeout_ms: i64, write_timeout_ms: i64, backlog: i64) -> i64 { return http_server_bind_config(address, max_request_size, read_timeout_ms, write_timeout_ms, backlog) }\n\
+             export function secure_server(address: string, certificate: string, private_key: string, max_request_size: i64, read_timeout_ms: i64, write_timeout_ms: i64, backlog: i64) -> i64 { return https_server_bind_config(address, certificate, private_key, max_request_size, read_timeout_ms, write_timeout_ms, backlog) }\n\
              export function shutdown(server: i64) -> null { return http_server_shutdown(server) }\n\
              export function run(server: i64, router: i64) -> string { return http_server_run(server, router) }\n\
              export function run_with_pool(server: i64, router: i64, pool: i64) -> string { return http_server_run_pool(server, router, pool) }\n\

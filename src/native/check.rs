@@ -1934,6 +1934,11 @@ fn signatures(
             vec![Type::String, Type::I64, Type::I64, Type::I64, Type::I64],
             Type::I64,
         ),
+        (
+            "https_server_bind_config",
+            vec![Type::String, Type::String, Type::String, Type::I64, Type::I64, Type::I64, Type::I64],
+            Type::I64,
+        ),
         ("http_server_shutdown", vec![Type::I64], Type::Null),
         ("http_server_run", vec![Type::I64, Type::I64], Type::String),
         (

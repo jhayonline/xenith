@@ -181,6 +181,31 @@ function main() -> i32 {{
 }
 
 #[test]
+fn xenith_https_server_rejects_invalid_certificate_recoverably() {
+    let directory = tempfile::tempdir().unwrap();
+    let source = r#"
+grab { secure_server } from "std::http"
+function main() -> i32 {
+    try {
+        let server: i64 = secure_server("127.0.0.1:0", "/missing/cert.pem", "/missing/key.pem", 65536i64, 1000i64, 1000i64, 8i64)
+        return 1
+    } catch (error) {
+        return 0
+    }
+}
+"#;
+    let main = directory.path().join("main.xen");
+    fs::write(&main, source).unwrap();
+    let (program, _) = xenith::native::project::load_program(&main).unwrap();
+    let typed = xenith::native::check::check(&program).unwrap();
+    let object = directory.path().join("main.o");
+    let executable = directory.path().join("main");
+    xenith::native::codegen::emit_object(&typed, &object).unwrap();
+    xenith::native::codegen::link_host(&object, &executable).unwrap();
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(1));
+}
+
+#[test]
 fn xenith_http_router_dispatches_a_registered_route() {
     let directory = tempfile::tempdir().unwrap();
     let source = r#"
