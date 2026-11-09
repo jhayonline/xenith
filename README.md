@@ -560,6 +560,16 @@ grab { secure_request } from "std::http"
 let result: tuple<i64, string, string> = secure_request("api.example.com:443", "GET", "/health", "", 5000i64)
 ```
 
+For bounded outbound concurrency, create a client pool and send requests
+through it. The pool applies one timeout policy and rejects work once its
+configured number of request slots is active:
+
+```xenith
+grab { client_pool, pool_request } from "std::http"
+let clients: i64 = client_pool(8i64, 5000i64)
+let result: tuple<i64, string, string> = pool_request(clients, "api.example.com:443", "GET", "/health", "")
+```
+
 HTTPS servers use the same router and request lifecycle as plain HTTP. The
 certificate and private key are loaded when the listener is created, and every
 accepted connection performs a TLS handshake before routing:
