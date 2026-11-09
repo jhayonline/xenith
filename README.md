@@ -469,16 +469,15 @@ function main() -> i32 {
 Native projects can import the filesystem and environment modules:
 
 ```xenith
-grab { read, write } from "std::fs"
-grab { cwd, args } from "std::env"
+grab { cwd } from "std::env"
 
 function main() -> i32 {
-    let (directory, error) = cwd()
-    if (error != "") {
-        echo(error)
+    let working: tuple<string, string> = cwd()
+    if (working[1] != "") {
+        echo(working[1])
         return 1
     }
-    echo(directory)
+    echo(working[0])
     return 0
 }
 ```
