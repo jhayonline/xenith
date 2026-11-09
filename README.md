@@ -561,15 +561,16 @@ let result: tuple<i64, string, string> = secure_request("api.example.com:443", "
 ```
 
 For bounded outbound concurrency, create a client pool and send requests
-through it. The pool applies one timeout policy and serializes requests while
-reusing an idle HTTP keep-alive connection for the same endpoint. If a peer
-closes the connection or a request fails, the pool evicts it and reconnects on
-the next request:
+through it. The pool applies one timeout policy and keeps up to the configured
+number of endpoint-keyed HTTP keep-alive connections. Requests reuse idle
+sockets; if a peer closes one or an exchange fails, the pool evicts it and
+reconnects on the next request. Call `pool_close` when the client is finished:
 
 ```xenith
-grab { client_pool, pool_request } from "std::http"
+grab { client_pool, pool_request, pool_close } from "std::http"
 let clients: i64 = client_pool(8i64, 5000i64)
 let result: tuple<i64, string, string> = pool_request(clients, "api.example.com:443", "GET", "/health", "")
+pool_close(clients)
 ```
 
 When a response should not be buffered in one string, use a stream handle:
