@@ -3948,12 +3948,12 @@ fn lower(
                 let body = lower(b, &arguments[3], v, ids, m, l).0;
                 let timeout = lower(b, &arguments[4], v, ids, m, l).0[0];
                 let args = [address[0], address[1], method[0], method[1], path[0], path[1], body[0], body[1], timeout];
-                let value = runtime_call(b, m, "xenith_http_stream_open", vec![AbiParam::new(types::I64); 9], vec![AbiParam::new(types::I64)], &args)[0];
+                let value = runtime_call(b, m, "xenith_http_stream_open_v2", vec![AbiParam::new(types::I64); 9], vec![AbiParam::new(types::I64)], &args)[0];
                 return (vec![value], Type::I64);
             }
             if name == "http_stream_close" {
                 let stream = lower(b, &arguments[0], v, ids, m, l).0[0];
-                let _ = runtime_call(b, m, "xenith_http_stream_close", vec![AbiParam::new(types::I64)], vec![], &[stream]);
+                let _ = runtime_call(b, m, "xenith_http_stream_close_v2", vec![AbiParam::new(types::I64)], vec![], &[stream]);
                 return (vec![b.ins().iconst(types::I8, 0)], Type::Null);
             }
             if name == "http_stream_read" {
@@ -3964,7 +3964,7 @@ fn lower(
                 let error_len = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
                 let eof = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
                 let args = [stream, maximum, b.ins().stack_addr(types::I64, data, 0), b.ins().stack_addr(types::I64, error, 0), b.ins().stack_addr(types::I64, error_len, 0), b.ins().stack_addr(types::I64, eof, 0)];
-                let _ = runtime_call(b, m, "xenith_http_stream_read", vec![AbiParam::new(types::I64); 6], vec![], &args);
+                let _ = runtime_call(b, m, "xenith_http_stream_read_v2", vec![AbiParam::new(types::I64); 6], vec![], &args);
                 return (vec![b.ins().load(types::I64, MemFlags::new(), args[2], 0), b.ins().load(types::I64, MemFlags::new(), args[3], 0), b.ins().load(types::I64, MemFlags::new(), args[4], 0), b.ins().load(types::I8, MemFlags::new(), args[5], 0)], Type::Tuple(vec![Type::Bytes, Type::String, Type::Bool]));
             }
             if name == "http_client_request" || name == "https_client_request" {
