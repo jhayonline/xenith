@@ -551,8 +551,17 @@ function health_check() -> i64 {
 }
 ```
 
+Use `secure_request` for HTTPS. It uses the host trust store and verifies the
+certificate name against the hostname in the address; handshake and certificate
+failures are returned in the tuple's `error` field:
+
+```xenith
+grab { secure_request } from "std::http"
+let result: tuple<i64, string, string> = secure_request("api.example.com:443", "GET", "/health", "", 5000i64)
+```
+
 The standard library is still being expanded around the language’s remaining
-target domains: JSON and serialization, processes, TLS, time, randomness,
+target domains: JSON and serialization, processes, time, randomness,
 graphics, audio, input, and desktop UI.
 
 ## Memory and safety model
@@ -627,7 +636,7 @@ using a default.
 The major work still ahead includes:
 
 - Complete compiler-managed ARC/ORC insertion and cycle-safe weak references.
-- TLS/HTTPS for the outbound HTTP client.
+- HTTP/2, connection pooling, and richer streaming APIs.
 - IPv6 and hostname resolution; the socket layer is IPv4 and numeric today.
 - JSON, process, time, and serialization libraries.
 - Graphics, audio, input, and game-oriented runtime modules.
