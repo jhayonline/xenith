@@ -1596,6 +1596,9 @@ fn signatures(
             Type::Tuple(vec![Type::Bytes, Type::String, Type::Bool]),
         ),
         ("http_stream_close", vec![Type::I64], Type::Null),
+        ("http_stream_status", vec![Type::I64], Type::I64),
+        ("http_stream_header", vec![Type::I64, Type::String], Type::String),
+        ("http_stream_cancel", vec![Type::I64], Type::Null),
         (
             "http_read",
             vec![Type::I64],
