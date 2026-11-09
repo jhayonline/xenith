@@ -655,7 +655,6 @@ The major work still ahead includes:
 
 - Complete compiler-managed ARC/ORC insertion and cycle-safe weak references.
 - HTTP/2, connection pooling, and richer streaming APIs.
-- IPv6 and hostname resolution; the socket layer is IPv4 and numeric today.
 - JSON, process, time, and serialization libraries.
 - Graphics, audio, input, and game-oriented runtime modules.
 - XML parsing and desktop UI tooling.
