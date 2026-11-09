@@ -578,6 +578,11 @@ function main() -> i32 {
 Invalid certificate files, mismatched keys, unavailable TLS support, and
 handshake failures use Xenith's normal recoverable error status.
 
+For bounded concurrent servers, use `run_workers_for`; it starts the requested
+number of workers, serves exactly the requested number of connections, joins
+all workers, and returns. The pooled variant is
+`run_workers_for_with_pool(server, router, pool, workers, max_requests)`.
+
 The standard library is still being expanded around the language’s remaining
 target domains: JSON and serialization, processes, time, randomness,
 graphics, audio, input, and desktop UI.
