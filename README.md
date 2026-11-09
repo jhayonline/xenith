@@ -531,6 +531,24 @@ a deadline on a socket, otherwise a read on a silent connection waits forever:
 let failure: string = timeout(connection, 5000i64, 5000i64)
 ```
 
+For outbound API calls, `std::http.request` opens one bounded HTTP/1.1
+connection and returns `(status, body, error)`. The body is a string and an
+empty error means the response was complete; connection, timeout, and malformed
+response failures are returned in the third tuple item:
+
+```xenith
+grab { request } from "std::http"
+
+function health_check() -> i64 {
+    let result: tuple<i64, string, string> = request("127.0.0.1:8080", "GET", "/health", "", 5000i64)
+    if (result[2] != "") {
+        echo(result[2])
+        return 0i64
+    }
+    return result[0]
+}
+```
+
 The standard library is still being expanded around the language’s remaining
 target domains: JSON and serialization, processes, TLS, time, randomness,
 graphics, audio, input, and desktop UI.
@@ -607,7 +625,7 @@ using a default.
 The major work still ahead includes:
 
 - Complete compiler-managed ARC/ORC insertion and cycle-safe weak references.
-- An HTTP client over `std::net`, plus TLS, so programs can call outward.
+- TLS/HTTPS for the outbound HTTP client, plus IPv6 and hostname resolution.
 - IPv6 and hostname resolution; the socket layer is IPv4 and numeric today.
 - JSON, process, time, and serialization libraries.
 - Graphics, audio, input, and game-oriented runtime modules.
