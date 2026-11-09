@@ -250,3 +250,30 @@ function main() -> i32 {{
     assert_eq!(Command::new(executable).status().unwrap().code(), Some(42));
     server.join().unwrap();
 }
+
+#[test]
+fn std_http_module_exposes_stream_metadata_and_cancellation() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut request = [0u8; 512];
+        let _ = stream.read(&mut request).unwrap();
+        stream
+            .write_all(b"HTTP/1.1 206 Partial Content\r\nX-Test: stream\r\nContent-Length: 6\r\nConnection: close\r\n\r\nabcdef")
+            .unwrap();
+    });
+    let (_directory, executable) = build_project_source(&format!(r#"
+grab {{ stream_open, stream_status, stream_header, stream_cancel }} from "std::http"
+function main() -> i32 {{
+    let stream: i64 = stream_open("{address}", "GET", "/", "", 1000i64)
+    let status: i64 = stream_status(stream)
+    let header: string = stream_header(stream, "x-test")
+    stream_cancel(stream)
+    if (status == 206i64 && header == "stream") {{ return 42 }}
+    return 10
+}}
+"#));
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(42));
+    server.join().unwrap();
+}
