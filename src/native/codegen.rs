@@ -3933,7 +3933,7 @@ fn lower(
                 let error_ptr = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
                 let error_len = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
                 let args = [pool, address[0], address[1], method[0], method[1], path[0], path[1], body[0], body[1], b.ins().stack_addr(types::I64, status, 0), b.ins().stack_addr(types::I64, response_ptr, 0), b.ins().stack_addr(types::I64, response_len, 0), b.ins().stack_addr(types::I64, error_ptr, 0), b.ins().stack_addr(types::I64, error_len, 0)];
-                let _ = runtime_call(b, m, "xenith_http_client_pool_request", vec![AbiParam::new(types::I64); 14], vec![], &args);
+                let _ = runtime_call(b, m, "xenith_http_client_pool_request_reuse", vec![AbiParam::new(types::I64); 14], vec![], &args);
                 return (vec![b.ins().load(types::I64, MemFlags::new(), args[9], 0), b.ins().load(types::I64, MemFlags::new(), args[10], 0), b.ins().load(types::I64, MemFlags::new(), args[11], 0), b.ins().load(types::I64, MemFlags::new(), args[12], 0), b.ins().load(types::I64, MemFlags::new(), args[13], 0)], Type::Tuple(vec![Type::I64, Type::String, Type::String]));
             }
             if name == "http_stream_open" {

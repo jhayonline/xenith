@@ -165,6 +165,10 @@ fn std_http_module_exposes_bounded_client_pool() {
         let mut request = [0u8; 512];
         let _ = stream.read(&mut request).unwrap();
         stream
+            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: keep-alive\r\n\r\nok")
+            .unwrap();
+        let _ = stream.read(&mut request).unwrap();
+        stream
             .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")
             .unwrap();
     });
@@ -174,8 +178,8 @@ grab {{ client_pool, pool_request }} from "std::http"
 function main() -> i32 {{
     let pool: i64 = client_pool(1i64, 1000i64)
     let result: tuple<i64, string, string> = pool_request(pool, "{address}", "GET", "/", "")
-    # Pool handles are reclaimed with the process until close ownership is finalized.
-    if (result[0] == 200i64 && result[1] == "ok" && result[2] == "") {{ return 42 }}
+    let again: tuple<i64, string, string> = pool_request(pool, "{address}", "GET", "/again", "")
+    if (result[0] == 200i64 && result[1] == "ok" && result[2] == "" && again[0] == 200i64 && again[1] == "ok" && again[2] == "") {{ return 42 }}
     return 10
 }}
 "#),
