@@ -582,8 +582,9 @@ let chunk: tuple<bytes, string, bool> = stream_read(stream, 65536i64)
 stream_close(stream)
 ```
 
-`stream_read` returns the next bytes, a recoverable error string, and an EOF
-flag. The stream keeps its socket open between reads.
+`stream_read` returns the next decoded body bytes, a recoverable error string,
+and an EOF flag. Both `Content-Length` and HTTP chunked transfer encoding are
+decoded for you; the stream keeps its socket open between reads.
 
 HTTPS servers use the same router and request lifecycle as plain HTTP. The
 certificate and private key are loaded when the listener is created, and every
