@@ -339,6 +339,9 @@ fn standard_native_source(name: &str) -> Option<&'static str> {
              export function stream_trailer(stream: i64, name: string) -> string { return http_stream_trailer(stream, name) }\n\
              export function stream_cancel(stream: i64) -> null { return http_stream_cancel(stream) }\n\
              export function secure_request(address: string, method: string, path: string, body: string, timeout_ms: i64) -> tuple<i64, string, string> { return https_client_request(address, method, path, body, timeout_ms) }\n\
+             export function secure_stream_open(address: string, method: string, path: string, body: string, timeout_ms: i64) -> i64 { return https_stream_open(address, method, path, body, timeout_ms) }\n\
+             export function secure_stream_read(stream: i64, maximum: i64) -> tuple<bytes, string, bool> { return https_stream_read(stream, maximum) }\n\
+             export function secure_stream_close(stream: i64) -> null { return https_stream_close(stream) }\n\
              export function bind(address: string) -> i64 { return http_bind(address) }\n\
              export function accept(listener: i64) -> i64 { return http_accept(listener) }\n\
              export function read(connection: i64) -> tuple<string, string> { return http_read(connection) }\n\
