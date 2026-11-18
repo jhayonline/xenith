@@ -1,9 +1,11 @@
 use std::{
+    fs,
     io::{Read, Write},
     net::TcpListener,
     path::Path,
     process::Command,
     thread,
+    time::Duration,
 };
 
 use xenith::native::{
@@ -167,6 +169,42 @@ function main() -> i32 {
 "#,
     );
     assert_eq!(Command::new(executable).status().unwrap().code(), Some(42));
+}
+
+#[test]
+fn std_http_module_exposes_secure_streaming() {
+    let (_directory, executable) = build_project_source(
+        r#"
+grab { secure_stream_open, secure_stream_read, secure_stream_close } from "std::http"
+function main() -> i32 { return 42 }
+"#,
+    );
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(42));
+}
+
+#[test]
+fn native_https_stream_reads_tls_response() {
+    let reservation = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = reservation.local_addr().unwrap().port();
+    drop(reservation);
+    let directory = tempfile::tempdir().unwrap();
+    let cert = directory.path().join("cert.pem");
+    let key = directory.path().join("key.pem");
+    let generated = Command::new("openssl").args(["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1", "-keyout", key.to_str().unwrap(), "-out", cert.to_str().unwrap(), "-subj", "/CN=localhost", "-addext", "subjectAltName=IP:127.0.0.1"]).output().unwrap();
+    assert!(generated.status.success());
+    let server_source = format!(r#"
+grab {{ secure_server, router, get, run_for }} from "std::http"
+function health(method: string, path: string, body: string) -> tuple<i32, string> {{ return (200, "stream ok") }}
+function main() -> i32 {{ let routes: i64 = router() get(routes, "/health", health) let server: i64 = secure_server("127.0.0.1:{port}", "{cert}", "{key}", 65536i64, 5000i64, 5000i64, 16i64) let error: string = run_for(server, routes, 1i64) return len(error) }}
+"#, cert = cert.display(), key = key.display());
+    let server_main = directory.path().join("server.xen"); fs::write(&server_main, server_source).unwrap();
+    let (program, _) = xenith::native::project::load_program(&server_main).unwrap(); let typed = xenith::native::check::check(&program).unwrap(); let object = directory.path().join("server.o"); let executable = directory.path().join("server"); xenith::native::codegen::emit_object(&typed, &object).unwrap(); xenith::native::codegen::link_host(&object, &executable).unwrap();
+    let client_source = format!(r#"
+grab {{ secure_stream_open, secure_stream_read, secure_stream_close }} from "std::http"
+function main() -> i32 {{ let stream: i64 = secure_stream_open("127.0.0.1:{port}", "GET", "/health", "", 2000i64) let result: tuple<bytes, string, bool> = secure_stream_read(stream, 64i64) secure_stream_close(stream) if (result[1] == "" && len(result[0]) == 9 && result[2]) {{ return 42 }} return 10 }}
+"#, port = port);
+    let client_main = directory.path().join("client.xen"); fs::write(&client_main, client_source).unwrap(); let (program, _) = xenith::native::project::load_program(&client_main).unwrap(); let typed = xenith::native::check::check(&program).unwrap(); let object = directory.path().join("client.o"); let client = directory.path().join("client"); xenith::native::codegen::emit_object(&typed, &object).unwrap(); xenith::native::codegen::link_host(&object, &client).unwrap();
+    let mut server = Command::new(&executable).spawn().unwrap(); thread::sleep(Duration::from_millis(250)); assert_eq!(Command::new(&client).status().unwrap().code(), Some(42)); assert_eq!(server.wait().unwrap().code(), Some(0));
 }
 
 #[test]
