@@ -108,6 +108,19 @@ fn native_https_client_rejects_wrong_argument_types() {
 }
 
 #[test]
+fn native_https_stream_rejects_wrong_argument_types() {
+    let program = parse(
+        Path::new("src/main.xen"),
+        "fn main() -> i32 { let stream: i64 = https_stream_open(1i64, \"GET\", \"/\", \"\", 100i64) return 0 }",
+    )
+    .unwrap();
+    let errors = check(&program).expect_err("invalid HTTPS stream address should fail static checking");
+    assert!(errors.iter().any(|error| error
+        .message
+        .contains("argument type does not match `https_stream_open`")));
+}
+
+#[test]
 fn std_http_module_exposes_request() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
