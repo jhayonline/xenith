@@ -232,18 +232,19 @@ fn std_http_module_decodes_chunked_streams() {
         let mut request = [0u8; 512];
         let _ = stream.read(&mut request).unwrap();
         stream
-            .write_all(b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n4\r\nWiki\r\n5\r\npedia\r\n0\r\n\r\n")
+            .write_all(b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nTrailer: X-Checksum\r\nConnection: close\r\n\r\n4\r\nWiki\r\n5\r\npedia\r\n0\r\nX-Checksum: done\r\n\r\n")
             .unwrap();
     });
     let (_directory, executable) = build_project_source(&format!(r#"
-grab {{ stream_open, stream_read, stream_close }} from "std::http"
+grab {{ stream_open, stream_read, stream_trailer, stream_close }} from "std::http"
 function main() -> i32 {{
     let stream: i64 = stream_open("{address}", "GET", "/", "", 1000i64)
     let first: tuple<bytes, string, bool> = stream_read(stream, 4i64)
     let second: tuple<bytes, string, bool> = stream_read(stream, 4i64)
     let third: tuple<bytes, string, bool> = stream_read(stream, 4i64)
+    let trailer: string = stream_trailer(stream, "x-checksum")
     stream_close(stream)
-    if (len(first[0]) == 4 && len(second[0]) == 4 && len(third[0]) == 1 && third[2] && first[1] == "" && second[1] == "" && third[1] == "") {{ return 42 }}
+    if (len(first[0]) == 4 && len(second[0]) == 4 && len(third[0]) == 1 && third[2] && trailer == "done" && first[1] == "" && second[1] == "" && third[1] == "") {{ return 42 }}
     return 10
 }}
 "#));
