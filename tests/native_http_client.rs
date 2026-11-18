@@ -123,6 +123,14 @@ fn native_https_stream_rejects_wrong_argument_types() {
 }
 
 #[test]
+fn native_https_pool_rejects_wrong_argument_types() {
+    let source = "fn main() -> i32 { let pool: i64 = https_client_pool_new(1i64, \"bad\") return 0 }";
+    let program = parse(Path::new("src/main.xen"), source).unwrap();
+    let errors = check(&program).expect_err("source should not type-check");
+    assert!(errors.iter().any(|error| error.message.contains("argument type does not match `https_client_pool_new`")));
+}
+
+#[test]
 fn std_http_module_exposes_request() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
@@ -177,6 +185,38 @@ fn std_http_module_exposes_secure_streaming() {
         r#"
 grab { secure_stream_open, secure_stream_read, secure_stream_close } from "std::http"
 function main() -> i32 { return 42 }
+"#,
+    );
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(42));
+}
+
+#[test]
+fn std_http_module_exposes_secure_pool() {
+    let (_directory, executable) = build_project_source(
+        r#"
+grab { secure_client_pool, secure_pool_request, secure_pool_close } from "std::http"
+function main() -> i32 {
+    let pool: i64 = secure_client_pool(2i64, 100i64)
+    secure_pool_close(pool)
+    return 42
+}
+"#,
+    );
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(42));
+}
+
+#[test]
+fn secure_pool_reports_connection_errors_as_values() {
+    let (_directory, executable) = build_project_source(
+        r#"
+grab { secure_client_pool, secure_pool_request, secure_pool_close } from "std::http"
+function main() -> i32 {
+    let pool: i64 = secure_client_pool(1i64, 100i64)
+    let result: tuple<i64, string, string> = secure_pool_request(pool, "127.0.0.1:1", "GET", "/", "")
+    secure_pool_close(pool)
+    if (len(result[2]) > 0) { return 42 }
+    return 10
+}
 "#,
     );
     assert_eq!(Command::new(executable).status().unwrap().code(), Some(42));
