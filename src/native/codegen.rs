@@ -3960,7 +3960,7 @@ fn lower(
             }
             if name == "http_stream_cancel" {
                 let stream = lower(b, &arguments[0], v, ids, m, l).0[0];
-                let _ = runtime_call(b, m, "xenith_http_stream_cancel_v3", vec![AbiParam::new(types::I64)], vec![], &[stream]);
+                let _ = runtime_call(b, m, "xenith_http_stream_cancel_v4", vec![AbiParam::new(types::I64)], vec![], &[stream]);
                 return (vec![b.ins().iconst(types::I8, 0)], Type::Null);
             }
             if name == "http_stream_status" {
@@ -3975,6 +3975,15 @@ fn lower(
                 let output_len = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
                 let args = [stream, name_value[0], name_value[1], b.ins().stack_addr(types::I64, output_ptr, 0), b.ins().stack_addr(types::I64, output_len, 0)];
                 let _ = runtime_call(b, m, "xenith_http_stream_header_v3", vec![AbiParam::new(types::I64); 5], vec![], &args);
+                return (vec![b.ins().load(types::I64, MemFlags::new(), args[3], 0), b.ins().load(types::I64, MemFlags::new(), args[4], 0)], Type::String);
+            }
+            if name == "http_stream_trailer" {
+                let stream = lower(b, &arguments[0], v, ids, m, l).0[0];
+                let name_value = lower(b, &arguments[1], v, ids, m, l).0;
+                let output_ptr = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let output_len = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                let args = [stream, name_value[0], name_value[1], b.ins().stack_addr(types::I64, output_ptr, 0), b.ins().stack_addr(types::I64, output_len, 0)];
+                let _ = runtime_call(b, m, "xenith_http_stream_trailer_v4", vec![AbiParam::new(types::I64); 5], vec![], &args);
                 return (vec![b.ins().load(types::I64, MemFlags::new(), args[3], 0), b.ins().load(types::I64, MemFlags::new(), args[4], 0)], Type::String);
             }
             if name == "http_stream_read" {
