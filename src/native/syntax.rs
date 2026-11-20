@@ -1107,6 +1107,12 @@ impl Parser {
         }
         Ok(left)
     }
+    /// The operand of a unary `!` or `-`: indexing and field access bind
+    /// tighter than either, so `!found[1]` negates the element, not the tuple.
+    fn unary_operand(&mut self) -> Result<Expr, Vec<Diagnostic>> {
+        let atom = self.atom()?;
+        self.postfix(atom)
+    }
     fn atom(&mut self) -> Result<Expr, Vec<Diagnostic>> {
         let s = self.take().ok_or_else(|| {
             vec![Diagnostic {
@@ -1119,7 +1125,7 @@ impl Parser {
             return Err(vec![Diagnostic::at("expected expression", span)]);
         }
         if s == "!" {
-            return Ok(Expr::Not(Box::new(self.atom()?)));
+            return Ok(Expr::Not(Box::new(self.unary_operand()?)));
         }
         if s == "fn" {
             self.need("(")?;
@@ -1148,14 +1154,15 @@ impl Parser {
             });
         }
         if s == "-" {
-            return Ok(Expr::Neg(Box::new(self.atom()?)));
+            return Ok(Expr::Neg(Box::new(self.unary_operand()?)));
         }
         if let Some(name) = s.strip_prefix('-') {
             if is_identifier(name) {
                 if self.tokens.get(self.i).map(String::as_str) == Some("(") {
-                    return Ok(Expr::Neg(Box::new(self.call(name.into())?)));
+                    let call = self.call(name.into())?;
+                    return Ok(Expr::Neg(Box::new(self.postfix(call)?)));
                 }
-                return Ok(Expr::Neg(Box::new(Expr::Name(name.into()))));
+                return Ok(Expr::Neg(Box::new(self.postfix(Expr::Name(name.into()))?)));
             }
         }
         if s == "(" {
