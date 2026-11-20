@@ -1475,9 +1475,11 @@ fn lower_try_catch(
     let mut catch_values = values.clone();
     let raised_at = b.block_params(catch_block).to_vec();
     bind_params(&raised_at, &body_names, &mut catch_values);
+    // The binding takes ownership of the message; clearing would free it.
+    let _ = runtime_call(b, m, "xenith_error_catch", vec![], vec![], &[]);
     let error_lanes = emit_error_lanes(b, m);
     catch_values.insert(binding.to_string(), (error_lanes, Type::Named("Error".into())));
-    let _ = runtime_call(b, m, "xenith_error_clear", vec![], vec![], &[]);
+    let _ = runtime_call(b, m, "xenith_error_forget", vec![], vec![], &[]);
     let mut catch_loops = loops.clone();
     let mut catch_shadows = inherited_shadows.clone();
     let catch_flow = lower_branch(

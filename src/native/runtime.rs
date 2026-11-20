@@ -88,6 +88,12 @@ static _Thread_local const unsigned char *xenith_source_file = (const unsigned c
 static _Thread_local int64_t xenith_source_file_len = 7;
 static _Thread_local const unsigned char *xenith_http_active_raw = NULL;
 void xenith_error_clear(void) { if (xenith_error.message && xenith_error.message != xenith_error_message_slot) free(xenith_error.message); xenith_error = (XenithError){0, NULL, 0, NULL, 0, NULL, 0}; }
+// A catch hands the error's message to its binding instead of freeing it.
+// Runtime strings are not reference counted, so the binding simply keeps the
+// allocation, like every other string a builtin returns. A message held in
+// the shared slot is copied out first, so a later raise cannot overwrite it.
+void xenith_error_catch(void) { if (xenith_error.message == xenith_error_message_slot && xenith_error.message_len > 0) { unsigned char *copy = malloc((size_t)xenith_error.message_len); if (copy) { memcpy(copy, xenith_error.message, (size_t)xenith_error.message_len); xenith_error.message = copy; } } }
+void xenith_error_forget(void) { if (xenith_error.message == xenith_error_message_slot) { xenith_error_clear(); return; } xenith_error = (XenithError){0, NULL, 0, NULL, 0, NULL, 0}; }
 int8_t xenith_error_pending(void) { return xenith_error.pending; }
 void xenith_error_set_function(const unsigned char *name, int64_t length) { if (length < 0) length = 0; if (length >= (int64_t)sizeof(xenith_error_function_slot)) length = (int64_t)sizeof(xenith_error_function_slot) - 1; memcpy(xenith_error_function_slot, name, (size_t)length); xenith_error_function_slot[length] = 0; xenith_error_function_length = length; }
 void xenith_error_set_source(const unsigned char *source, int64_t length) { xenith_source = source; xenith_source_len = length; }
