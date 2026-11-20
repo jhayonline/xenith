@@ -511,6 +511,13 @@ fn emit(
         );
         let incoming = b.block_params(block).to_vec();
         let return_area = indirect_return(&f.result, l).then(|| incoming[0]);
+        FUNCTION_EXIT.with(|exit| {
+            *exit.borrow_mut() = Some(FunctionExit {
+                is_main: f.name == "main",
+                return_area,
+                result: f.result.clone(),
+            })
+        });
         let mut at = usize::from(return_area.is_some());
         let mut vals = HashMap::new();
         let env = if f.name != "main" {
@@ -688,11 +695,13 @@ fn emit(
                     }
                 }
                 Stmt::Return(v) => {
-                    emit_return_and_release(&mut b, v, &vals, ids, m, l, return_area);
+                    emit_return_checked(&mut b, v, &vals, ids, m, l, return_area);
                     break;
                 }
             }
+            emit_error_check(&mut b, &vals, None, m, l);
         }
+        FUNCTION_EXIT.with(|exit| exit.borrow_mut().take());
         b.finalize();
     }
     m.define_function(ids[&f.name].0, &mut c)
@@ -1073,32 +1082,6 @@ fn release_managed(b: &mut FunctionBuilder, lowered: &[Value], ty: &Type, m: &mu
     }
 }
 
-fn emit_return_and_release(
-    b: &mut FunctionBuilder,
-    expression: &Expr,
-    values: &Values,
-    ids: &HashMap<String, (FuncId, Type)>,
-    m: &mut ObjectModule,
-    layouts: &HashMap<String, StructLayout>,
-    return_area: Option<Value>,
-) {
-    let (returned, ty) = lower(b, expression, values, ids, m, layouts);
-    emit_retain_borrowed_with_layouts(b, expression, &returned, &ty, m, layouts);
-    emit_release_values(b, values, m, layouts);
-    let _ = runtime_call(b, m, "xenith_error_abort_if_pending", vec![], vec![], &[]);
-    if let Some(return_area) = return_area {
-        for (value, (_, offset)) in returned
-            .into_iter()
-            .zip(return_layout(&ty, layouts).1.into_iter())
-        {
-            b.ins().store(MemFlags::new(), value, return_area, offset);
-        }
-        b.ins().return_(&[]);
-    } else {
-        b.ins().return_(&returned);
-    }
-}
-
 fn assigned_names(statements: &[Stmt], values: &Values) -> Vec<String> {
     assigned_names_in_scope(statements, values, &HashSet::new())
 }
@@ -1232,24 +1215,57 @@ fn inside_try() -> bool {
     TRY_TARGETS.with(|targets| !targets.borrow().is_empty())
 }
 
-/// Inside a `try` body, branch to the innermost catch when an error is
-/// pending. `in_flight` holds lanes the current statement owns that are not in
-/// `values` yet, such as a retained return value, and are released too.
-fn emit_try_check(
+/// How the function being lowered leaves when an error is pending and no
+/// `try` in it can catch it: `main` ends the program, anything else returns
+/// at once with the error still pending, for its caller to handle.
+struct FunctionExit {
+    is_main: bool,
+    return_area: Option<Value>,
+    result: Type,
+}
+
+thread_local! {
+    /// Set for the duration of each function's lowering.
+    static FUNCTION_EXIT: std::cell::RefCell<Option<FunctionExit>> = const { std::cell::RefCell::new(None) };
+}
+
+fn zero_lane(b: &mut FunctionBuilder, ty: ClifType) -> Value {
+    if ty == types::F64 {
+        b.ins().f64const(0.0)
+    } else if ty == types::F32 {
+        b.ins().f32const(0.0)
+    } else {
+        b.ins().iconst(ty, 0)
+    }
+}
+
+/// Branch away when an error is pending: to the innermost catch inside a
+/// `try` body, and otherwise out of the function. Errors are a flag rather
+/// than an unwind, so this runs after every statement and after every call
+/// into generated code, whose results are not valid when it returned early.
+/// `in_flight` holds lanes the current statement owns that are not in
+/// `values` yet, such as a retained return value; they are released too.
+fn emit_error_check(
     b: &mut FunctionBuilder,
     values: &Values,
     in_flight: Option<(&[Value], &Type)>,
     m: &mut ObjectModule,
     layouts: &HashMap<String, StructLayout>,
 ) {
-    let Some((catch, names, keep)) = TRY_TARGETS.with(|targets| {
+    let target = TRY_TARGETS.with(|targets| {
         targets
             .borrow()
             .last()
             .map(|target| (target.catch, target.names.clone(), target.keep.clone()))
-    }) else {
+    });
+    let exit = FUNCTION_EXIT.with(|exit| {
+        exit.borrow()
+            .as_ref()
+            .map(|exit| (exit.is_main, exit.return_area, exit.result.clone()))
+    });
+    if target.is_none() && exit.is_none() {
         return;
-    };
+    }
     let pending = runtime_call(
         b,
         m,
@@ -1266,19 +1282,49 @@ fn emit_try_check(
     if let Some((lanes, ty)) = in_flight {
         emit_release_one_with_layouts(b, lanes, ty, m, layouts);
     }
-    emit_release_extras_with_layouts(b, values, &keep, m, layouts);
-    let args: Vec<Value> = names
-        .iter()
-        .flat_map(|name| values[name].0.iter().copied())
-        .collect();
-    b.ins().jump(catch, &args);
+    if let Some((catch, names, keep)) = target {
+        emit_release_extras_with_layouts(b, values, &keep, m, layouts);
+        let args: Vec<Value> = names
+            .iter()
+            .flat_map(|name| values[name].0.iter().copied())
+            .collect();
+        b.ins().jump(catch, &args);
+    } else if let Some((is_main, return_area, result)) = exit {
+        emit_release_values(b, values, m, layouts);
+        if is_main {
+            // Prints the error and ends the process. Database errors raised
+            // while an HTTP request is active are exempt, so fall back to a
+            // failing exit status rather than trapping.
+            let _ = runtime_call(b, m, "xenith_error_abort_if_pending", vec![], vec![], &[]);
+            let status: Vec<Value> = flat(&result, layouts)
+                .into_iter()
+                .map(|ty| if ty == types::F64 || ty == types::F32 { zero_lane(b, ty) } else { b.ins().iconst(ty, 1) })
+                .collect();
+            b.ins().return_(&status);
+        } else if let Some(area) = return_area {
+            // C code that called this function may read the result before it
+            // looks at the error, so leave defined zeros rather than garbage.
+            for (ty, offset) in return_layout(&result, layouts).1 {
+                let zero = zero_lane(b, ty);
+                b.ins().store(MemFlags::new(), zero, area, offset);
+            }
+            b.ins().return_(&[]);
+        } else {
+            let zeros: Vec<Value> = flat(&result, layouts)
+                .into_iter()
+                .map(|ty| zero_lane(b, ty))
+                .collect();
+            b.ins().return_(&zeros);
+        }
+    }
     b.switch_to_block(next);
     b.seal_block(next);
 }
 
-/// A `return` inside a `try` body: an error raised while evaluating the
-/// returned expression goes to the catch rather than aborting the program.
-fn emit_return_in_try(
+/// A `return`. An error raised while evaluating the returned expression goes
+/// to the enclosing catch, or out of the function, before anything is
+/// returned.
+fn emit_return_checked(
     b: &mut FunctionBuilder,
     expression: &Expr,
     values: &Values,
@@ -1289,7 +1335,7 @@ fn emit_return_in_try(
 ) {
     let (returned, ty) = lower(b, expression, values, ids, m, layouts);
     emit_retain_borrowed_with_layouts(b, expression, &returned, &ty, m, layouts);
-    emit_try_check(b, values, Some((&returned, &ty)), m, layouts);
+    emit_error_check(b, values, Some((&returned, &ty)), m, layouts);
     emit_release_values(b, values, m, layouts);
     if let Some(area) = return_area {
         for (value, (_, offset)) in returned
@@ -1630,11 +1676,7 @@ fn lower_branch(
                 }
             }
             Stmt::Return(value) => {
-                if inside_try() {
-                    emit_return_in_try(b, value, values, ids, m, layouts, return_area);
-                } else {
-                    emit_return_and_release(b, value, values, ids, m, layouts, return_area);
-                }
+                emit_return_checked(b, value, values, ids, m, layouts, return_area);
                 return LowerFlow::Returns;
             }
             Stmt::While { condition, body } => {
@@ -1656,9 +1698,7 @@ fn lower_branch(
                 }
             }
         }
-        if inside_try() {
-            emit_try_check(b, values, None, m, layouts);
-        }
+        emit_error_check(b, values, None, m, layouts);
     }
     LowerFlow::FallsThrough
 }
@@ -7335,6 +7375,7 @@ fn lower(
                 }
                 let sig_ref = b.func.dfg.signatures.push(signature);
                 let call = b.ins().call_indirect(sig_ref, v[name].0[0], &args);
+                emit_error_check(b, v, None, m, l);
                 for (lowered, ty) in temporary_arguments {
                     release_managed(b, &lowered, &ty, m);
                 }
@@ -8247,6 +8288,7 @@ fn lower(
             };
             let callee = m.declare_func_in_func(ids[callee_name].0, b.func);
             let call = b.ins().call(callee, &a);
+            emit_error_check(b, v, None, m, l);
             let values = if let Some(return_buffer) = return_buffer {
                 return_layout(result_type, l)
                     .1
