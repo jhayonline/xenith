@@ -179,3 +179,25 @@ fn balances_temporary_collection_arguments() {
     link_host(&object, &executable).unwrap();
     assert_eq!(Command::new(executable).status().unwrap().code(), Some(42));
 }
+
+#[test]
+fn compiles_deeply_nested_expressions_on_a_small_caller_stack() {
+    // Each nesting level of an expression is a recursive call into codegen's
+    // `lower`, whose debug-build frame is around 100 KB. Test threads get 2 MB,
+    // so a ten-term condition used to abort the whole test binary. Forty terms
+    // is well past that and inside what parse and check manage on 2 MB.
+    let condition = vec!["x == 1i64"; 40].join(" && ");
+    let source = format!("fn main() -> i32 {{ let x: i64 = 1i64 if ({condition}) {{ return 42 }} return 1 }}");
+    let program = parse(Path::new("main.xen"), &source).unwrap();
+    let typed = check(&program).unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let object = directory.path().join("main.o");
+    let executable = directory.path().join("main");
+    let compile = std::thread::Builder::new()
+        .stack_size(2 * 1024 * 1024)
+        .spawn(move || emit_object(&typed, &object).map(|_| object))
+        .unwrap();
+    let object = compile.join().unwrap().unwrap();
+    link_host(&object, &executable).unwrap();
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(42));
+}
