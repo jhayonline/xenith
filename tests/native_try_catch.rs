@@ -880,3 +880,126 @@ fn native_runtime_raised_messages_are_exactly_their_literal_length() {
         "raised message or name did not match its literal exactly"
     );
 }
+
+fn run_single_file(source: &str) -> Option<i32> {
+    let program = parse(Path::new("main.xen"), source).unwrap();
+    let typed = check(&program).unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let object = directory.path().join("main.o");
+    let executable = directory.path().join("main");
+    emit_object(&typed, &object).unwrap();
+    link_host(&object, &executable).unwrap();
+    Command::new(executable).status().unwrap().code()
+}
+
+#[test]
+fn try_body_stops_at_the_statement_that_raised() {
+    // Statements after a raise must not run: steps stays 1, and the catch
+    // sees the value assigned before the raise.
+    let source = r#"fn main() -> i32 {
+        let mut steps: i32 = 0
+        try {
+            steps = 1
+            let value: string = config_required(0i64, "MISSING")
+            steps = 100
+            return 1
+        } catch (error) {
+            return steps + 40
+        }
+    }"#;
+    assert_eq!(run_single_file(source), Some(41));
+}
+
+#[test]
+fn try_body_stops_after_panic() {
+    let source = r#"fn main() -> i32 {
+        let mut steps: i32 = 0
+        try {
+            steps = 2
+            panic("boom")
+            steps = 100
+        } catch (error) {
+            steps = steps + 40
+        }
+        return steps
+    }"#;
+    assert_eq!(run_single_file(source), Some(42));
+}
+
+#[test]
+fn try_body_stops_inside_nested_loops_and_branches() {
+    let source = r#"fn main() -> i32 {
+        let mut steps: i32 = 0
+        try {
+            let mut i: i32 = 0
+            while (i < 3) {
+                steps = steps + 1
+                if (i == 1) {
+                    let label: string = "inside"
+                    let value: string = config_required(0i64, "MISSING")
+                    steps = steps + 100
+                }
+                i = i + 1
+            }
+            return 1
+        } catch (error) {
+            return steps + 40
+        }
+    }"#;
+    assert_eq!(run_single_file(source), Some(42));
+}
+
+#[test]
+fn catch_assignments_survive_the_try() {
+    let source = r#"fn main() -> i32 {
+        let mut status: i32 = 0
+        let mut label: string = "start"
+        try {
+            label = "body"
+            let value: string = config_required(0i64, "MISSING")
+            status = 1
+        } catch (error) {
+            status = 40
+            label = "caught"
+        }
+        if (label == "caught") { return status + 2 }
+        return status
+    }"#;
+    assert_eq!(run_single_file(source), Some(42));
+}
+
+#[test]
+fn try_without_a_raise_falls_through_with_its_assignments() {
+    let source = r#"fn main() -> i32 {
+        let mut total: i32 = 0
+        try {
+            let text: string = "kept"
+            total = len(text) + 38
+        } catch (error) {
+            total = 1
+        }
+        return total
+    }"#;
+    assert_eq!(run_single_file(source), Some(42));
+}
+
+#[test]
+fn errors_raised_in_a_catch_reach_the_enclosing_try() {
+    let source = r#"fn main() -> i32 {
+        let mut steps: i32 = 0
+        try {
+            try {
+                panic("inner")
+            } catch (error) {
+                steps = 1
+                panic("again")
+                steps = 100
+            }
+            steps = 200
+        } catch (error) {
+            return steps + 41
+        }
+        return 0
+    }"#;
+    assert_eq!(run_single_file(source), Some(42));
+}
