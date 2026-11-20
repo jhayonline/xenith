@@ -597,3 +597,43 @@ pub fn write_source(directory: &Path) -> std::io::Result<PathBuf> {
     fs::write(&path, SOURCE)?;
     Ok(path)
 }
+
+/// Flags the host C compiler needs to build the runtime and link a program
+/// against it. Every caller that compiles the runtime goes through this, so the
+/// platform differences live in one place.
+pub fn host_link_args() -> Vec<String> {
+    let mut args = vec!["-pthread".to_string()];
+    if let Some(prefix) = openssl_prefix() {
+        args.push(format!("-I{}", prefix.join("include").display()));
+        args.push(format!("-L{}", prefix.join("lib").display()));
+    }
+    args.push("-lsqlite3".into());
+    // crypt_r is glibc's, and the runtime only uses it on Linux to verify
+    // password hashes from before the move to PBKDF2.
+    if cfg!(target_os = "linux") {
+        args.push("-lcrypt".into());
+    }
+    args.push("-lssl".into());
+    args.push("-lcrypto".into());
+    args
+}
+
+/// Linux distributions put OpenSSL on the default search paths. macOS ships
+/// none, so use `OPENSSL_DIR` when it is set and otherwise look for Homebrew's.
+fn openssl_prefix() -> Option<PathBuf> {
+    if let Some(directory) = std::env::var_os("OPENSSL_DIR") {
+        return Some(PathBuf::from(directory));
+    }
+    if !cfg!(target_os = "macos") {
+        return None;
+    }
+    [
+        "/opt/homebrew/opt/openssl",
+        "/opt/homebrew/opt/openssl@3",
+        "/usr/local/opt/openssl",
+        "/usr/local/opt/openssl@3",
+    ]
+    .into_iter()
+    .map(PathBuf::from)
+    .find(|prefix| prefix.join("include/openssl/ssl.h").is_file())
+}

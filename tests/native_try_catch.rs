@@ -237,10 +237,10 @@ fn native_runtime_reports_allocation_failures_without_aborting() {
         .args([
             runtime.as_os_str(),
             harness.as_os_str(),
-            "-lcrypt".as_ref(),
             "-o".as_ref(),
             executable.as_os_str(),
         ])
+        .args(xenith::native::runtime::host_link_args())
         .status()
         .unwrap();
     assert!(status.success());
@@ -276,10 +276,10 @@ fn native_runtime_reference_counting_is_deterministic() {
         .args([
             runtime.as_os_str(),
             harness.as_os_str(),
-            "-lcrypt".as_ref(),
             "-o".as_ref(),
             executable.as_os_str(),
         ])
+        .args(xenith::native::runtime::host_link_args())
         .status()
         .unwrap();
     assert!(status.success());
@@ -323,10 +323,10 @@ fn native_runtime_releases_closure_captures_with_the_environment() {
         .args([
             runtime.as_os_str(),
             harness.as_os_str(),
-            "-lcrypt".as_ref(),
             "-o".as_ref(),
             executable.as_os_str(),
         ])
+        .args(xenith::native::runtime::host_link_args())
         .status()
         .unwrap();
     assert!(status.success());
@@ -352,7 +352,9 @@ fn native_runtime_releases_managed_map_values() {
             return xenith_rc_live() == 1 ? 0 : 2; }
         "#).unwrap();
     let executable = directory.path().join("harness");
-    let status = Command::new("cc").args([runtime.as_os_str(), harness.as_os_str(), "-lcrypt".as_ref(), "-o".as_ref(), executable.as_os_str()]).status().unwrap();
+    let status = Command::new("cc").args([runtime.as_os_str(), harness.as_os_str(), "-o".as_ref(), executable.as_os_str()])
+        .args(xenith::native::runtime::host_link_args())
+        .status().unwrap();
     assert!(status.success());
     assert!(Command::new(executable).status().unwrap().success());
 }
@@ -378,7 +380,9 @@ fn native_runtime_map_assignment_releases_old_and_retains_new_value() {
             return xenith_rc_live() == 0 ? 0 : 2; }
         "#).unwrap();
     let executable = directory.path().join("harness");
-    let status = Command::new("cc").args([runtime.as_os_str(), harness.as_os_str(), "-lcrypt".as_ref(), "-o".as_ref(), executable.as_os_str()]).status().unwrap();
+    let status = Command::new("cc").args([runtime.as_os_str(), harness.as_os_str(), "-o".as_ref(), executable.as_os_str()])
+        .args(xenith::native::runtime::host_link_args())
+        .status().unwrap();
     assert!(status.success());
     assert!(Command::new(executable).status().unwrap().success());
 }
@@ -398,7 +402,9 @@ fn native_runtime_tcp_bind_reports_invalid_configuration_recoverably() {
             xenith_error_clear(); return 0; }
         "#).unwrap();
     let executable = directory.path().join("harness");
-    let status = Command::new("cc").args([runtime.as_os_str(), harness.as_os_str(), "-lcrypt".as_ref(), "-o".as_ref(), executable.as_os_str()]).status().unwrap();
+    let status = Command::new("cc").args([runtime.as_os_str(), harness.as_os_str(), "-o".as_ref(), executable.as_os_str()])
+        .args(xenith::native::runtime::host_link_args())
+        .status().unwrap();
     assert!(status.success());
     assert!(Command::new(executable).status().unwrap().success());
 }
@@ -423,7 +429,9 @@ fn native_runtime_append_retains_managed_elements() {
             return xenith_rc_live() == 0 ? 0 : 3; }
         "#).unwrap();
     let executable = directory.path().join("harness");
-    let status = Command::new("cc").args([runtime.as_os_str(), harness.as_os_str(), "-lcrypt".as_ref(), "-o".as_ref(), executable.as_os_str()]).status().unwrap();
+    let status = Command::new("cc").args([runtime.as_os_str(), harness.as_os_str(), "-o".as_ref(), executable.as_os_str()])
+        .args(xenith::native::runtime::host_link_args())
+        .status().unwrap();
     assert!(status.success());
     assert!(Command::new(executable).status().unwrap().success());
 }
@@ -462,10 +470,10 @@ fn native_runtime_rejects_closure_reference_cycles() {
         .args([
             runtime.as_os_str(),
             harness.as_os_str(),
-            "-lcrypt".as_ref(),
             "-o".as_ref(),
             executable.as_os_str(),
         ])
+        .args(xenith::native::runtime::host_link_args())
         .status()
         .unwrap();
     assert!(status.success());
@@ -859,10 +867,10 @@ fn native_runtime_raised_messages_are_exactly_their_literal_length() {
         .args([
             runtime.as_os_str(),
             harness.as_os_str(),
-            "-lcrypt".as_ref(),
             "-o".as_ref(),
             executable.as_os_str(),
         ])
+        .args(xenith::native::runtime::host_link_args())
         .status()
         .unwrap();
     assert!(status.success());
