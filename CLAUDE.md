@@ -15,6 +15,8 @@ backend.
 | `src/interpreter.rs`, `src/vm/` | Interpreter and bytecode VM |
 | `src/stdlib/*.xen` | Interpreter-only standard library, written in Xenith |
 | `src/native/project.rs` | `standard_native_source()` holds the native `std::*` modules, also written in Xenith |
+| `src/native/http.rs`, `orm.rs` | Rust-side HTTP parser/server and SQLite ORM. Only tests use them; compiled programs use the C runtime |
+| `tests/common/mod.rs` | Helpers shared by test binaries via `mod common;`, e.g. `connect_when_ready` |
 | `docs/internals/` | Architecture notes |
 | `docs/superpowers/plans/`, `docs/superpowers/specs/` | Design plans and specs. See the caveat below |
 
@@ -43,6 +45,17 @@ matters:
 
 A test written the first way cannot use `grab`, which is how a whole module can
 sit unexercised. Prefer the project form when touching a `std::*` module.
+`std::fs` sat like this until 2026-11-20, and its `append` and `remove` could
+not be called at all.
+
+**A test binary that dies takes its results with it.** A stack overflow or
+signal aborts the whole binary, and cargo prints no `test result` line for it,
+so the totals simply come out lower. Check that every `Running` line has a
+`test result` before trusting a count.
+
+Tests that spawn a compiled server must not sleep a fixed time before
+connecting. macOS assesses a newly linked executable on its first launch, which
+takes 300-550 ms. Use `common::connect_when_ready(port)`.
 
 ## Adding a runtime builtin
 
@@ -78,6 +91,52 @@ working builtin of the same signature.
 name)` helper. Hand-written byte counts beside a string literal drifted on 31 of
 51 sites, over-reading past the literal or truncating the text.
 
+**aarch64 passes a struct-return pointer in x8, not as an argument.** Generated
+functions returning a string, struct or more than two lanes take a Cranelift
+`StructReturn` pointer. x86-64 passes it as the first argument; aarch64 puts it
+in x8. Any C code that calls back into generated code must use the
+`XenithIndirectResult` pattern in `runtime.rs`, which declares the callback as
+returning a large struct so C loads x8. Route handlers and map callbacks got
+this wrong and crashed on every arm64 host, unnoticed because the suite only
+ran on x86-64.
+
+**glibc forgives memory bugs that macOS does not.** Reading a struct after
+`free`, keeping `getenv`'s pointer past an `unsetenv`, and reading
+`/proc/self/cmdline` all worked on Linux and failed on macOS. When something
+passes on Linux and crashes elsewhere, suspect a lifetime first. Handles with a
+`closed` flag must keep their struct alive after close, as the router, config
+and schema handles do; `xenith_http_response_close` still frees its struct.
+
+**Platform differences live in `runtime::host_link_args()` and `#if` blocks in
+the C.** Don't add `-l` flags anywhere else; the test harnesses that compile the
+runtime directly take the same function's output. Two Linux toolchain traps it
+already handles: weak references do not count towards `--as-needed`, which
+Debian and Ubuntu enable by default and which silently dropped SQLite and
+OpenSSL, so it passes `--no-as-needed`; and the runtime must not call a GNU
+extension such as `memmem` undeclared, because gcc 12 then truncates the
+returned pointer to `int` with only a warning. Run the C through
+`gcc -fsyntax-only -Wall` on Linux when adding libc calls.
+
+**Codegen recursion is deep and its frames are huge.** `lower()` is one function
+of more than 6,000 lines, about 100 KB of stack per expression nesting level in
+a debug build. `emit_object` therefore runs on its own 256 MB thread. Parsing
+and checking still run on the caller's stack, at about 10 KB a level.
+
+**Intrinsic names can shadow imports.** The checker special-cases `append`,
+`remove`, `map`, `filter`, `find`, `contains`, `len`, `min`, `max` and others
+by name. A `std::*` export with one of those names must be checked for, as
+`std::fs` `append` and `remove` now are. Codegen already prefers the program's
+function.
+
+**Errors are a pending flag, not an unwind.** A raise sets the flag and
+returns normally. Inside a `try` body, `lower_branch` checks the flag after
+every statement and jumps to the catch (`TRY_TARGETS` in `codegen.rs`).
+Outside one, nothing checks until a `return`, which aborts the program. So a
+`try` catches only errors raised directly in its own body: a raise inside a
+Xenith function it calls aborts at that function's `return`, and statements
+after an uncaught raise still run until then. Making errors propagate out of
+calls is the open design question.
+
 **Verify documentation examples by compiling them.** Two README examples did not
 build — one used tuple destructuring, which the native backend rejects outright.
 String interpolation only accepts a bare identifier of type `string`, so
@@ -103,25 +162,33 @@ work.** Establish what exists from `git log`, the builtin table in
 
 ## State as of 2026-11-20
 
-`main` is green: **531 tests passing, 0 failing.** Working tree clean and pushed.
+Test results by host:
+
+| Host | Passing | Notes |
+|---|---|---|
+| macOS, Apple silicon | 545 | Needs Homebrew OpenSSL (`brew install openssl`) or `OPENSSL_DIR` |
+| Linux arm64, Debian 12 | 546 | Includes the Linux-only legacy `$6$` password test |
+| Linux x86-64, Debian 12 | 536 of 540 | Before the `try` fix, under qemu emulation. The 4 failures were `cc` crashing or failing to link under the emulator, not assertions; rerun on real hardware to confirm |
+
+To run the Linux suite from a Mac, use a `rust:1-bookworm` container with
+`libsqlite3-dev libssl-dev libcrypt-dev openssl` installed, clone the
+repository inside it, and run `cargo test --no-fail-fast`.
 
 Shipped: the language core, native `std::env`, `std::config`, `std::fs`,
 `std::db`, `std::http`, `std::net` and `std::auth`; HTTP server with routing,
 middleware and pooled workers; HTTP and HTTPS clients with keep-alive pools;
 TLS via the system OpenSSL, weakly linked; streaming responses with trailers;
-TCP over IPv4, IPv6 and resolved host names.
+TCP over IPv4, IPv6 and resolved host names. Passwords hash with
+PBKDF2-SHA256 and session cookies sign with HMAC-SHA256, both from libcrypto.
 
-### Known blocker before working on a Mac
+Known open issues, none of them fixed yet:
 
-`link_host()` in `src/native/codegen.rs` hardcodes
-`-lsqlite3 -lcrypt -lssl -lcrypto`, and the C runtime includes `<crypt.h>` and
-calls `crypt_r`. None of `crypt.h`, `crypt_r` or `-lcrypt` exists on macOS, and
-OpenSSL is not present by default. There is no `cfg(target_os)` handling
-anywhere in the tree.
-
-So on macOS the Rust crate compiles, but **every test that links a Xenith
-program fails**, which is most of the suite. Expect that before assuming a
-regression. Making this portable is its own task: pick the password hash per
-platform, drop `-lcrypt` off Linux, and point at Homebrew's OpenSSL.
+- A `try` cannot catch an error raised inside a function it calls (see the
+  hazard above).
+- `xenith_http_response_close` frees its struct, so a double close is a
+  use-after-free.
+- The pooled and streaming HTTP clients run `strstr` over receive buffers;
+  check each is NUL-terminated. Header names are matched case-sensitively.
+- Parsing and checking recurse on the caller's stack at about 10 KB a level.
 
 The README's "major work still ahead" section lists what remains beyond that.
