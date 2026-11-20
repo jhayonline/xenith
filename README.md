@@ -140,10 +140,12 @@ Cookie names and values are validated against header injection and malformed
 attributes. Cookie APIs return a recoverable error string, so applications can
 handle invalid input with `try`/`catch` where appropriate.
 
-Password hashing is available through `std::auth`. It uses the host's vetted
-`crypt` implementation with a random salt and a salted SHA-512 password format;
-the encoded value is safe to store in the database, while verification never
-requires recovering the plaintext:
+Password hashing is available through `std::auth`. It uses PBKDF2-HMAC-SHA256
+from OpenSSL's libcrypto with a random 16-byte salt and 600,000 iterations,
+encoded as `$pbkdf2-sha256$<iterations>$<salt>$<key>`. The encoded value is
+safe to store in the database, and verification never requires recovering the
+plaintext. On Linux, hashes in the older `$6$` SHA-512 crypt format still
+verify, so passwords stored before the change keep working:
 
 ```xenith
 grab { hash_password, verify_password } from "std::auth"
@@ -175,7 +177,7 @@ function main() -> i32 {
 ```
 
 For browser or API clients, signed session-cookie helpers combine the opaque
-session token with a keyed signature:
+session token with an HMAC-SHA256 signature keyed by the whole secret:
 
 ```xenith
 grab { session_cookie_create, session_cookie_user } from "std::auth"
@@ -661,7 +663,9 @@ Implemented native compiler capabilities include:
 - An HTTP client with bounded, endpoint-keyed keep-alive pools and explicit
   pool shutdown.
 - TLS through the system OpenSSL for HTTPS servers, clients, and pools, linked
-  weakly so a build without OpenSSL still runs everything else.
+  weakly so a build without OpenSSL still runs everything else. Password
+  hashing and cookie signing use the same libcrypto and report themselves
+  unavailable without it.
 - Streaming HTTP responses with chunked framing, headers, and trailers, over
   plain and TLS connections.
 - Password hashing and verification, role grants, and CSRF tokens through
@@ -696,9 +700,12 @@ The major work still ahead includes:
 - JSON, process, time, and serialization libraries.
 - Graphics, audio, input, and game-oriented runtime modules.
 - XML parsing and desktop UI tooling.
-- Portability beyond Linux. Linking is hardcoded for glibc, so builds assume
-  `crypt.h`, `crypt_r`, and `-lcrypt`, none of which exist on macOS. There is
-  no `target_os` handling anywhere yet.
+- Windows support. The test suite passes on Linux arm64 and on macOS on Apple
+  silicon. Linux x86-64 has only been checked under emulation, and Intel Macs
+  are untested.
+- Error propagation across calls. A `try` catches errors raised directly in
+  its body; an error raised inside a Xenith function it calls ends the program
+  when that function returns.
 - FFI safety, optimization modes, and release-build hardening.
 
 ## Installing
@@ -709,6 +716,12 @@ cargo install --path .
 
 This installs the `xenith` compiler and the `xenith-lsp` language server. On
 Arch Linux, the package definition is in `packaging/arch/PKGBUILD`.
+
+Compiled programs link against SQLite and OpenSSL with the host's `cc`. On
+Debian or Ubuntu, install `libsqlite3-dev`, `libssl-dev`, and `libcrypt-dev`.
+On macOS, SQLite ships with the system and OpenSSL comes from Homebrew
+(`brew install openssl`); the compiler finds Homebrew's copy, or set
+`OPENSSL_DIR` to use another.
 
 ## Editor support
 
