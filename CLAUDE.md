@@ -78,7 +78,10 @@ which moved `entries[]` from offset 16 to 24, while a duplicate `XenithDbMap`
 kept the old layout. Rows were written through one definition and read through
 the other. It compiled clean and corrupted memory — 29 tests failed with no type
 error. Never keep a parallel copy of one of these structs; share the single
-definition.
+definition. The same goes for arrays codegen builds on the stack for the
+runtime: model field kinds were stored eight bytes apart for a C parameter
+declared `const int8_t *`, so every field after the first read stray stack
+bytes. Match the element width to the C declaration.
 
 **Values lower to a fixed number of lanes.** A `string` is two lanes (pointer,
 length); `bytes` is *one* (a pointer to a length-carrying object). Reading a
@@ -129,13 +132,23 @@ by name. A `std::*` export with one of those names must be checked for, as
 function.
 
 **Errors are a pending flag, not an unwind.** A raise sets the flag and
-returns normally. Inside a `try` body, `lower_branch` checks the flag after
-every statement and jumps to the catch (`TRY_TARGETS` in `codegen.rs`).
-Outside one, nothing checks until a `return`, which aborts the program. So a
-`try` catches only errors raised directly in its own body: a raise inside a
-Xenith function it calls aborts at that function's `return`, and statements
-after an uncaught raise still run until then. Making errors propagate out of
-calls is the open design question.
+returns normally. Codegen checks the flag after every statement and right after
+every call into generated code (`emit_error_check` in `codegen.rs`). Inside a
+`try` body the check jumps to the catch (`TRY_TARGETS`); otherwise the function
+releases its bindings and returns at once with the flag still set, and `main`
+ends the program. Two consequences to keep in mind:
+
+- A function that returns early leaves zeros in its result. Anything in the C
+  runtime that calls back into generated code must check
+  `xenith_error_pending()` before trusting what came back, as the collection
+  helpers do.
+- HTTP handlers are the exception: `xenith_http_after_handler` ends the process
+  on any error that is not a database error, which is what handlers did before
+  errors could propagate. Turning those into 500 responses is an open decision.
+- A catch takes ownership of the error's message (`xenith_error_catch`, then
+  `xenith_error_forget`). Never call `xenith_error_clear` while a catch binding
+  may still read it: clearing frees the message, which is how `error.message`
+  printed garbage until 2026-11-20.
 
 **Verify documentation examples by compiling them.** Two README examples did not
 build — one used tuple destructuring, which the native backend rejects outright.
@@ -166,8 +179,8 @@ Test results by host:
 
 | Host | Passing | Notes |
 |---|---|---|
-| macOS, Apple silicon | 545 | Needs Homebrew OpenSSL (`brew install openssl`) or `OPENSSL_DIR` |
-| Linux arm64, Debian 12 | 546 | Includes the Linux-only legacy `$6$` password test |
+| macOS, Apple silicon | 552 | Needs Homebrew OpenSSL (`brew install openssl`) or `OPENSSL_DIR` |
+| Linux arm64, Debian 12 | 553 | Includes the Linux-only legacy `$6$` password test |
 | Linux x86-64, Debian 12 | 536 of 540 | Before the `try` fix, under qemu emulation. The 4 failures were `cc` crashing or failing to link under the emulator, not assertions; rerun on real hardware to confirm |
 
 To run the Linux suite from a Mac, use a `rust:1-bookworm` container with
@@ -183,12 +196,15 @@ PBKDF2-SHA256 and session cookies sign with HMAC-SHA256, both from libcrypto.
 
 Known open issues, none of them fixed yet:
 
-- A `try` cannot catch an error raised inside a function it calls (see the
-  hazard above).
 - `xenith_http_response_close` frees its struct, so a double close is a
   use-after-free.
 - The pooled and streaming HTTP clients run `strstr` over receive buffers;
   check each is NUL-terminated. Header names are matched case-sensitively.
 - Parsing and checking recurse on the caller's stack at about 10 KB a level.
+- Codegen's call lowering matches about 160 builtin and `std` export names
+  (`load_config`, `required_config`, ...) before it looks for a program
+  function of that name, and only 10 of those checks defer to the program. A
+  user function named like one of the rest type-checks as the user's function
+  but compiles as the builtin, failing in the Cranelift verifier or worse.
 
 The README's "major work still ahead" section lists what remains beyond that.
