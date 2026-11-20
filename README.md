@@ -360,19 +360,30 @@ function checksum() -> i32 {
 ## Error handling
 
 Expected failures use `try`/`catch`. Xenith does not require Rust-style
-`Option<T>` or `Result<T>` values for ordinary error handling.
+`Option<T>` or `Result<T>` values for ordinary error handling. An error raised
+anywhere below a `try`, including inside functions it calls, skips the rest of
+each function on the way and lands in the nearest `catch`. An error that no
+`catch` handles ends the program with its diagnostic.
 
 ```xenith
-function load_config(path: string) -> string {
+grab { read } from "std::fs"
+
+function read_settings(path: string) -> string {
+    let result: tuple<string, string> = read(path)
+    if (len(result[1]) > 0) {
+        panic(result[1])
+    }
+    return result[0]
+}
+
+function main() -> i32 {
     try {
-        let (contents, error) = fs_read(path)
-        if (error != "") {
-            panic(error)
-        }
-        return contents
+        let settings: string = read_settings("settings.conf")
+        echo(settings)
+        return 0
     } catch (error) {
         echo(error.message)
-        return ""
+        return 1
     }
 }
 ```
@@ -703,9 +714,6 @@ The major work still ahead includes:
 - Windows support. The test suite passes on Linux arm64 and on macOS on Apple
   silicon. Linux x86-64 has only been checked under emulation, and Intel Macs
   are untested.
-- Error propagation across calls. A `try` catches errors raised directly in
-  its body; an error raised inside a Xenith function it calls ends the program
-  when that function returns.
 - FFI safety, optimization modes, and release-build hardening.
 
 ## Installing
