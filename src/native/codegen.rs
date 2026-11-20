@@ -3001,8 +3001,11 @@ fn lower(
                             Type::Bytes => 5,
                             _ => 0,
                         };
+                        // xenith_db_hydrate_rows takes kinds as an int8_t
+                        // array, so they are one byte apart, unlike the
+                        // eight-byte keys, lengths and offsets around them.
                         let kind_value = b.ins().iconst(types::I8, kind);
-                        let kind_slot = b.ins().stack_addr(types::I64, kinds, base);
+                        let kind_slot = b.ins().stack_addr(types::I64, kinds, index as i32);
                         b.ins().store(MemFlags::new(), kind_value, kind_slot, 0);
                         let mut offset = 0u32;
                         for (_, previous) in fields.iter().take(index) {
