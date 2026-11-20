@@ -1,9 +1,8 @@
 use std::fs;
 use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream};
+use std::net::TcpListener;
 use std::process::Command;
-use std::thread;
-use std::time::Duration;
+mod common;
 
 fn compile(source: &str, directory: &tempfile::TempDir) -> std::path::PathBuf {
     let main = directory.path().join("main.xen");
@@ -41,9 +40,8 @@ function main() -> i32 {{
 "#);
     let executable = compile(&source, &directory);
     let mut child = Command::new(&executable).spawn().unwrap();
-    thread::sleep(Duration::from_millis(100));
     for _ in 0..2 {
-        let mut client = TcpStream::connect(("127.0.0.1", port)).unwrap();
+        let mut client = common::connect_when_ready(port);
         client.write_all(b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n").unwrap();
         let mut response = Vec::new();
         client.read_to_end(&mut response).unwrap();
@@ -102,8 +100,7 @@ function main() -> i32 {{
 "#);
     let executable = compile(&source, &directory);
     let mut child = Command::new(&executable).spawn().unwrap();
-    thread::sleep(Duration::from_millis(100));
-    let mut client = TcpStream::connect(("127.0.0.1", port)).unwrap();
+    let mut client = common::connect_when_ready(port);
     client.write_all(b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n").unwrap();
     let mut response = Vec::new();
     client.read_to_end(&mut response).unwrap();

@@ -6,6 +6,8 @@ use std::{
     thread,
     time::Duration,
 };
+mod common;
+
 use xenith::native::http::{parse_request, HttpError, Response, Server};
 
 #[test]
@@ -169,8 +171,7 @@ function main() -> i32 {{
     xenith::native::codegen::emit_object(&typed, &object).unwrap();
     xenith::native::codegen::link_host(&object, &executable).unwrap();
     let mut child = Command::new(&executable).spawn().unwrap();
-    thread::sleep(Duration::from_millis(100));
-    let mut client = TcpStream::connect(("127.0.0.1", port)).unwrap();
+    let mut client = common::connect_when_ready(port);
     client
         .write_all(b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")
         .unwrap();
@@ -321,8 +322,7 @@ function main() -> i32 {{
     xenith::native::codegen::emit_object(&typed, &object).unwrap();
     xenith::native::codegen::link_host(&object, &executable).unwrap();
     let mut child = Command::new(&executable).spawn().unwrap();
-    thread::sleep(Duration::from_millis(100));
-    let mut client = TcpStream::connect(("127.0.0.1", port)).unwrap();
+    let mut client = common::connect_when_ready(port);
     client
         .write_all(b"GET /health HTTP/1.1\r\nHost: localhost\r\n\r\n")
         .unwrap();
@@ -482,8 +482,7 @@ function main() -> i32 {{
     xenith::native::codegen::emit_object(&typed, &object).unwrap();
     xenith::native::codegen::link_host(&object, &executable).unwrap();
     let mut child = Command::new(&executable).spawn().unwrap();
-    thread::sleep(Duration::from_millis(100));
-    let mut client = TcpStream::connect(("127.0.0.1", port)).unwrap();
+    let mut client = common::connect_when_ready(port);
     client
         .write_all(
             b"POST /users HTTP/1.1\r\nContent-Length: 22\r\n\r\n{\"name\":\"Ada\",\"age\":42}",
@@ -612,9 +611,8 @@ function main() -> i32 {{
     xenith::native::codegen::emit_object(&typed, &object).unwrap();
     xenith::native::codegen::link_host(&object, &executable).unwrap();
     let mut child = Command::new(&executable).spawn().unwrap();
-    thread::sleep(Duration::from_millis(100));
     for _ in 0..2 {
-        let mut client = TcpStream::connect(("127.0.0.1", port)).unwrap();
+        let mut client = common::connect_when_ready(port);
         client
             .write_all(b"GET /health HTTP/1.1\r\nHost: localhost\r\n\r\n")
             .unwrap();
@@ -668,24 +666,31 @@ function main() -> i32 {{
     xenith::native::codegen::emit_object(&typed, &object).unwrap();
     xenith::native::codegen::link_host(&object, &executable).unwrap();
     let mut child = Command::new(&executable).spawn().unwrap();
-    thread::sleep(Duration::from_millis(200));
     let clients: Vec<_> = (0..2)
         .map(|_| {
             thread::spawn(move || {
-                let mut client = Command::new("openssl")
-                    .args(["s_client", "-connect", &format!("127.0.0.1:{port}"), "-quiet"])
-                    .stdin(Stdio::piped())
-                    .stdout(Stdio::piped())
-                    .stderr(Stdio::null())
-                    .spawn()
-                    .unwrap();
-                client
-                    .stdin
-                    .take()
-                    .unwrap()
-                    .write_all(b"GET /health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
-                    .unwrap();
-                client.wait_with_output().unwrap()
+                // s_client exits non-zero at once when the connection is
+                // refused, so retry it while the server is still starting.
+                let deadline = std::time::Instant::now() + common::STARTUP_DEADLINE;
+                loop {
+                    let mut client = Command::new("openssl")
+                        .args(["s_client", "-connect", &format!("127.0.0.1:{port}"), "-quiet"])
+                        .stdin(Stdio::piped())
+                        .stdout(Stdio::piped())
+                        .stderr(Stdio::null())
+                        .spawn()
+                        .unwrap();
+                    let _ = client
+                        .stdin
+                        .take()
+                        .unwrap()
+                        .write_all(b"GET /health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n");
+                    let output = client.wait_with_output().unwrap();
+                    if output.status.success() || std::time::Instant::now() >= deadline {
+                        return output;
+                    }
+                    thread::sleep(Duration::from_millis(50));
+                }
             })
         })
         .collect();
@@ -729,8 +734,7 @@ function main() -> i32 {{
     xenith::native::codegen::emit_object(&typed, &object).unwrap();
     xenith::native::codegen::link_host(&object, &executable).unwrap();
     let mut child = Command::new(&executable).spawn().unwrap();
-    thread::sleep(Duration::from_millis(100));
-    let mut client = TcpStream::connect(("127.0.0.1", port)).unwrap();
+    let mut client = common::connect_when_ready(port);
     client
         .write_all(b"GET /health HTTP/1.1\r\nHost: localhost\r\n\r\n")
         .unwrap();
@@ -774,9 +778,8 @@ function main() -> i32 {{
     xenith::native::codegen::emit_object(&typed, &object).unwrap();
     xenith::native::codegen::link_host(&object, &executable).unwrap();
     let mut child = Command::new(&executable).spawn().unwrap();
-    thread::sleep(Duration::from_millis(100));
     for _ in 0..2 {
-        let mut client = TcpStream::connect(("127.0.0.1", port)).unwrap();
+        let mut client = common::connect_when_ready(port);
         client
             .write_all(b"GET /health HTTP/1.1\r\nHost: localhost\r\n\r\n")
             .unwrap();
