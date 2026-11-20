@@ -1290,3 +1290,20 @@ fn native_classic_for_rejects_a_non_assignment_step() {
         "for step must be an assignment",
     );
 }
+
+#[test]
+fn unary_operators_apply_after_indexing() {
+    // `!flags[0]` is `!(flags[0])` and `-values[1]` is `-(values[1])`. The
+    // parser used to negate the bare collection and index the result, so a
+    // perfectly typed `!found[1]` failed with "`!` requires bool".
+    let artifact = build_source(
+        "fn main() -> i32 { \
+            let flags: list<bool> = [false, true] \
+            let values: list<i32> = [3, 40] \
+            if (!flags[0]) { } else { return 1 } \
+            if (!flags[1]) { return 2 } \
+            return 2 - -values[1] \
+        }",
+    );
+    assert_eq!(Command::new(&artifact.executable).status().unwrap().code(), Some(42));
+}
