@@ -140,3 +140,62 @@ function main() -> i32 {{
     assert!(!accepts(&tampered, "application-secret"));
     assert!(!accepts(&cookie, "application-secreT"), "the whole secret, not a prefix, must key the signature");
 }
+
+#[test]
+fn auth_hashes_passwords_with_pbkdf2_sha256() {
+    let directory = tempfile::tempdir().unwrap();
+    let executable = compile(r#"
+grab { hash_password } from "std::auth"
+function main() -> i32 {
+    let encoded: string = hash_password("correct horse battery staple")
+    echo(encoded)
+    return 0
+}
+"#, &directory);
+    let output = Command::new(executable).output().unwrap();
+    assert!(output.status.success());
+    let encoded = String::from_utf8(output.stdout).unwrap().trim_end().to_string();
+    let fields: Vec<&str> = encoded.split('$').collect();
+    assert_eq!(fields[..3], ["", "pbkdf2-sha256", "600000"], "unexpected hash format: {encoded}");
+    assert_eq!(fields[3].len(), 32, "16-byte salt in hex");
+    assert_eq!(fields[4].len(), 64, "32-byte derived key in hex");
+}
+
+#[test]
+fn auth_verifies_an_independently_computed_pbkdf2_hash() {
+    // Computed with Python's hashlib.pbkdf2_hmac, so this checks the encoding
+    // and the derivation against another implementation, not against itself.
+    let directory = tempfile::tempdir().unwrap();
+    let executable = compile(r#"
+grab { verify_password } from "std::auth"
+function main() -> i32 {
+    let encoded: string = "$pbkdf2-sha256$1000$000102030405060708090a0b0c0d0e0f$a69b179e3add3c1e0aaf227a0eb3aa2aa8645ab86fecf6ca00c17512697c719e"
+    if (!verify_password("correct horse battery staple", encoded)) { return 10 }
+    if (verify_password("correct horse battery stapler", encoded)) { return 20 }
+    let weakened: string = "$pbkdf2-sha256$999$000102030405060708090a0b0c0d0e0f$a69b179e3add3c1e0aaf227a0eb3aa2aa8645ab86fecf6ca00c17512697c719e"
+    if (verify_password("correct horse battery staple", weakened)) { return 30 }
+    let truncated: string = "$pbkdf2-sha256$1000$000102030405060708090a0b0c0d0e0f$a69b179e"
+    if (verify_password("correct horse battery staple", truncated)) { return 40 }
+    return 0
+}
+"#, &directory);
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(0));
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn auth_still_verifies_legacy_sha512_crypt_hashes_on_linux() {
+    // Produced by `openssl passwd -6`, the format hash_password wrote before
+    // it moved to PBKDF2. Stored hashes must keep working after the upgrade.
+    let directory = tempfile::tempdir().unwrap();
+    let executable = compile(r#"
+grab { verify_password } from "std::auth"
+function main() -> i32 {
+    let encoded: string = "$6$xenithsaltvalue$1VHQeatIa43SI.lniulIHy3Jf3px0rZYH9fZcepOgq8gISSfNAHIkrYF2WMtbahncAHFUCXXZNZgTGhVxxw5L1"
+    if (!verify_password("correct horse battery staple", encoded)) { return 10 }
+    if (verify_password("wrong", encoded)) { return 20 }
+    return 0
+}
+"#, &directory);
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(0));
+}
