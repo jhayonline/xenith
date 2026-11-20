@@ -3169,7 +3169,9 @@ fn expr(
                 }
                 errors.push(Diagnostic { message: "reduce expects a typed list, accumulator, and callback".into(), span: None }); return None;
             }
-            if name == "append" {
+            // A program function of the same name, such as std::fs append,
+            // takes precedence over the intrinsic, as it does in codegen.
+            if name == "append" && !signatures.contains_key(name) {
                 if arguments.len() != 2 {
                     errors.push(Diagnostic {
                         message: "append expects a list and one value".into(),
@@ -3199,7 +3201,7 @@ fn expr(
                     }
                 }
             } else {
-                if name == "remove" {
+                if name == "remove" && !signatures.contains_key(name) {
                     if arguments.len() != 2 {
                         errors.push(Diagnostic {
                             message: "remove expects a map and a string key".into(),
