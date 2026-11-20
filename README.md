@@ -651,12 +651,19 @@ Implemented native compiler capabilities include:
   unique constraints, and indexes applied by migrations.
 - Bounded native database pools with checked-out handles, safe release, and
   recoverable exhaustion errors.
-- TCP listeners and outbound connections with socket timeouts, local and peer
-  address lookup, and recoverable read and write failures.
+- TCP listeners and outbound connections over IPv4, IPv6, and resolved host
+  names, with socket timeouts, local and peer address lookup, and recoverable
+  read and write failures.
 - HTTP servers with routing, path parameters, query and header access, cookies,
   middleware, CSRF and role guards, JSON body validation, and request-scoped
   database transactions.
 - Thread-pooled HTTP workers, bounded request loops, and listener shutdown.
+- An HTTP client with bounded, endpoint-keyed keep-alive pools and explicit
+  pool shutdown.
+- TLS through the system OpenSSL for HTTPS servers, clients, and pools, linked
+  weakly so a build without OpenSSL still runs everything else.
+- Streaming HTTP responses with chunked framing, headers, and trailers, over
+  plain and TLS connections.
 - Password hashing and verification, role grants, and CSRF tokens through
   native `std::auth`.
 - Source-aware diagnostics with codes, hints, function names, files, lines,
@@ -685,12 +692,14 @@ using a default.
 The major work still ahead includes:
 
 - Complete compiler-managed ARC/ORC insertion and cycle-safe weak references.
-- HTTP/2, connection pooling, and richer streaming APIs.
+- HTTP/2 and request-side streaming; responses stream today, bodies do not.
 - JSON, process, time, and serialization libraries.
 - Graphics, audio, input, and game-oriented runtime modules.
 - XML parsing and desktop UI tooling.
-- FFI safety, portability across operating systems, optimization modes, and
-  release-build hardening.
+- Portability beyond Linux. Linking is hardcoded for glibc, so builds assume
+  `crypt.h`, `crypt_r`, and `-lcrypt`, none of which exist on macOS. There is
+  no `target_os` handling anywhere yet.
+- FFI safety, optimization modes, and release-build hardening.
 
 ## Installing
 
