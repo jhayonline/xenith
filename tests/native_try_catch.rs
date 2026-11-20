@@ -1003,3 +1003,117 @@ fn errors_raised_in_a_catch_reach_the_enclosing_try() {
     }"#;
     assert_eq!(run_single_file(source), Some(42));
 }
+
+#[test]
+fn try_catches_an_error_raised_in_a_called_function() {
+    let source = r#"
+    fn lookup() -> string {
+        let value: string = config_required(0i64, "MISSING")
+        return value
+    }
+    fn main() -> i32 {
+        try {
+            let value: string = lookup()
+            return 1
+        } catch (error) {
+            if (error.code == "XEN300") { return 42 }
+            return 2
+        }
+    }"#;
+    assert_eq!(run_single_file(source), Some(42));
+}
+
+#[test]
+fn an_error_skips_the_rest_of_every_function_it_leaves() {
+    let source = r#"
+    fn inner() -> i32 {
+        panic("deep")
+        env_set("XENITH_AFTER_INNER", "ran")
+        return 1
+    }
+    fn middle() -> i32 {
+        let n: i32 = inner()
+        env_set("XENITH_AFTER_MIDDLE", "ran")
+        return n + 1
+    }
+    fn main() -> i32 {
+        try {
+            let n: i32 = middle()
+            return 1
+        } catch (error) {
+            let inner_ran = env_get("XENITH_AFTER_INNER")
+            let middle_ran = env_get("XENITH_AFTER_MIDDLE")
+            if (inner_ran[1]) { return 10 }
+            if (middle_ran[1]) { return 11 }
+            return 42
+        }
+    }"#;
+    assert_eq!(run_single_file(source), Some(42));
+}
+
+#[test]
+fn a_failed_call_inside_an_expression_never_uses_its_result() {
+    // numbers() and lookup() leave nothing valid in their results. Using
+    // either in the rest of the expression would dereference garbage.
+    let source = r#"
+    fn numbers() -> list<i32> {
+        panic("no list")
+        let values: list<i32> = [1, 2]
+        return values
+    }
+    fn lookup() -> string {
+        let value: string = config_required(0i64, "MISSING")
+        return value
+    }
+    fn main() -> i32 {
+        try {
+            if (len(numbers()) + len(lookup()) > 0) { return 1 }
+            return 2
+        } catch (error) {
+            return 42
+        }
+    }"#;
+    assert_eq!(run_single_file(source), Some(42));
+}
+
+#[test]
+fn a_callback_that_raises_is_caught_by_the_callers_try() {
+    let source = r#"fn main() -> i32 {
+        let values: list<i32> = [1, 2, 3]
+        try {
+            let halved = map(values, fn(x: i32) -> i32 => x / (x - x))
+            return 1
+        } catch (error) {
+            return 42
+        }
+    }"#;
+    assert_eq!(run_single_file(source), Some(42));
+}
+
+#[test]
+fn an_uncaught_error_from_a_called_function_ends_the_program_at_once() {
+    let source = r#"
+    fn lookup() -> string {
+        let value: string = config_required(0i64, "MISSING")
+        echo("lookup continued")
+        return value
+    }
+    fn main() -> i32 {
+        let value: string = lookup()
+        echo("main continued")
+        return 0
+    }"#;
+    let program = parse(Path::new("main.xen"), source).unwrap();
+    let typed = check(&program).unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let object = directory.path().join("main.o");
+    let executable = directory.path().join("main");
+    emit_object(&typed, &object).unwrap();
+    link_host(&object, &executable).unwrap();
+    let output = Command::new(executable).output().unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_ne!(output.status.code(), Some(0));
+    assert!(stdout.is_empty(), "statements ran after the error: {stdout}");
+    assert!(stderr.contains("XEN300") && stderr.contains("lookup"), "{stderr}");
+}

@@ -191,7 +191,8 @@ function main() -> i32 {
         let server: i64 = secure_server("127.0.0.1:0", "/missing/cert.pem", "/missing/key.pem", 65536i64, 1000i64, 1000i64, 8i64)
         return 1
     } catch (error) {
-        return 0
+        if (error.code == "XEN300") { return 0 }
+        return 2
     }
 }
 "#;
@@ -203,7 +204,9 @@ function main() -> i32 {
     let executable = directory.path().join("main");
     xenith::native::codegen::emit_object(&typed, &object).unwrap();
     xenith::native::codegen::link_host(&object, &executable).unwrap();
-    assert_eq!(Command::new(executable).status().unwrap().code(), Some(1));
+    // The error is raised inside the std::http wrapper and caught here. Exit
+    // code 1 used to pass only because the wrapper aborted the process.
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(0));
 }
 
 #[test]
