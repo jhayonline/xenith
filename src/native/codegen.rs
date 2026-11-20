@@ -414,6 +414,7 @@ fn emit(
     let mut bc = FunctionBuilderContext::new();
     {
         let mut b = FunctionBuilder::new(&mut c.func, &mut bc);
+        debug_assert!(!inside_try(), "a try target leaked out of the previous function");
         let block = b.create_block();
         b.append_block_params_for_function_params(block);
         b.switch_to_block(block);
@@ -669,7 +670,7 @@ fn emit(
                     binding,
                     catch_body,
                 } => {
-                    let _ = lower_try_catch(
+                    let flow = lower_try_catch(
                         &mut b,
                         body,
                         binding,
@@ -680,7 +681,11 @@ fn emit(
                         l,
                         return_area,
                         &mut loops,
+                        &HashSet::new(),
                     );
+                    if flow != LowerFlow::FallsThrough {
+                        break;
+                    }
                 }
                 Stmt::Return(v) => {
                     emit_return_and_release(&mut b, v, &vals, ids, m, l, return_area);
@@ -1202,6 +1207,153 @@ fn emit_panic(
     );
 }
 
+/// Where control goes when a statement inside a `try` body leaves an error
+/// pending. Errors are a flag in the runtime, not an unwind, so the body has to
+/// check for one after every statement and leave by hand.
+struct TryTarget {
+    catch: Block,
+    /// Bindings from outside the `try` that the body assigns. The catch block
+    /// takes their values at the point of the raise as block parameters.
+    names: Vec<String>,
+    /// Bindings in scope at the `try`. Anything else in `values` at a check
+    /// point was declared inside the body and is released on the way out.
+    keep: HashSet<String>,
+}
+
+thread_local! {
+    /// Innermost last. Pushed while a `try` body is lowered and popped before
+    /// its catch body, so an error raised in a catch reaches the enclosing
+    /// `try`. Functions are lowered one at a time, and every push is matched
+    /// by a pop in the same function, so it is empty between functions.
+    static TRY_TARGETS: std::cell::RefCell<Vec<TryTarget>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+fn inside_try() -> bool {
+    TRY_TARGETS.with(|targets| !targets.borrow().is_empty())
+}
+
+/// Inside a `try` body, branch to the innermost catch when an error is
+/// pending. `in_flight` holds lanes the current statement owns that are not in
+/// `values` yet, such as a retained return value, and are released too.
+fn emit_try_check(
+    b: &mut FunctionBuilder,
+    values: &Values,
+    in_flight: Option<(&[Value], &Type)>,
+    m: &mut ObjectModule,
+    layouts: &HashMap<String, StructLayout>,
+) {
+    let Some((catch, names, keep)) = TRY_TARGETS.with(|targets| {
+        targets
+            .borrow()
+            .last()
+            .map(|target| (target.catch, target.names.clone(), target.keep.clone()))
+    }) else {
+        return;
+    };
+    let pending = runtime_call(
+        b,
+        m,
+        "xenith_error_pending",
+        vec![],
+        vec![AbiParam::new(types::I8)],
+        &[],
+    )[0];
+    let raised = b.create_block();
+    let next = b.create_block();
+    b.ins().brif(pending, raised, &[], next, &[]);
+    b.switch_to_block(raised);
+    b.seal_block(raised);
+    if let Some((lanes, ty)) = in_flight {
+        emit_release_one_with_layouts(b, lanes, ty, m, layouts);
+    }
+    emit_release_extras_with_layouts(b, values, &keep, m, layouts);
+    let args: Vec<Value> = names
+        .iter()
+        .flat_map(|name| values[name].0.iter().copied())
+        .collect();
+    b.ins().jump(catch, &args);
+    b.switch_to_block(next);
+    b.seal_block(next);
+}
+
+/// A `return` inside a `try` body: an error raised while evaluating the
+/// returned expression goes to the catch rather than aborting the program.
+fn emit_return_in_try(
+    b: &mut FunctionBuilder,
+    expression: &Expr,
+    values: &Values,
+    ids: &HashMap<String, (FuncId, Type)>,
+    m: &mut ObjectModule,
+    layouts: &HashMap<String, StructLayout>,
+    return_area: Option<Value>,
+) {
+    let (returned, ty) = lower(b, expression, values, ids, m, layouts);
+    emit_retain_borrowed_with_layouts(b, expression, &returned, &ty, m, layouts);
+    emit_try_check(b, values, Some((&returned, &ty)), m, layouts);
+    emit_release_values(b, values, m, layouts);
+    if let Some(area) = return_area {
+        for (value, (_, offset)) in returned
+            .into_iter()
+            .zip(return_layout(&ty, layouts).1.into_iter())
+        {
+            b.ins().store(MemFlags::new(), value, area, offset);
+        }
+        b.ins().return_(&[]);
+    } else {
+        b.ins().return_(&returned);
+    }
+}
+
+/// The lanes of the `Error` value a catch binds, read from the runtime's
+/// pending error.
+fn emit_error_lanes(b: &mut FunctionBuilder, m: &mut ObjectModule) -> Vec<Value> {
+    let mut lanes = Vec::new();
+    for field in [
+        ("xenith_error_message", "xenith_error_message_len"),
+        ("xenith_error_code", "xenith_error_code_len"),
+        ("xenith_error_name", "xenith_error_name_len"),
+        ("xenith_error_hint", "xenith_error_hint_len"),
+        ("xenith_error_function", "xenith_error_function_len"),
+    ] {
+        lanes.push(runtime_call(b, m, field.0, vec![], vec![AbiParam::new(types::I64)], &[])[0]);
+        lanes.push(runtime_call(b, m, field.1, vec![], vec![AbiParam::new(types::I64)], &[])[0]);
+    }
+    for field in [
+        "xenith_error_offset_value",
+        "xenith_error_line_value",
+        "xenith_error_column_value",
+        "xenith_error_file",
+        "xenith_error_file_len",
+    ] {
+        lanes.push(runtime_call(b, m, field, vec![], vec![AbiParam::new(types::I64)], &[])[0]);
+    }
+    lanes
+}
+
+fn append_params_for(
+    b: &mut FunctionBuilder,
+    block: Block,
+    names: &[String],
+    values: &Values,
+    layouts: &HashMap<String, StructLayout>,
+) {
+    for name in names {
+        for ty in flat(&values[name].1, layouts) {
+            b.append_block_param(block, ty);
+        }
+    }
+}
+
+fn bind_params(block_values: &[Value], names: &[String], values: &mut Values) {
+    let mut offset = 0;
+    for name in names {
+        let count = values[name].0.len();
+        let ty = values[name].1.clone();
+        values.insert(name.clone(), (block_values[offset..offset + count].to_vec(), ty));
+        offset += count;
+    }
+}
+
 fn lower_try_catch(
     b: &mut FunctionBuilder,
     body: &[Stmt],
@@ -1213,232 +1365,75 @@ fn lower_try_catch(
     layouts: &HashMap<String, StructLayout>,
     return_area: Option<Value>,
     loops: &mut Vec<LoopTarget>,
+    inherited_shadows: &HashSet<String>,
 ) -> LowerFlow {
-    if let Some(Stmt::Return(expression)) = body.last() {
-        let prefix = &body[..body.len() - 1];
-        let prefix_flow = lower_branch(
-            b,
-            prefix,
-            values,
-            ids,
-            m,
-            layouts,
-            return_area,
-            loops,
-            &mut HashSet::new(),
-        );
-        if prefix_flow != LowerFlow::FallsThrough {
-            return prefix_flow;
-        }
-        let (returned, return_type) = lower(b, expression, values, ids, m, layouts);
-        let catch_block = b.create_block();
-        let success_block = b.create_block();
-        let pending = runtime_call(
-            b,
-            m,
-            "xenith_error_pending",
-            vec![],
-            vec![AbiParam::new(types::I8)],
-            &[],
-        )[0];
-        b.ins().brif(pending, catch_block, &[], success_block, &[]);
-        b.switch_to_block(success_block);
-        b.seal_block(success_block);
-        emit_retain_borrowed_with_layouts(b, expression, &returned, &return_type, m, layouts);
-        emit_release_values(b, values, m, layouts);
-        let _ = runtime_call(b, m, "xenith_error_abort_if_pending", vec![], vec![], &[]);
-        if let Some(area) = return_area {
-            for (value, (_, offset)) in returned
-                .into_iter()
-                .zip(return_layout(&return_type, layouts).1.into_iter())
-            {
-                b.ins().store(MemFlags::new(), value, area, offset);
+    let body_names = assigned_names(body, values);
+    let merge_names = body_names
+        .iter()
+        .cloned()
+        .chain(assigned_names(catch_body, values))
+        .fold(Vec::new(), |mut names, name| {
+            if !names.contains(&name) {
+                names.push(name);
             }
-            b.ins().return_(&[]);
-        } else {
-            b.ins().return_(&returned);
-        }
-        b.switch_to_block(catch_block);
-        b.seal_block(catch_block);
-        let mut catch_values = values.clone();
-        let mut error_lanes = Vec::new();
-        for field in [
-            ("xenith_error_message", "xenith_error_message_len"),
-            ("xenith_error_code", "xenith_error_code_len"),
-            ("xenith_error_name", "xenith_error_name_len"),
-            ("xenith_error_hint", "xenith_error_hint_len"),
-            ("xenith_error_function", "xenith_error_function_len"),
-        ] {
-            error_lanes
-                .push(runtime_call(b, m, field.0, vec![], vec![AbiParam::new(types::I64)], &[])[0]);
-            error_lanes
-                .push(runtime_call(b, m, field.1, vec![], vec![AbiParam::new(types::I64)], &[])[0]);
-        }
-        error_lanes.push(
-            runtime_call(
-                b,
-                m,
-                "xenith_error_offset_value",
-                vec![],
-                vec![AbiParam::new(types::I64)],
-                &[],
-            )[0],
-        );
-        error_lanes.push(
-            runtime_call(
-                b,
-                m,
-                "xenith_error_line_value",
-                vec![],
-                vec![AbiParam::new(types::I64)],
-                &[],
-            )[0],
-        );
-        error_lanes.push(
-            runtime_call(
-                b,
-                m,
-                "xenith_error_column_value",
-                vec![],
-                vec![AbiParam::new(types::I64)],
-                &[],
-            )[0],
-        );
-        error_lanes.push(
-            runtime_call(
-                b,
-                m,
-                "xenith_error_file",
-                vec![],
-                vec![AbiParam::new(types::I64)],
-                &[],
-            )[0],
-        );
-        error_lanes.push(
-            runtime_call(
-                b,
-                m,
-                "xenith_error_file_len",
-                vec![],
-                vec![AbiParam::new(types::I64)],
-                &[],
-            )[0],
-        );
-        catch_values.insert(
-            binding.to_string(),
-            (error_lanes, Type::Named("Error".into())),
-        );
-        let _ = runtime_call(b, m, "xenith_error_clear", vec![], vec![], &[]);
-        return lower_branch(
-            b,
-            catch_body,
-            &mut catch_values,
-            ids,
-            m,
-            layouts,
-            return_area,
-            loops,
-            &mut HashSet::new(),
-        );
-    }
+            names
+        });
+    let catch_block = b.create_block();
+    append_params_for(b, catch_block, &body_names, values, layouts);
+    let merge = b.create_block();
+    append_params_for(b, merge, &merge_names, values, layouts);
+    let in_scope: HashSet<String> = values.keys().cloned().collect();
+    let keep_at_merge: HashSet<String> = in_scope.iter().cloned().chain(merge_names.iter().cloned()).collect();
+
+    // The body. lower_branch checks for a pending error after each statement,
+    // at every depth, and branches to catch_block when there is one.
+    TRY_TARGETS.with(|targets| {
+        targets.borrow_mut().push(TryTarget {
+            catch: catch_block,
+            names: body_names.clone(),
+            keep: in_scope.clone(),
+        })
+    });
+    let mut body_values = values.clone();
+    let mut body_loops = loops.clone();
+    let mut body_shadows = inherited_shadows.clone();
     let body_flow = lower_branch(
         b,
         body,
-        values,
+        &mut body_values,
         ids,
         m,
         layouts,
         return_area,
-        loops,
-        &mut HashSet::new(),
+        &mut body_loops,
+        &mut body_shadows,
     );
-    if body_flow != LowerFlow::FallsThrough {
-        return body_flow;
+    TRY_TARGETS.with(|targets| targets.borrow_mut().pop());
+    for (target, body_target) in loops.iter_mut().zip(body_loops) {
+        target.has_stop |= body_target.has_stop;
+    }
+    if body_flow == LowerFlow::FallsThrough {
+        // The check after the body's last statement ran, so nothing is pending.
+        emit_release_extras_with_layouts(b, &body_values, &keep_at_merge, m, layouts);
+        let args: Vec<Value> = merge_names
+            .iter()
+            .flat_map(|name| body_values[name].0.iter().copied())
+            .collect();
+        b.ins().jump(merge, &args);
     }
 
-    let catch_block = b.create_block();
-    let merge_block = b.create_block();
-    let pending = runtime_call(
-        b,
-        m,
-        "xenith_error_pending",
-        vec![],
-        vec![AbiParam::new(types::I8)],
-        &[],
-    )[0];
-    b.ins().brif(pending, catch_block, &[], merge_block, &[]);
-
+    // The catch. Every check point in the body has been emitted, so all of
+    // catch_block's predecessors are known.
     b.switch_to_block(catch_block);
     b.seal_block(catch_block);
     let mut catch_values = values.clone();
-    let mut error_lanes = Vec::new();
-    for field in [
-        ("xenith_error_message", "xenith_error_message_len"),
-        ("xenith_error_code", "xenith_error_code_len"),
-        ("xenith_error_name", "xenith_error_name_len"),
-        ("xenith_error_hint", "xenith_error_hint_len"),
-        ("xenith_error_function", "xenith_error_function_len"),
-    ] {
-        error_lanes
-            .push(runtime_call(b, m, field.0, vec![], vec![AbiParam::new(types::I64)], &[])[0]);
-        error_lanes
-            .push(runtime_call(b, m, field.1, vec![], vec![AbiParam::new(types::I64)], &[])[0]);
-    }
-    error_lanes.push(
-        runtime_call(
-            b,
-            m,
-            "xenith_error_offset_value",
-            vec![],
-            vec![AbiParam::new(types::I64)],
-            &[],
-        )[0],
-    );
-    error_lanes.push(
-        runtime_call(
-            b,
-            m,
-            "xenith_error_line_value",
-            vec![],
-            vec![AbiParam::new(types::I64)],
-            &[],
-        )[0],
-    );
-    error_lanes.push(
-        runtime_call(
-            b,
-            m,
-            "xenith_error_column_value",
-            vec![],
-            vec![AbiParam::new(types::I64)],
-            &[],
-        )[0],
-    );
-    error_lanes.push(
-        runtime_call(
-            b,
-            m,
-            "xenith_error_file",
-            vec![],
-            vec![AbiParam::new(types::I64)],
-            &[],
-        )[0],
-    );
-    error_lanes.push(
-        runtime_call(
-            b,
-            m,
-            "xenith_error_file_len",
-            vec![],
-            vec![AbiParam::new(types::I64)],
-            &[],
-        )[0],
-    );
-    catch_values.insert(
-        binding.to_string(),
-        (error_lanes, Type::Named("Error".into())),
-    );
+    let raised_at = b.block_params(catch_block).to_vec();
+    bind_params(&raised_at, &body_names, &mut catch_values);
+    let error_lanes = emit_error_lanes(b, m);
+    catch_values.insert(binding.to_string(), (error_lanes, Type::Named("Error".into())));
     let _ = runtime_call(b, m, "xenith_error_clear", vec![], vec![], &[]);
+    let mut catch_loops = loops.clone();
+    let mut catch_shadows = inherited_shadows.clone();
     let catch_flow = lower_branch(
         b,
         catch_body,
@@ -1447,16 +1442,38 @@ fn lower_try_catch(
         m,
         layouts,
         return_area,
-        loops,
-        &mut HashSet::new(),
+        &mut catch_loops,
+        &mut catch_shadows,
     );
+    for (target, catch_target) in loops.iter_mut().zip(catch_loops) {
+        target.has_stop |= catch_target.has_stop;
+    }
     if catch_flow == LowerFlow::FallsThrough {
-        let _ = runtime_call(b, m, "xenith_error_clear", vec![], vec![], &[]);
-        b.ins().jump(merge_block, &[]);
+        // An error raised in the catch body stays pending for the enclosing
+        // `try`, or for the abort at the next return when there is none. The
+        // error binding's strings belong to the runtime and are not released.
+        let mut keep = keep_at_merge.clone();
+        keep.insert(binding.to_string());
+        emit_release_extras_with_layouts(b, &catch_values, &keep, m, layouts);
+        let args: Vec<Value> = merge_names
+            .iter()
+            .flat_map(|name| catch_values[name].0.iter().copied())
+            .collect();
+        b.ins().jump(merge, &args);
     }
 
-    b.switch_to_block(merge_block);
-    b.seal_block(merge_block);
+    b.switch_to_block(merge);
+    b.seal_block(merge);
+    if body_flow != LowerFlow::FallsThrough && catch_flow != LowerFlow::FallsThrough {
+        b.ins().trap(TrapCode::unwrap_user(1));
+        if body_flow == LowerFlow::Returns && catch_flow == LowerFlow::Returns {
+            return LowerFlow::Returns;
+        }
+        return LowerFlow::LoopJump;
+    }
+    let merged = b.block_params(merge).to_vec();
+    bind_params(&merged, &merge_names, values);
+    sync_loop_values(loops, values, inherited_shadows);
     LowerFlow::FallsThrough
 }
 
@@ -1538,6 +1555,7 @@ fn lower_branch(
                     layouts,
                     return_area,
                     loops,
+                    shadowed,
                 );
                 if flow != LowerFlow::FallsThrough {
                     return flow;
@@ -1612,7 +1630,11 @@ fn lower_branch(
                 }
             }
             Stmt::Return(value) => {
-                emit_return_and_release(b, value, values, ids, m, layouts, return_area);
+                if inside_try() {
+                    emit_return_in_try(b, value, values, ids, m, layouts, return_area);
+                } else {
+                    emit_return_and_release(b, value, values, ids, m, layouts, return_area);
+                }
                 return LowerFlow::Returns;
             }
             Stmt::While { condition, body } => {
@@ -1633,6 +1655,9 @@ fn lower_branch(
                     return flow;
                 }
             }
+        }
+        if inside_try() {
+            emit_try_check(b, values, None, m, layouts);
         }
     }
     LowerFlow::FallsThrough
