@@ -1117,3 +1117,38 @@ fn an_uncaught_error_from_a_called_function_ends_the_program_at_once() {
     assert!(stdout.is_empty(), "statements ran after the error: {stdout}");
     assert!(stderr.contains("XEN300") && stderr.contains("lookup"), "{stderr}");
 }
+
+#[test]
+fn a_catch_can_read_the_error_message() {
+    // The catch used to free the message before its body ran, so
+    // error.message pointed at freed memory and printed garbage.
+    let source = r#"
+    fn fail(reason: string) -> i32 {
+        panic(reason)
+        return 0
+    }
+    fn main() -> i32 {
+        try {
+            let n: i32 = fail("disk is full")
+            return 1
+        } catch (error) {
+            echo(error.message)
+        }
+        try {
+            panic("second failure")
+        } catch (error) {
+            echo(error.message)
+        }
+        return 0
+    }"#;
+    let program = parse(Path::new("main.xen"), source).unwrap();
+    let typed = check(&program).unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let object = directory.path().join("main.o");
+    let executable = directory.path().join("main");
+    emit_object(&typed, &object).unwrap();
+    link_host(&object, &executable).unwrap();
+    let output = Command::new(executable).output().unwrap();
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "disk is full\nsecond failure\n");
+}
