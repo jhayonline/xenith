@@ -117,3 +117,31 @@ function main() -> i32 {
 "#, &directory);
     assert_eq!(Command::new(executable).status().unwrap().code(), Some(0));
 }
+
+#[test]
+fn std_db_model_hydration_fills_every_field() {
+    // Each field's kind used to be written eight bytes apart while the runtime
+    // read them one byte apart, so only the first field was decoded. The rest
+    // came back zeroed, or raised when stray stack bytes looked like a kind.
+    let directory = tempfile::tempdir().unwrap();
+    let executable = compile(r#"
+grab { open, store, execute, close } from "std::db"
+struct Post { id: i64, user_id: i64, title: string, score: i32, published: bool }
+function main() -> i32 {
+    let database: i64 = open(":memory:")
+    execute(database, "CREATE TABLE posts (id INTEGER PRIMARY KEY, user_id INTEGER, title TEXT, score INTEGER, published INTEGER); INSERT INTO posts VALUES (1, 7, 'Welcome', 5, 1); INSERT INTO posts VALUES (2, 8, 'Other', 3, 0)")
+    let posts: i64 = store(database, "posts")
+    let mine: list<Post> = Post.related(posts, "user_id", 7i64)
+    close(database)
+    if (len(mine) != 1) { return 10 }
+    let post: Post = mine[0]
+    if (post.id != 1i64) { return 11 }
+    if (post.user_id != 7i64) { return 12 }
+    if (post.title == "Welcome") { } else { return 13 }
+    if (post.score != 5) { return 14 }
+    if (post.published) { } else { return 15 }
+    return 0
+}
+"#, &directory);
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(0));
+}
