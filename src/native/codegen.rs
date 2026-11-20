@@ -26,7 +26,27 @@ use std::{
 
 static STRING_ID: AtomicUsize = AtomicUsize::new(0);
 
+/// Stack for the code generation thread. Every nesting level of an expression
+/// is a recursive call into `lower`, one match several thousand lines long
+/// whose debug-build frame is around 100 KB, so the caller's stack is not a
+/// safe place for it: an 8 MB main thread overflowed on a 60-term condition and
+/// a 2 MB test thread on a 10-term one. The reservation is virtual; only the
+/// pages a compilation touches are ever committed.
+const CODEGEN_STACK_BYTES: usize = 256 * 1024 * 1024;
+
 pub fn emit_object(program: &TypedProgram, output: &Path) -> Result<(), NativeError> {
+    std::thread::scope(|scope| {
+        std::thread::Builder::new()
+            .name("xenith-codegen".into())
+            .stack_size(CODEGEN_STACK_BYTES)
+            .spawn_scoped(scope, || emit_object_on_this_thread(program, output))
+            .map_err(NativeError::io)?
+            .join()
+            .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+    })
+}
+
+fn emit_object_on_this_thread(program: &TypedProgram, output: &Path) -> Result<(), NativeError> {
     // Position-independent code: macOS refuses text relocations outright, and
     // Linux toolchains link position-independent executables by default.
     use cranelift_codegen::settings::Configurable;
