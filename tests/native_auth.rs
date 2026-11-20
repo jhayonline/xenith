@@ -93,3 +93,50 @@ function main() -> i32 {
 "#, &directory);
     assert_eq!(Command::new(executable).status().unwrap().code(), Some(0));
 }
+
+#[test]
+fn auth_session_cookies_are_hmac_signed_and_never_carry_the_secret() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("sessions.db");
+    let issue = compile(&format!(r#"
+grab {{ open, close }} from "std::db"
+grab {{ session_open, session_cookie_create }} from "std::auth"
+function main() -> i32 {{
+    let database: i64 = open("{}")
+    session_open(database)
+    let cookie: string = session_cookie_create(database, 7i64, 3600i64, "application-secret")
+    echo(cookie)
+    close(database)
+    return 0
+}}
+"#, database.display()), &directory);
+    let output = Command::new(issue).output().unwrap();
+    assert!(output.status.success());
+    let cookie = String::from_utf8(output.stdout).unwrap().trim_end().to_string();
+
+    let (token, signature) = cookie.split_once('.').unwrap();
+    assert_eq!(token.len(), 48);
+    assert_eq!(signature.len(), 64, "an HMAC-SHA256 signature is 64 hex digits");
+    assert!(signature.bytes().all(|byte| byte.is_ascii_hexdigit()));
+    assert!(!cookie.contains("application"), "the signing secret leaked into the cookie: {cookie}");
+
+    let last = signature.as_bytes()[63];
+    let tampered = format!("{}{}", &cookie[..cookie.len() - 1], if last == b'0' { '1' } else { '0' });
+    let accepts = |candidate: &str, secret: &str| {
+        let executable = compile(&format!(r#"
+grab {{ open, close }} from "std::db"
+grab {{ session_cookie_user }} from "std::auth"
+function main() -> i32 {{
+    let database: i64 = open("{}")
+    let user: i64 = session_cookie_user(database, "{candidate}", "{secret}")
+    close(database)
+    if (user == 7i64) {{ return 0 }}
+    return 1
+}}
+"#, database.display()), &directory);
+        Command::new(executable).status().unwrap().code() == Some(0)
+    };
+    assert!(accepts(&cookie, "application-secret"));
+    assert!(!accepts(&tampered, "application-secret"));
+    assert!(!accepts(&cookie, "application-secreT"), "the whole secret, not a prefix, must key the signature");
+}
