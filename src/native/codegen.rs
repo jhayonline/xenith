@@ -27,9 +27,16 @@ use std::{
 static STRING_ID: AtomicUsize = AtomicUsize::new(0);
 
 pub fn emit_object(program: &TypedProgram, output: &Path) -> Result<(), NativeError> {
+    // Position-independent code: macOS refuses text relocations outright, and
+    // Linux toolchains link position-independent executables by default.
+    use cranelift_codegen::settings::Configurable;
+    let mut flags = settings::builder();
+    flags
+        .set("is_pic", "true")
+        .map_err(|e| NativeError::not_implemented(e.to_string()))?;
     let isa = cranelift_native::builder()
         .map_err(|e| NativeError::not_implemented(e.to_string()))?
-        .finish(settings::Flags::new(settings::builder()))
+        .finish(settings::Flags::new(flags))
         .map_err(|e| NativeError::not_implemented(e.to_string()))?;
     let mut module = ObjectModule::new(
         ObjectBuilder::new(isa, "xenith", default_libcall_names())
