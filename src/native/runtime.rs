@@ -629,6 +629,13 @@ pub fn host_link_args() -> Vec<String> {
         args.push(format!("-I{}", prefix.join("include").display()));
         args.push(format!("-L{}", prefix.join("lib").display()));
     }
+    // The runtime references SQLite and OpenSSL only through weak symbols, and
+    // weak references do not make a library "needed". Debian and Ubuntu link
+    // with --as-needed by default, which then drops all three libraries and
+    // leaves every database, TLS and auth call reporting itself unavailable.
+    if cfg!(target_os = "linux") {
+        args.push("-Wl,--no-as-needed".into());
+    }
     args.push("-lsqlite3".into());
     // crypt_r is glibc's, and the runtime only uses it on Linux to verify
     // password hashes from before the move to PBKDF2.
